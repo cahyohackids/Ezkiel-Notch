@@ -3,6 +3,17 @@
 **A living notch for your Mac, made for [ezkielyna.store](https://ezkielyna.store).**
 Ezkiel the lion lives in your MacBook's notch: hover (or click) and it opens into a small workspace with Focus, Tasks, Notes, Capture, Music, Shelf, Water and Settings. Native SwiftUI + AppKit, macOS 13+, universal (Apple Silicon + Intel).
 
+<p align="center">
+  <img src="docs/screenshots/03-tab-Focus.png" width="49%" alt="Focus">
+  <img src="docs/screenshots/07-tab-Music.png" width="49%" alt="Music">
+  <img src="docs/screenshots/09-tab-Water.png" width="49%" alt="Water">
+  <img src="docs/screenshots/08-tab-Shelf.png" width="49%" alt="Shelf">
+  <img src="docs/screenshots/04-tab-Tasks.png" width="49%" alt="Tasks">
+  <img src="docs/screenshots/10-tab-Settings.png" width="49%" alt="Settings">
+</p>
+
+*Screenshots are taken automatically by CI on a macOS runner (`--self-test --snapshots`).*
+
 > Ezkiel Notch is the successor of IslandDesk 2.1. Opening it quits any running IslandDesk and imports its tasks, notes, clips, shelf and water log automatically.
 
 ## Download

@@ -116,10 +116,14 @@ private struct DropShape: Shape {
     func path(in r: CGRect) -> Path {
         var p = Path()
         let w = r.width, h = r.height
+        let radius = min(w / 2, h * 0.42)
+        let cy = h - radius // bottom of the round part touches the frame
         p.move(to: CGPoint(x: w / 2, y: 0))
-        p.addCurve(to: CGPoint(x: w, y: h * 0.64), control1: CGPoint(x: w * 0.62, y: h * 0.2), control2: CGPoint(x: w, y: h * 0.38))
-        p.addArc(center: CGPoint(x: w / 2, y: h * 0.64), radius: w / 2, startAngle: .degrees(0), endAngle: .degrees(180), clockwise: false)
-        p.addCurve(to: CGPoint(x: w / 2, y: 0), control1: CGPoint(x: 0, y: h * 0.38), control2: CGPoint(x: w * 0.38, y: h * 0.2))
+        p.addCurve(to: CGPoint(x: w / 2 + radius, y: cy),
+                   control1: CGPoint(x: w * 0.62, y: cy * 0.32), control2: CGPoint(x: w / 2 + radius, y: cy * 0.62))
+        p.addArc(center: CGPoint(x: w / 2, y: cy), radius: radius, startAngle: .degrees(0), endAngle: .degrees(180), clockwise: false)
+        p.addCurve(to: CGPoint(x: w / 2, y: 0),
+                   control1: CGPoint(x: w / 2 - radius, y: cy * 0.62), control2: CGPoint(x: w * 0.38, y: cy * 0.32))
         p.closeSubpath()
         return p
     }
