@@ -193,6 +193,17 @@ final class NotchWindowController {
 
     private func handleKey(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.keyCode == 53 { // Esc
+            model.collapse()
+            return true
+        }
+        if flags.isEmpty, !isEditingText {
+            switch event.keyCode {
+            case 123: model.selectNeighbor(-1); return true // ←
+            case 124: model.selectNeighbor(1); return true  // →
+            default: break
+            }
+        }
         guard flags.contains(.command), let chars = event.charactersIgnoringModifiers else { return false }
         if let n = Int(chars), (1...NotchTab.allCases.count).contains(n) {
             model.select(NotchTab.allCases[n - 1])

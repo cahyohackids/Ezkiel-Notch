@@ -36,14 +36,21 @@ jobs:
 
       - name: Self-test (drives the real panel)
         run: |
-          "dist/Ezkiel Notch.app/Contents/MacOS/EzkielNotch" --self-test &
+          "dist/Ezkiel Notch.app/Contents/MacOS/EzkielNotch" --self-test --snapshots "$PWD/snapshots" &
           PID=$!
-          for i in $(seq 1 90); do
+          for i in $(seq 1 150); do
             if ! kill -0 $PID 2>/dev/null; then break; fi
             sleep 1
           done
           if kill -0 $PID 2>/dev/null; then echo "self-test timed out"; kill $PID; exit 1; fi
           wait $PID
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: snapshots
+          path: snapshots/*.png
+          if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
         with:

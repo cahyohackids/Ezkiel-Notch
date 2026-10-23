@@ -9,6 +9,9 @@ enum SelfTest {
 
     static func run(model: AppModel, controller: NotchWindowController) {
         var steps: [(String, () -> Void)] = []
+        let args = ProcessInfo.processInfo.arguments
+        let snapshotDir = args.firstIndex(of: "--snapshots").flatMap { i in i + 1 < args.count ? args[i + 1] : nil }
+        if snapshotDir != nil { seedDemoData(model) }
 
         steps.append(("panel on screen", {
             check(controller.panel.isVisible, "panel is visible")
@@ -63,17 +66,62 @@ enum SelfTest {
             check(IconRenderer.statusImage().size.width > 0, "lion renders")
         }))
 
+        let interval = snapshotDir == nil ? 0.7 : 1.4
         for (i, step) in steps.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8 + Double(i) * 0.7) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8 + Double(i) * interval) {
                 print("▶︎ \(step.0)")
                 step.1()
             }
+            if let snapshotDir {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8 + Double(i) * interval + 1.0) {
+                    capture(controller.panel, name: String(format: "%02d-", i) + step.0.replacingOccurrences(of: " ", with: "-"), dir: snapshotDir)
+                }
+            }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5 + Double(steps.count) * 0.7) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5 + Double(steps.count) * interval) {
             print(failures.isEmpty ? "SELF-TEST PASSED" : "SELF-TEST FAILED: \(failures.count) check(s)")
             fflush(stdout)
             exit(failures.isEmpty ? 0 : 1)
         }
+    }
+
+    /// Real screenshot of the panel area (needs a GUI session, e.g. a CI macOS runner).
+    private static func capture(_ panel: NSPanel, name: String, dir: String) {
+        guard let main = NSScreen.screens.first else { return }
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let f = panel.frame
+        let rect = "\(Int(f.minX)),\(Int(main.frame.maxY - f.maxY)),\(Int(f.width)),\(Int(f.height))"
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        task.arguments = ["-x", "-R", rect, (dir as NSString).appendingPathComponent("\(name).png")]
+        try? task.run()
+        task.waitUntilExit()
+    }
+
+    private static func seedDemoData(_ model: AppModel) {
+        if model.data.tasks.isEmpty {
+            model.addTask("Upload new lion stickers to the store", due: Date().addingTimeInterval(3600))
+            model.addTask("Reply to customer chats", due: nil)
+            model.addTask("Check Ezkielyna API usage", due: nil)
+            if let id = model.data.tasks.last?.id { model.toggleTask(id) }
+        }
+        if model.data.clips.isEmpty {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString("https://ezkielyna.store/community/challenges", forType: .string)
+            model.captureClipboard()
+        }
+        if model.data.water.isEmpty {
+            let cal = Calendar.current
+            for back in 1...6 {
+                if let day = cal.date(byAdding: .day, value: -back, to: Date()) {
+                    model.data.water.append(WaterEntry(date: day, ml: [1800, 2200, 1500, 2400, 2000, 1200][back - 1]))
+                }
+            }
+            model.data.water.append(WaterEntry(date: Date(), ml: 1150))
+        }
+        model.addToShelf([URL(fileURLWithPath: "/System/Applications/Calculator.app"),
+                          URL(fileURLWithPath: "/System/Library/Desktop Pictures"),
+                          URL(fileURLWithPath: "/etc/hosts")])
     }
 
     private static func checkClicks(model: AppModel, controller: NotchWindowController, label: String) {
