@@ -1,0 +1,90 @@
+name: Build Ezkiel Notch
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Publish a GitHub Release with the DMG and ZIP"
+        type: boolean
+        default: false
+      screenshots:
+        description: "Commit fresh screenshots to docs/screenshots"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.4.app || true
+          swift --version
+          sw_vers
+
+      - name: Unit tests
+        run: swift test
+
+      - name: Build app, DMG and ZIP
+        run: ./scripts/build_app.sh
+
+      - name: Self-test (drives the real panel)
+        run: |
+          "dist/Ezkiel Notch.app/Contents/MacOS/EzkielNotch" --self-test --snapshots "$PWD/snapshots" &
+          PID=$!
+          for i in $(seq 1 150); do
+            if ! kill -0 $PID 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if kill -0 $PID 2>/dev/null; then echo "self-test timed out"; kill $PID; exit 1; fi
+          wait $PID
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: snapshots
+          path: snapshots/*.png
+          if-no-files-found: ignore
+
+      - name: Commit screenshots
+        if: github.event_name == 'workflow_dispatch' && inputs.screenshots
+        run: |
+          mkdir -p docs/screenshots
+          rm -f docs/screenshots/*.png
+          for f in snapshots/*.png; do sips -Z 1000 "$f" --out "docs/screenshots/$(basename "$f")" >/dev/null; done
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/screenshots
+          git commit -m "Update screenshots [skip ci]" || exit 0
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EzkielNotch-macOS
+          path: |
+            dist/*.dmg
+            dist/*.zip
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)
+          TAG="v$VERSION"
+          NOTES="Ezkiel Notch $VERSION — universal (Apple Silicon + Intel), macOS 13+. Ad-hoc signed: first launch via right-click → Open, or run: xattr -cr \"/Applications/Ezkiel Notch.app\""
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.dmg dist/*.zip --clobber
+          else
+            gh release create "$TAG" dist/*.dmg dist/*.zip --title "Ezkiel Notch $VERSION" --notes "$NOTES" --target "$GITHUB_SHA"
+          fi

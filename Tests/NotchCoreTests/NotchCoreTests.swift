@@ -1,0 +1,107 @@
+import XCTest
+@testable import NotchCore
+
+final class FocusClockTests: XCTestCase {
+    func testStartPauseResumeKeepsRemaining() {
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        var clock = FocusClock(minutes: 25)
+        XCTAssertEqual(clock.remaining(at: t0), 1500)
+
+        clock.start(at: t0)
+        XCTAssertTrue(clock.isRunning)
+        XCTAssertEqual(clock.remaining(at: t0.addingTimeInterval(60)), 1440, accuracy: 0.001)
+
+        clock.pause(at: t0.addingTimeInterval(100))
+        XCTAssertTrue(clock.isPaused)
+        // Time passing while paused must not count.
+        XCTAssertEqual(clock.remaining(at: t0.addingTimeInterval(5_000)), 1400, accuracy: 0.001)
+
+        clock.start(at: t0.addingTimeInterval(200))
+        XCTAssertEqual(clock.remaining(at: t0.addingTimeInterval(300)), 1300, accuracy: 0.001)
+    }
+
+    func testFinishFlipsToBreakAndBack() {
+        let t0 = Date(timeIntervalSince1970: 0)
+        var clock = FocusClock(minutes: 1)
+        clock.start(at: t0)
+        XCTAssertFalse(clock.isFinished(at: t0.addingTimeInterval(59)))
+        XCTAssertTrue(clock.isFinished(at: t0.addingTimeInterval(60)))
+        XCTAssertEqual(clock.progress(at: t0.addingTimeInterval(30)), 0.5, accuracy: 0.001)
+
+        XCTAssertEqual(clock.complete(focusMinutes: 25, breakMinutes: 5), .focus)
+        XCTAssertEqual(clock.mode, .rest)
+        XCTAssertEqual(clock.duration, 300)
+        XCTAssertEqual(clock.phase, .ready)
+
+        XCTAssertEqual(clock.complete(focusMinutes: 25, breakMinutes: 5), .rest)
+        XCTAssertEqual(clock.mode, .focus)
+        XCTAssertEqual(clock.duration, 1500)
+    }
+
+    func testFormat() {
+        XCTAssertEqual(FocusClock.format(2700), "45:00")
+        XCTAssertEqual(FocusClock.format(59.2), "01:00")
+        XCTAssertEqual(FocusClock.format(3725), "1:02:05")
+    }
+}
+
+final class WaterLogTests: XCTestCase {
+    private var calendar: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        return c
+    }()
+
+    func testTotalsAndStreak() {
+        let today = Date(timeIntervalSince1970: 1_700_000_000)
+        let yesterday = today.addingTimeInterval(-86_400)
+        let entries = [
+            WaterEntry(date: today, ml: 1000),
+            WaterEntry(date: today, ml: 1000),
+            WaterEntry(date: yesterday, ml: 2500)
+        ]
+        XCTAssertEqual(WaterLog.total(entries, on: today, calendar: calendar), 2000)
+        XCTAssertEqual(WaterLog.streak(entries, goal: 2000, today: today, calendar: calendar), 2)
+
+        let week = WaterLog.lastDays(7, entries: entries, today: today, calendar: calendar)
+        XCTAssertEqual(week.count, 7)
+        XCTAssertEqual(week.last?.ml, 2000)
+        XCTAssertEqual(week[5].ml, 2500)
+    }
+
+    func testReminderRespectsHoursAndInterval() {
+        var comps = DateComponents()
+        comps.year = 2026; comps.month = 10; comps.day = 23; comps.hour = 10
+        let now = calendar.date(from: comps)!
+        XCTAssertTrue(WaterLog.reminderDue(lastDrink: nil, lastReminder: nil, intervalMinutes: 60,
+                                           startHour: 8, endHour: 22, now: now, calendar: calendar))
+        XCTAssertFalse(WaterLog.reminderDue(lastDrink: now.addingTimeInterval(-600), lastReminder: nil, intervalMinutes: 60,
+                                            startHour: 8, endHour: 22, now: now, calendar: calendar))
+        XCTAssertFalse(WaterLog.reminderDue(lastDrink: nil, lastReminder: nil, intervalMinutes: 60,
+                                            startHour: 12, endHour: 22, now: now, calendar: calendar))
+    }
+}
+
+final class PersistenceTests: XCTestCase {
+    func testRoundTripAndTolerantDecoding() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = DataStore(url: dir.appendingPathComponent("data.json"))
+        var data = AppData()
+        data.tasks = [TaskItem(title: "Ship Ezkiel Notch", due: Date(timeIntervalSince1970: 42))]
+        data.notes = [NoteItem(body: "Hello\nworld")]
+        data.settings.waterGoal = 2400
+        store.save(data, synchronously: true)
+
+        let loaded = store.load()
+        XCTAssertEqual(loaded.tasks.first?.title, "Ship Ezkiel Notch")
+        XCTAssertEqual(loaded.notes.first?.displayTitle, "Hello")
+        XCTAssertEqual(loaded.settings.waterGoal, 2400)
+
+        // Old or partial files must still load with defaults.
+        let partial = #"{"settings":{"waterGoal":1500},"tasks":[]}"#.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(AppData.self, from: partial)
+        XCTAssertEqual(decoded.settings.waterGoal, 1500)
+        XCTAssertEqual(decoded.settings.waterIntervalMinutes, 60)
+        XCTAssertTrue(decoded.settings.expandOnHover)
+    }
+}
