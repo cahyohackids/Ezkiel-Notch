@@ -17,11 +17,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installStatusItem()
 
         hotKey = HotKey(keyCode: kVK_ANSI_I, modifiers: cmdKey | optionKey) { [weak self] in
-            MainActor.assumeIsolated { self?.model.toggle() }
+            MainActor.assumeIsolated { self?.toggleFromKeyboard() }
         }
 
         if ProcessInfo.processInfo.arguments.contains("--self-test") {
             SelfTest.run(model: model, controller: controller)
+        }
+    }
+
+    /// Opened from the keyboard: take key status so Esc and ⌘1…⌘8 work right away.
+    private func toggleFromKeyboard() {
+        model.toggle()
+        if model.presentation == .expanded {
+            controller.panel.makeKeyAndOrderFront(nil)
         }
     }
 
