@@ -11,6 +11,10 @@ on:
         description: "Publish a GitHub Release with the DMG and ZIP"
         type: boolean
         default: false
+      screenshots:
+        description: "Commit fresh screenshots to docs/screenshots"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -51,6 +55,18 @@ jobs:
           name: snapshots
           path: snapshots/*.png
           if-no-files-found: ignore
+
+      - name: Commit screenshots
+        if: github.event_name == 'workflow_dispatch' && inputs.screenshots
+        run: |
+          mkdir -p docs/screenshots
+          rm -f docs/screenshots/*.png
+          for f in snapshots/*.png; do sips -Z 1000 "$f" --out "docs/screenshots/$(basename "$f")" >/dev/null; done
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/screenshots
+          git commit -m "Update screenshots [skip ci]" || exit 0
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - uses: actions/upload-artifact@v4
         with:
