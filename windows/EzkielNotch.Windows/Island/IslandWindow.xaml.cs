@@ -32,9 +32,17 @@ public partial class IslandWindow : Window
     // Body sizes in DIPs (ears are added on both sides).
     private static readonly Shape LipShape = new(180, 6, 3, 4);
     private static readonly Shape LipHoverShape = new(208, 10, 5, 6);
-    private Shape PeekShape => IsIsland ? new(320, 46, 23, 0) : new(320, 52, 18, 10);
-    /// <summary>A peek with buttons (Pounce: Copy · Stash · Show; Rally: Join).</summary>
-    private Shape PeekWideShape => IsIsland ? new(440, 46, 23, 0) : new(440, 52, 18, 10);
+    /// <summary>A peek is as wide as what it says (the Mac's inline cards): its row plus even margins,
+    /// between 240 and 470.</summary>
+    private Shape PeekShape
+    {
+        get
+        {
+            PeekRow.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            double w = Math.Clamp(Math.Ceiling(PeekRow.DesiredSize.Width) + 36, 240, 470);
+            return IsIsland ? new(w, 46, 23, 0) : new(w, 52, 18, 10);
+        }
+    }
 
     /// <summary>Header 34 + tabs 30 + gap 10 + the room's pane + bottom 12, like the Mac's expandedSize.</summary>
     public double ExpandedHeight(Room room) =>
@@ -512,7 +520,7 @@ public partial class IslandWindow : Window
         Fade(LiveView, 0, 0.08);
         Root.Opacity = 1;
         Root.IsHitTestVisible = true;
-        Apply(file is null && link is null ? PeekShape : PeekWideShape, animate: true, bouncy: true);
+        Apply(PeekShape, animate: true, bouncy: true);
         Fade(PeekView, 1, 0.2, delay: 0.1);
         _peekTimer?.Stop();
         _peekTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(urgent ? Math.Max(seconds, 6) : seconds) };
