@@ -100,6 +100,15 @@ public sealed class NotchSettings
     public double WeatherLatitude { get; set; }
     public double WeatherLongitude { get; set; }
     public bool Fahrenheit { get; set; }
+    /// <summary>Whiskers: Caps Lock and keyboard-language peeks.</summary>
+    public bool SystemOverlays { get; set; } = true;
+    /// <summary>Whiskers: network and headphones peeks.</summary>
+    public bool ConnectionPeeks { get; set; } = true;
+    /// <summary>Ask GitHub once a day whether a newer version exists.</summary>
+    public bool CheckUpdates { get; set; } = true;
+    /// <summary>The global shortcut, in the Mac's names: controlOptionN = Ctrl+Alt+N, controlOptionSpace = Ctrl+Alt+Space,
+    /// optionCommandI = Ctrl+Alt+I on Windows.</summary>
+    public string Hotkey { get; set; } = "controlOptionN";
 
     /// <summary>The settings object as read, Mac-only keys included.</summary>
     internal JsonObject Raw { get; set; } = [];
@@ -137,6 +146,10 @@ public sealed class NotchSettings
         s.WeatherLatitude = Json.Double(o["weatherLatitude"]) ?? s.WeatherLatitude;
         s.WeatherLongitude = Json.Double(o["weatherLongitude"]) ?? s.WeatherLongitude;
         s.Fahrenheit = Json.Bool(o["fahrenheit"]) ?? s.Fahrenheit;
+        s.SystemOverlays = Json.Bool(o["systemOverlays"]) ?? s.SystemOverlays;
+        s.ConnectionPeeks = Json.Bool(o["connectionPeeks"]) ?? s.ConnectionPeeks;
+        s.CheckUpdates = Json.Bool(o["checkUpdates"]) ?? s.CheckUpdates;
+        s.Hotkey = Json.String(o["hotkey"]) is "controlOptionN" or "controlOptionSpace" or "optionCommandI" ? Json.String(o["hotkey"])! : s.Hotkey;
         s.Language = Json.String(o["language"]) switch
         {
             "en" => AppLanguage.En,
@@ -177,6 +190,10 @@ public sealed class NotchSettings
         o["weatherLatitude"] = WeatherLatitude;
         o["weatherLongitude"] = WeatherLongitude;
         o["fahrenheit"] = Fahrenheit;
+        o["systemOverlays"] = SystemOverlays;
+        o["connectionPeeks"] = ConnectionPeeks;
+        o["checkUpdates"] = CheckUpdates;
+        o["hotkey"] = Hotkey;
         o["language"] = Language switch { AppLanguage.En => "en", AppLanguage.Id => "id", _ => "auto" };
         // Without it the Mac would treat these as pre-1.3.1 settings and migrate them again.
         o["defaultsRevision"] ??= CurrentRevision;

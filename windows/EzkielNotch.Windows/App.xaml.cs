@@ -30,11 +30,18 @@ public partial class App : Application
         if (!selfTest)
         {
             _single = new Mutex(true, @"Local\EzkielNotch.Island", out bool first);
+            // Right after an update the old copy is still quitting: wait for it instead of giving up.
+            if (!first && e.Args.Contains("--updated"))
+            {
+                try { first = _single.WaitOne(TimeSpan.FromSeconds(15)); }
+                catch (AbandonedMutexException) { first = true; }
+            }
             if (!first)
             {
                 Shutdown();
                 return;
             }
+            Platform.Updater.CleanUp();
         }
 
         // `--data <file>` uses another data file (previews, screenshots). The self-test never touches the real one.
@@ -55,6 +62,12 @@ public partial class App : Application
             return;
         }
         Platform.ScoutPipe.Listen(window.Dispatcher, _model.ScoutReceived);
+        window.Tray = new Platform.TrayIcon(window.Toggle, () =>
+        {
+            window.Select(Room.Settings);
+            if (window.Presentation != Presentation.Expanded) window.Expand();
+        }, Shutdown);
+        window.Tray.Relabel(IslandWindow.HotkeyLabel(_model.Settings.Hotkey));
         if (d < 0)
         {
             Platform.ScoutPipe.RegisterUrlScheme();
@@ -76,7 +89,9 @@ public partial class App : Application
                                     urgent: true, room: Room.Settings);
                     break;
                 default:
-                    window.ShowPeek("Ezkiel Notch", L("Hover the top of the screen · Ctrl+Alt+N"));
+                    window.ShowPeek("Ezkiel Notch", e.Args.Contains("--updated")
+                        ? L("Updated to %@", Platform.Updater.Current)
+                        : L("Hover the top of the screen · %@", IslandWindow.HotkeyLabel(_model.Settings.Hotkey)));
                     break;
             }
         }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
@@ -86,6 +101,7 @@ public partial class App : Application
     {
         if (MainWindow is IslandWindow { CurrentPane: Rooms.ScratchPane scratch }) scratch.Flush();
         _model?.SaveNow();
+        (MainWindow as IslandWindow)?.Tray?.Dispose();
         _single?.Dispose();
         base.OnExit(e);
     }

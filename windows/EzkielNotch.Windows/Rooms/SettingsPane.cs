@@ -32,12 +32,18 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
         list.Children.Add(Toggle(L("Open on hover"), L("Click always works too"), s.ExpandOnHover, v => s.ExpandOnHover = v));
         list.Children.Add(Option(L("Hover delay"), [.. new[] { 0.05, 0.12, 0.25, 0.45 }.Select(d =>
             Ui.Chip(d < 0.1 ? L("Instant") : $"{(int)(d * 1000)} ms", Math.Abs(s.HoverDelay - d) < 0.01, Accent.Neutral, () => { s.HoverDelay = d; Changed(); }))]));
+        list.Children.Add(Option(L("Shortcut"), [.. new[] { "controlOptionN", "controlOptionSpace", "optionCommandI" }.Select(h =>
+            Ui.Chip(IslandWindow.HotkeyLabel(h), s.Hotkey == h, Accent.Neutral, () => { s.Hotkey = h; Changed(); }))]));
         list.Children.Add(Toggle(L("Launch at login"), L("Start with Windows"), Startup.IsEnabled, v =>
         {
             s.LaunchAtLogin = Startup.Set(v);
         }));
         list.Children.Add(Toggle(L("Calm in fullscreen"), L("Videos, games and slides: the island steps away, only urgent peeks"), s.HideInFullscreen, v => s.HideInFullscreen = v));
         list.Children.Add(Toggle(L("Sounds"), L("Chimes for timers and reminders"), s.Sounds, v => s.Sounds = v));
+
+        list.Children.Add(Section("Whiskers"));
+        list.Children.Add(Toggle(L("Caps Lock & keyboard"), L("Caps Lock and keyboard language"), s.SystemOverlays, v => s.SystemOverlays = v, Accent.Neutral));
+        list.Children.Add(Toggle(L("Wi-Fi & headphones"), L("When they connect or drop"), s.ConnectionPeeks, v => s.ConnectionPeeks = v, Accent.Neutral));
 
         list.Children.Add(Section(L("Features")));
         list.Children.Add(Option(L("Den break"), [.. new[] { 5, 10, 15 }.Select(m =>
@@ -88,6 +94,7 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
             foreach (var agent in new[] { AgentLinks.Agent.ClaudeCode, AgentLinks.Agent.Codex }) list.Children.Add(AgentRow(agent));
 
         list.Children.Add(Section(L("About")));
+        list.Children.Add(UpdateRow());
         list.Children.Add(About());
 
         _scroll = Ui.Scroll(list);
@@ -220,6 +227,53 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
 
     /// <summary>Set by the window: the weather client (for city search).</summary>
     public Func<WeatherClient>? WeatherSource { get; set; }
+
+    /// <summary>Set by the window: the updater.</summary>
+    public Func<Updater>? UpdaterSource { get; set; }
+
+    /// <summary>"Ezkiel Notch 0.3.0 is out · Update now", or the daily-check switch with "Check now".</summary>
+    private Border UpdateRow()
+    {
+        var s = Model.Settings;
+        var u = UpdaterSource?.Invoke();
+        var g = Columns(Star, Auto);
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+        string title, sub;
+        UIElement action;
+        switch (u?.State)
+        {
+            case Updater.Phase.Available or Updater.Phase.Failed when u.Release is { } r && AppVersion.IsNewer(r.Version, Updater.Current):
+                title = L("Ezkiel Notch %@ is out", string.Join('.', AppVersion.Parts(r.Version)));
+                sub = u.State == Updater.Phase.Failed ? u.Problem ?? "" : L("Downloads, checks and restarts by itself · your data stays");
+                action = Ui.Pill(u.State == Updater.Phase.Failed ? L("Try again") : L("Update now"), () => _ = u.Install(), Accent.Den, prominent: true, glyph: "\uE896");
+                break;
+            case Updater.Phase.Downloading or Updater.Phase.Verifying or Updater.Phase.Installing:
+                title = L("Updating…");
+                sub = u!.State switch { Updater.Phase.Downloading => L("Downloading…"), Updater.Phase.Verifying => L("Checking the download…"), _ => L("Installing…") };
+                action = new Border();
+                break;
+            default:
+                title = L("Check for updates");
+                sub = u?.State switch
+                {
+                    Updater.Phase.Checking => L("Checking…"),
+                    Updater.Phase.UpToDate => L("You're up to date (%@)", Updater.Current),
+                    Updater.Phase.Failed => u.Problem ?? "",
+                    _ => L("Once a day, from GitHub"),
+                };
+                var row = Ui.Row(8, Ui.TextButton(L("Check now"), () => { if (u is not null) _ = u.Check(force: true); }),
+                                 Ui.Switch(s.CheckUpdates, Accent.Oasis, v => { s.CheckUpdates = v; Model.SettingsChanged(); }));
+                row.VerticalAlignment = VerticalAlignment.Center;
+                action = row;
+                break;
+        }
+        text.Children.Add(Ui.Label(title, Ui.Body, weight: FontWeights.Medium));
+        text.Children.Add(Ui.Label(sub, Ui.Caption, Ui.Mist));
+        g.Children.Add(At(text, 0));
+        if (action is FrameworkElement fe) fe.VerticalAlignment = VerticalAlignment.Center;
+        g.Children.Add(At(action, 1));
+        return Row(g);
+    }
 
     private Border AgentRow(AgentLinks.Agent agent)
     {

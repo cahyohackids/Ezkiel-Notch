@@ -78,6 +78,31 @@ public partial class IslandWindow : Window
     private readonly Dictionary<Room, Pane> _panes = [];
     private readonly HashSet<Room> _stale = [];
     private const int HotKeyId = 0xE21;
+    private string? _registeredHotkey;
+
+    /// <summary>The Mac's shortcut choices, with Ctrl+Alt for ⌃⌥ (⌥⌘I becomes Ctrl+Alt+I).</summary>
+    public static string HotkeyLabel(string choice) => choice switch
+    {
+        "controlOptionSpace" => "Ctrl+Alt+Space",
+        "optionCommandI" => "Ctrl+Alt+I",
+        _ => "Ctrl+Alt+N",
+    };
+
+    private void RegisterHotKey()
+    {
+        var choice = Model.Settings.Hotkey;
+        if (_hwnd == 0 || choice == _registeredHotkey) return;
+        if (HotKeyRegistered) Win32.UnregisterHotKey(_hwnd, HotKeyId);
+        uint vk = choice switch { "controlOptionSpace" => 0x20u, "optionCommandI" => 0x49u, _ => 0x4Eu };
+        HotKeyRegistered = Win32.RegisterHotKey(_hwnd, HotKeyId, Win32.MOD_CONTROL | Win32.MOD_ALT | Win32.MOD_NOREPEAT, vk);
+        _registeredHotkey = choice;
+        if (!HotKeyRegistered) ShowToast(new ToastRequest(L("%@ is taken by another app", HotkeyLabel(choice))));
+        Tray?.Relabel(HotkeyLabel(choice));
+    }
+
+    public TrayIcon? Tray { get; set; }
+    public WhiskersWatcher Whiskers { get; private set; } = null!;
+    public Updater Updates { get; } = new();
 
     public IslandWindow(NotchModel model)
     {
@@ -149,14 +174,41 @@ public partial class IslandWindow : Window
         Power.Changed += UpdateLive;
         Power.Notice += (kind, pct) =>
         {
-            // Whiskers: the battery, beside the camera.
-            if (kind == "charging") ShowPeek(L("Charging"), $"{pct}%", 2.2);
-            else ShowPeek(kind == "critical" ? L("Battery very low") : L("Battery low"), L("%d%% left · plug in soon", pct), 5, urgent: true);
+            // Whiskers: the battery, beside the camera (the Mac's wording).
+            switch (kind)
+            {
+                case "plugged": ShowPeek(Power.Charging ? L("Charging") : L("Connected to power"), $"{L("Charger connected")} · {pct}%", 2.4); break;
+                case "unplugged": ShowPeek(L("On battery"), $"{L("Charger unplugged")} · {pct}%", 2.4); break;
+                default: ShowPeek(L("Battery low"), $"{(kind == "now" ? L("Plug in now") : L("Plug in soon"))} · {pct}%", 5, urgent: true); break;
+            }
         };
         Rally.Changed += () =>
         {
             UpdateLive();
             if (_panes.ContainsKey(Room.Hunt)) OnModelChanged(Room.Hunt);
+        };
+        Whiskers = new WhiskersWatcher(Dispatcher);
+        Whiskers.CapsLock += on => ShowPeek(on ? L("Caps Lock on") : L("Caps Lock off"), "", 1.4);
+        Whiskers.Keyboard += name => ShowPeek(name, L("Keyboard"), 1.6);
+        Whiskers.Network += (online, wifi) =>
+        {
+            if (online) ShowPeek(wifi ? L("Wi-Fi connected") : L("Back online"), L("You're online again"));
+            else ShowPeek(L("Connection lost"), L("Check your network"));
+        };
+        Whiskers.Output += (name, headphones, previous) =>
+        {
+            if (headphones) ShowPeek(name, L("Connected"));
+            else if (previous is not null) ShowPeek(L("%@ disconnected", previous), L("Now on %@", name));
+        };
+        Updates.Changed += () =>
+        {
+            if (Presentation == Presentation.Expanded && Selected == Room.Settings) CurrentPane?.Refresh();
+            // Announce a new version once, with a peek that opens Settings.
+            if (Updates.State == Updater.Phase.Available && Updates.Release is { } r && _announced != r.Version)
+            {
+                _announced = r.Version;
+                ShowPeek(L("Ezkiel Notch %@ is out", string.Join('.', AppVersion.Parts(r.Version))), L("Open Settings to update"), 6, room: Room.Settings);
+            }
         };
         Weather.Changed += () =>
         {
@@ -195,7 +247,7 @@ public partial class IslandWindow : Window
         var ex = Win32.GetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE);
         Win32.SetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE, ex | Win32.WS_EX_TOOLWINDOW | Win32.WS_EX_NOACTIVATE);
 
-        HotKeyRegistered = Win32.RegisterHotKey(_hwnd, HotKeyId, Win32.MOD_CONTROL | Win32.MOD_ALT | Win32.MOD_NOREPEAT, 0x4E /* N */);
+        RegisterHotKey();
 
         Place();
         SystemEvents.DisplaySettingsChanged += (_, _) => Dispatcher.BeginInvoke(Place);
@@ -264,13 +316,19 @@ public partial class IslandWindow : Window
         UpdateLive();
         if (_ticks % 60 == 0) Rally.Tick(DateTime.UtcNow);
         if (_ticks % 600 == 0) _ = Weather.Refresh();
+        // Updates: 30 s after launch, then once a day.
+        if (!SelfTesting && Model.Settings.CheckUpdates && (_ticks == 30 || _ticks % 3600 == 0)) _ = Updates.Check();
     }
 
     /// <summary>Sources that read the outside world follow their settings (none of them in the self-test).</summary>
+    private string? _announced;
+
     private void ConfigureSources()
     {
+        RegisterHotKey();
         if (SelfTesting) return;
         var s = Model.Settings;
+        Whiskers.Configure(s.SystemOverlays, s.ConnectionPeeks);
         Roar.SetEnabled(s.Roar);
         Pounce.Configure(s.PounceScreenshots, s.PounceDownloads);
         Prowl.SetEnabled(s.Prowl);
@@ -613,6 +671,12 @@ public partial class IslandWindow : Window
             Model.FocusStartPause();
             e.Handled = true;
         }
+        // Ctrl+1…8 switch rooms (the Mac's ⌘1…⌘8).
+        else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key >= Key.D1 && e.Key <= Key.D8)
+        {
+            Select((Room)(e.Key - Key.D1));
+            e.Handled = true;
+        }
     }
 
     // MARK: Pointer
@@ -754,7 +818,7 @@ public partial class IslandWindow : Window
             Room.Hunt => new HuntPane(Model, Rally, () => SetMirror(true)),
             Room.Scratch => new ScratchPane(Model),
             Room.Oasis => new OasisPane(Model),
-            Room.Settings => new SettingsPane(Model) { WeatherSource = () => Weather },
+            Room.Settings => new SettingsPane(Model) { WeatherSource = () => Weather, UpdaterSource = () => Updates },
             Room.Purr => new PurrPane(Model, Media, Lyrics),
             Room.Roar => new RoarPane(Model),
             Room.Stash => new StashPane(Model),
@@ -843,6 +907,7 @@ public partial class IslandWindow : Window
             BuildTabs();
             Clock.Text = Lang.Time(DateTime.Now);
             UpdateWeatherChip();
+            Tray?.Relabel(HotkeyLabel(Model.Settings.Hotkey));
             if (Presentation == Presentation.Expanded) ShowRoom(Selected);
             return;
         }
@@ -865,7 +930,7 @@ public partial class IslandWindow : Window
     private void ShowMenu()
     {
         var menu = new ContextMenu();
-        var open = new MenuItem { Header = Presentation == Presentation.Expanded ? L("Close") : L("Open") + "  (Ctrl+Alt+N)" };
+        var open = new MenuItem { Header = Presentation == Presentation.Expanded ? L("Close") : L("Open") + $"  ({HotkeyLabel(Model.Settings.Hotkey)})" };
         open.Click += (_, _) => Toggle();
         var settings = new MenuItem { Header = L("Settings…") };
         settings.Click += (_, _) =>

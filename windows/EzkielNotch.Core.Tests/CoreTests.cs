@@ -664,3 +664,34 @@ public class WeatherTests
         Assert.Equal(86, WeatherClient.Display(30, true), 3);
     }
 }
+
+public class UpdateTests
+{
+    [Fact]
+    public void ReadsChecksumsInBothFormats()
+    {
+        var h = new string('a', 64);
+        Assert.Equal(h, UpdateVerify.Checksum("EzkielNotch-windows-win-x64.zip", $"{new string('b', 64)}  Other.dmg\n{h} *EzkielNotch-windows-win-x64.zip\n"));
+        Assert.Null(UpdateVerify.Checksum("missing.zip", $"{h}  x.zip"));
+        Assert.Null(UpdateVerify.Checksum("x.zip", "nothex  x.zip"));
+    }
+
+    [Fact]
+    public void PicksTheNewestReleaseWithAWindowsBuild()
+    {
+        const string json = """
+            [
+              {"tag_name":"v1.7.0","draft":false,"prerelease":false,"html_url":"p17","assets":[{"name":"Ezkiel-Notch-1.7.0.dmg","browser_download_url":"d"}]},
+              {"tag_name":"v1.6.5","draft":false,"prerelease":false,"html_url":"p165","assets":[
+                {"name":"EzkielNotch-windows-win-arm64.zip","browser_download_url":"z"},{"name":"SHA256SUMS.txt","browser_download_url":"s"}]},
+              {"tag_name":"v1.6.9","draft":true,"prerelease":false,"html_url":"draft","assets":[
+                {"name":"EzkielNotch-windows-win-arm64.zip","browser_download_url":"z2"},{"name":"SHA256SUMS.txt","browser_download_url":"s2"}]}
+            ]
+            """;
+        var r = UpdateVerify.Pick(json, "win-arm64")!;
+        Assert.Equal(("v1.6.5", "z", "s"), (r.Version, r.ZipUrl, r.SumsUrl));
+        Assert.Null(UpdateVerify.Pick(json, "win-x64"));
+        Assert.True(AppVersion.IsNewer("windows-v0.3.0", "0.2.9"));
+        Assert.False(AppVersion.IsNewer("v1.6", "1.6.0"));
+    }
+}

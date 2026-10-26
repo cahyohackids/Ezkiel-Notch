@@ -6,6 +6,8 @@
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <UseWPF>true</UseWPF>
+    <!-- Only for the tray icon (NotifyIcon); its namespaces stay out of the global usings. -->
+    <UseWindowsForms>true</UseWindowsForms>
     <!-- Lets the project build on macOS/Linux too (CI and development); it only runs on Windows. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
@@ -28,6 +30,11 @@
     <ProjectReference Include="..\EzkielNotch.Core\EzkielNotch.Core.csproj" />
     <!-- Roar reads Windows' notification database (a copy of it) for unread counts. -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
   </ItemGroup>
 
   <ItemGroup>

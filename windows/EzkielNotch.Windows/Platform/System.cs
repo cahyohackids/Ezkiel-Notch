@@ -76,8 +76,10 @@ public sealed class PowerWatcher
     public bool Charging { get; private set; }
     public bool HasBattery { get; private set; }
     public event Action? Changed;
-    /// <summary>Raised when the battery crosses 20 % or 10 % going down, or the charger is plugged in.</summary>
-    public event Action<string, int>? Notice;   // kind ("low", "critical", "charging"), percent
+    /// <summary>The Mac's battery peeks: "plugged" / "unplugged" when the charger changes, "low" when the level
+    /// crosses 20, 10 or 5 % (even if it skips the exact number).</summary>
+    public event Action<string, int>? Notice;   // kind, percent
+    private bool? _onAC;
 
     private readonly DispatcherTimer _timer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(20) };
 
@@ -101,18 +103,17 @@ public sealed class PowerWatcher
         if (!GetSystemPowerStatus(out var s)) return;
         bool has = (s.BatteryFlag & 128) == 0 && s.BatteryLifePercent != 255;
         int? pct = has ? s.BatteryLifePercent : null;
-        bool charging = has && s.ACLineStatus == 1 && pct < 100;
+        bool onAC = s.ACLineStatus == 1;
+        bool charging = has && onAC && pct < 100;
         var before = (Percent, Charging);
         HasBattery = has;
         if (!initial && has && pct is { } p)
         {
-            if (charging && !before.Charging && s.ACLineStatus == 1) Notice?.Invoke("charging", p);
-            if (!charging && before.Percent is { } was)
-            {
-                if (was > 10 && p <= 10) Notice?.Invoke("critical", p);
-                else if (was > 20 && p <= 20) Notice?.Invoke("low", p);
-            }
+            if (_onAC is { } wasAC && wasAC != onAC) Notice?.Invoke(onAC ? "plugged" : "unplugged", p);
+            else if (!onAC && before.Percent is { } was && new[] { 20, 10, 5 }.FirstOrDefault(t => was > t && p <= t) is var t and > 0)
+                Notice?.Invoke(t <= 10 ? "now" : "soon", p);
         }
+        _onAC = onAC;
         Percent = pct;
         Charging = charging;
         if (before != (Percent, Charging)) Changed?.Invoke();
