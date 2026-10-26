@@ -143,20 +143,23 @@ enum SelfTest {
         }))
 
         if snapshotDir != nil {
-            let np = NowPlaying(player: .spotify, title: "Paper Sky", artist: "Lumen Coast", album: "Summer Flows",
-                                duration: 196, position: 41, isPlaying: true, artworkURL: nil, fetchedAt: Date())
+            // Built when the step runs, so the song is at 0:41 in the snapshot, not wherever the clock got to.
+            let np = { NowPlaying(player: .spotify, title: "Paper Sky", artist: "Lumen Coast", album: "Summer Flows",
+                                  duration: 196, position: 41, isPlaying: true, artworkURL: nil, fetchedAt: Date()) }
             let lines = ["we fold the summer light", "into paper birds tonight", "and send them through the sky",
                          "to find you by the sea", "every wing a little song", "that carries us along",
                          "and if the night gets long", "we'll hum the morning on"]
                 .enumerated().map { LyricLine(time: 30 + Double($0.offset) * 5, text: $0.element) }
             steps.append(("purr player", {
-                model.music.simulate(np)
+                model.music.simulate(np())
                 model.settings.showLyrics = false
                 model.expand(.purr)
             }))
             steps.append(("purr chorus", {
                 model.settings.showLyrics = true
-                model.lyrics.preview(lines, for: np)
+                let song = np()
+                model.music.simulate(song)
+                model.lyrics.preview(lines, for: song)
             }))
             steps.append(("chorus closed notch", {
                 model.collapse()

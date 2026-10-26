@@ -1159,6 +1159,8 @@ final class AppModel: ObservableObject {
     // MARK: - Self-test hooks
 
     func simulateMeetings(_ meetings: [CalendarService.Meeting]) {
+        // The test shows its own Rally peek; the ticker shouldn't add a second one as a toast.
+        notifiedMeetings.formUnion(meetings.map(\.id))
         calendar.simulate(meetings)
     }
 
