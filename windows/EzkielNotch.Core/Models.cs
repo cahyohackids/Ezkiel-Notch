@@ -109,6 +109,17 @@ public sealed class NotchSettings
     /// <summary>The global shortcut, in the Mac's names: controlOptionN = Ctrl+Alt+N, controlOptionSpace = Ctrl+Alt+Space,
     /// optionCommandI = Ctrl+Alt+I on Windows.</summary>
     public string Hotkey { get; set; } = "controlOptionN";
+    /// <summary>"notch" (hangs from the top edge) or "island" (a floating pill, like the Dynamic Island).</summary>
+    public string Style { get; set; } = "notch";
+    /// <summary>"small", "medium" or "large".</summary>
+    public string IslandSize { get; set; } = "medium";
+    /// <summary>"tight", "medium" or "roomy": the space above the island.</summary>
+    public string IslandGap { get; set; } = "medium";
+    public bool IslandShadow { get; set; } = true;
+    /// <summary>What the closed island shows of Ezkiel: "eyes", "lion" or "off".</summary>
+    public string ClosedFace { get; set; } = "eyes";
+    /// <summary>Ezkiel naps when nothing is going on.</summary>
+    public bool MascotSleeps { get; set; } = true;
 
     /// <summary>The settings object as read, Mac-only keys included.</summary>
     internal JsonObject Raw { get; set; } = [];
@@ -149,6 +160,14 @@ public sealed class NotchSettings
         s.SystemOverlays = Json.Bool(o["systemOverlays"]) ?? s.SystemOverlays;
         s.ConnectionPeeks = Json.Bool(o["connectionPeeks"]) ?? s.ConnectionPeeks;
         s.CheckUpdates = Json.Bool(o["checkUpdates"]) ?? s.CheckUpdates;
+        s.Style = Json.String(o["style"]) is "island" ? "island" : "notch";
+        s.IslandSize = Json.String(o["islandSize"]) is "small" or "large" ? Json.String(o["islandSize"])! : "medium";
+        s.IslandGap = Json.String(o["islandGap"]) is "tight" or "roomy" ? Json.String(o["islandGap"])! : "medium";
+        s.IslandShadow = Json.Bool(o["islandShadow"]) ?? s.IslandShadow;
+        // Before 1.6 the Mac had "showMascot": off meant no face.
+        s.ClosedFace = Json.String(o["closedFace"]) is "eyes" or "lion" or "off" ? Json.String(o["closedFace"])!
+            : Json.Bool(o["showMascot"]) == false ? "off" : "eyes";
+        s.MascotSleeps = Json.Bool(o["mascotSleeps"]) ?? s.MascotSleeps;
         s.Hotkey = Json.String(o["hotkey"]) is "controlOptionN" or "controlOptionSpace" or "optionCommandI" ? Json.String(o["hotkey"])! : s.Hotkey;
         s.Language = Json.String(o["language"]) switch
         {
@@ -194,6 +213,12 @@ public sealed class NotchSettings
         o["connectionPeeks"] = ConnectionPeeks;
         o["checkUpdates"] = CheckUpdates;
         o["hotkey"] = Hotkey;
+        o["style"] = Style;
+        o["islandSize"] = IslandSize;
+        o["islandGap"] = IslandGap;
+        o["islandShadow"] = IslandShadow;
+        o["closedFace"] = ClosedFace;
+        o["mascotSleeps"] = MascotSleeps;
         o["language"] = Language switch { AppLanguage.En => "en", AppLanguage.Id => "id", _ => "auto" };
         // Without it the Mac would treat these as pre-1.3.1 settings and migrate them again.
         o["defaultsRevision"] ??= CurrentRevision;

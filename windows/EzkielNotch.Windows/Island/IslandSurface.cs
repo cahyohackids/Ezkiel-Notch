@@ -29,6 +29,15 @@ public sealed class IslandSurface : Decorator
     public double ContentWidth { get => (double)GetValue(ContentWidthProperty); set => SetValue(ContentWidthProperty, value); }
     public double ContentHeight { get => (double)GetValue(ContentHeightProperty); set => SetValue(ContentHeightProperty, value); }
 
+    /// <summary>Island style: a floating pill, rounded all round, Gap below the top edge (no ears).</summary>
+    public static readonly DependencyProperty FloatingProperty = DependencyProperty.Register(
+        nameof(Floating), typeof(bool), typeof(IslandSurface),
+        new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender | FrameworkPropertyMetadataOptions.AffectsArrange));
+    public static readonly DependencyProperty GapProperty = Register(nameof(Gap), 0);
+
+    public bool Floating { get => (bool)GetValue(FloatingProperty); set => SetValue(FloatingProperty, value); }
+    public double Gap { get => (double)GetValue(GapProperty); set => SetValue(GapProperty, value); }
+
     public static readonly DependencyProperty FillProperty = DependencyProperty.Register(
         nameof(Fill), typeof(Brush), typeof(IslandSurface),
         new FrameworkPropertyMetadata(Brushes.Black, FrameworkPropertyMetadataOptions.AffectsRender));
@@ -48,8 +57,8 @@ public sealed class IslandSurface : Decorator
     {
         get
         {
-            double w = Math.Max(0, BodyWidth + Ear * 2);
-            return new Rect((ActualWidth - w) / 2, 0, w, Math.Max(0, BodyHeight));
+            double w = Math.Max(0, BodyWidth + (Floating ? 0 : Ear * 2));
+            return new Rect((ActualWidth - w) / 2, Floating ? Gap : 0, w, Math.Max(0, BodyHeight));
         }
     }
 
@@ -59,11 +68,21 @@ public sealed class IslandSurface : Decorator
         get
         {
             var r = ShapeRect;
-            return new Rect(r.X + Ear, 0, Math.Max(0, r.Width - Ear * 2), r.Height);
+            double ear = Floating ? 0 : Ear;
+            return new Rect(r.X + ear, r.Y, Math.Max(0, r.Width - ear * 2), r.Height);
         }
     }
 
-    public Geometry Shape() => Build(ShapeRect, BottomRadius, Ear);
+    public Geometry Shape() => Floating ? Pill(ShapeRect, BottomRadius) : Build(ShapeRect, BottomRadius, Ear);
+
+    /// <summary>The island: a rounded rectangle (a full pill when the radius is half the height).</summary>
+    public static Geometry Pill(Rect rect, double radius)
+    {
+        double r = Math.Max(0, Math.Min(radius, Math.Min(rect.Width, rect.Height) / 2));
+        var g = new RectangleGeometry(rect, r, r);
+        g.Freeze();
+        return g;
+    }
 
     /// <summary>The silhouette, ported from the Mac's NotchShape.</summary>
     public static Geometry Build(Rect rect, double bottomRadius, double ear)
@@ -110,9 +129,11 @@ public sealed class IslandSurface : Decorator
             // Content keeps its final layout; the animated silhouette (in the child's own coordinates)
             // reveals it as the island grows.
             double x = (arrangeSize.Width - ContentWidth) / 2;
-            Child.Arrange(new Rect(x, 0, Math.Max(0, ContentWidth), Math.Max(0, ContentHeight)));
+            double y = Floating ? Gap : 0;
+            Child.Arrange(new Rect(x, y, Math.Max(0, ContentWidth), Math.Max(0, ContentHeight)));
             var shape = ShapeRect;
-            Child.Clip = Build(new Rect(shape.X - x, 0, shape.Width, shape.Height), BottomRadius, Ear);
+            var local = new Rect(shape.X - x, 0, shape.Width, shape.Height);
+            Child.Clip = Floating ? Pill(local, BottomRadius) : Build(local, BottomRadius, Ear);
         }
         return arrangeSize;
     }

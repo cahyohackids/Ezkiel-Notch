@@ -2,7 +2,8 @@
 """Export the Mac app's Indonesian strings (Sources/EzkielNotch/Design/Indonesian.swift) to the JSON the
 Windows app embeds, so both apps share one translation. Run after changing the Mac table:
 
-    python3 windows/tools/export_strings.py
+    python3 windows/tools/export_strings.py                # this checkout's Indonesian.swift
+    python3 windows/tools/export_strings.py <file.swift>   # another copy (e.g. git show origin/main:…)
 """
 import json
 import re
@@ -24,7 +25,8 @@ def unescape(s: str) -> str:
 
 def main() -> int:
     table = {}
-    for line in SRC.read_text(encoding="utf-8").splitlines():
+    src = Path(sys.argv[1]) if len(sys.argv) > 1 else SRC
+    for line in src.read_text(encoding="utf-8").splitlines():
         m = ENTRY.match(line)
         if not m:
             continue

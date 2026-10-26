@@ -39,6 +39,7 @@
                 <Grid x:Name="LiveView" Opacity="0" IsHitTestVisible="False" Margin="12,0">
                     <StackPanel x:Name="LiveLeft" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center"/>
                     <StackPanel x:Name="LiveRight" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    <ContentControl x:Name="LiveCenter" HorizontalAlignment="Center" VerticalAlignment="Center" Focusable="False"/>
                 </Grid>
 
                 <!-- Expanded: header, the rooms, and the page. -->

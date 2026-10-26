@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using EzkielNotch.Core;
 using EzkielNotch.Island;
 using EzkielNotch.Platform;
@@ -29,6 +30,18 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
                 s.Language = lang;
                 Model.SettingsChanged(everything: true);
             }))]));
+        list.Children.Add(StyleCard());
+        if (s.Style == "island")
+        {
+            list.Children.Add(Option(L("Size"), [.. new[] { ("small", "Small"), ("medium", "Medium"), ("large", "Large") }.Select(o =>
+                Ui.Chip(L(o.Item2), s.IslandSize == o.Item1, Accent.Neutral, () => { s.IslandSize = o.Item1; Changed(); }))]));
+            list.Children.Add(Option(L("Gap"), [.. new[] { ("tight", "Tight"), ("medium", "Medium"), ("roomy", "Roomy") }.Select(o =>
+                Ui.Chip(L(o.Item2), s.IslandGap == o.Item1, Accent.Neutral, () => { s.IslandGap = o.Item1; Changed(); }))]));
+            list.Children.Add(Toggle(L("Shadow"), L("A soft shadow under the floating island"), s.IslandShadow, v => s.IslandShadow = v, Accent.Neutral));
+        }
+        list.Children.Add(Option(L("Closed face"), [.. new[] { ("eyes", "Eyes"), ("lion", "Lion"), ("off", "Off") }.Select(o =>
+            Ui.Chip(L(o.Item2), s.ClosedFace == o.Item1, Accent.Den, () => { s.ClosedFace = o.Item1; Changed(); }))]));
+        list.Children.Add(Toggle(L("Lion naps when idle"), L("Wakes up when you're back"), s.MascotSleeps, v => s.MascotSleeps = v, Accent.Den));
         list.Children.Add(Toggle(L("Open on hover"), L("Click always works too"), s.ExpandOnHover, v => s.ExpandOnHover = v));
         list.Children.Add(Option(L("Hover delay"), [.. new[] { 0.05, 0.12, 0.25, 0.45 }.Select(d =>
             Ui.Chip(d < 0.1 ? L("Instant") : $"{(int)(d * 1000)} ms", Math.Abs(s.HoverDelay - d) < 0.01, Accent.Neutral, () => { s.HoverDelay = d; Changed(); }))]));
@@ -106,6 +119,49 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
     {
         Model.SettingsChanged();
         Refresh();
+    }
+
+    /// <summary>Notch or Island, as two tiles with a tiny drawing of each (the Mac's StyleCard).</summary>
+    private Grid StyleCard()
+    {
+        var g = Columns(Star, Px(6), Star);
+        g.Margin = new Thickness(0, 0, 0, 3);
+        g.Children.Add(At(StyleTile("notch", L("Notch"), L("Hangs from the top edge")), 0));
+        g.Children.Add(At(StyleTile("island", L("Island"), L("Floats like the Dynamic Island")), 2));
+        return g;
+    }
+
+    private Border StyleTile(string style, string title, string subtitle)
+    {
+        bool on = Model.Settings.Style == style;
+        var preview = new Grid { Height = 26, Background = Ui.Frozen(new SolidColorBrush(Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF))) };
+        preview.Children.Add(new Border
+        {
+            Width = 54,
+            Height = style == "island" ? 12 : 11,
+            CornerRadius = style == "island" ? new CornerRadius(6) : new CornerRadius(0, 0, 5, 5),
+            Background = Brushes.Black,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, style == "island" ? 4 : 0, 0, 0),
+        });
+        var s = new StackPanel();
+        s.Children.Add(new Border { Child = preview, CornerRadius = new CornerRadius(6), ClipToBounds = true, Margin = new Thickness(0, 0, 0, 6) });
+        s.Children.Add(Ui.Label(title, Ui.Body, weight: FontWeights.SemiBold));
+        s.Children.Add(Ui.Label(subtitle, Ui.Caption, Ui.Mist));
+        var tile = new Border
+        {
+            Child = s,
+            Padding = new Thickness(10, 8, 10, 8),
+            CornerRadius = new CornerRadius(12),
+            Background = on ? Accent.Den.Tint(0x22) : Ui.Surface,
+            BorderBrush = on ? Accent.Den.DeepBrush : Brushes.Transparent,
+            BorderThickness = new Thickness(1),
+        };
+        return Ui.Clickable(tile, () =>
+        {
+            Model.Settings.Style = style;
+            Changed();
+        }, pressScale: 0.97);
     }
 
     private static TextBlock Section(string title)

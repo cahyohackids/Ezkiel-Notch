@@ -32,14 +32,14 @@ public partial class IslandWindow : Window
     // Body sizes in DIPs (ears are added on both sides).
     private static readonly Shape LipShape = new(180, 6, 3, 4);
     private static readonly Shape LipHoverShape = new(208, 10, 5, 6);
-    private static readonly Shape PeekShape = new(320, 52, 18, 10);
-    /// <summary>A peek with buttons (Pounce: Copy · Stash · Show).</summary>
-    private static readonly Shape PeekWideShape = new(440, 52, 18, 10);
+    private Shape PeekShape => IsIsland ? new(320, 46, 23, 0) : new(320, 52, 18, 10);
+    /// <summary>A peek with buttons (Pounce: Copy · Stash · Show; Rally: Join).</summary>
+    private Shape PeekWideShape => IsIsland ? new(440, 46, 23, 0) : new(440, 52, 18, 10);
 
     /// <summary>Header 34 + tabs 30 + gap 10 + the room's pane + bottom 12, like the Mac's expandedSize.</summary>
     public double ExpandedHeight(Room room) =>
         34 + 30 + 10 + (_panes.TryGetValue(room, out var pane) ? pane.DesiredHeight : RoomInfo.Of(room).PaneHeight) + 12;
-    private Shape ExpandedShape(Room room) => new(440, ExpandedHeight(room), 22, 13);
+    private Shape ExpandedShape(Room room) => IsIsland ? new(IslandExpandedWidth, ExpandedHeight(room), 26, 0) : new(440, ExpandedHeight(room), 22, 13);
 
     public NotchModel Model { get; }
     public MediaWatcher Media { get; }
@@ -122,7 +122,7 @@ public partial class IslandWindow : Window
         Model.LookingAtRoar = () => Presentation == Presentation.Expanded && Selected == Room.Roar;
         InitializeComponent();
         BuildTabs();
-        Apply(LipShape, animate: false);
+        ApplyStyle(animate: false);
         _pointer.Tick += (_, _) => PointerTick();
         _second.Tick += (_, _) => SecondTick();
         _fullscreenPoll.Tick += (_, _) => CheckFullscreen();
@@ -223,7 +223,12 @@ public partial class IslandWindow : Window
             else ShowPeek(p.Title, p.Subtitle, urgent: p.Urgent, room: p.Room, app: p.App, link: p.Link);
         };
         Model.Toast += ShowToast;
-        Model.Sound += name => { if (Model.Settings.Sounds && name.Length > 0) Sounds.Play(name); };
+        Model.Sound += name =>
+        {
+            if (Model.Settings.Sounds && name.Length > 0) Sounds.Play(name);
+            // A task done, a drink, a file stashed: Ezkiel smiles.
+            if (name is "Tink" or "Bottle" or "Pop") MakeLionHappy();
+        };
 
         // A new song while the island is closed: a short peek (not in the first seconds after launch).
         var launched = DateTime.UtcNow;
@@ -467,14 +472,10 @@ public partial class IslandWindow : Window
         Fade(ExpandedView, 0, 0.1);
         Fade(PeekView, 0, 0.1);
         if (MirrorOpen) SetMirror(false);
-        _liveShown = IsLive;
+        _closedShape = null;
+        _liveShown = false;
         _liveKey = "";
-        Apply(ClosedShape(), animate: true, bouncy: false);
-        if (_liveShown)
-        {
-            UpdateLive();
-            Fade(LiveView, 1, 0.22, delay: 0.15);
-        }
+        UpdateLive();
         UpdateHiddenState();
     }
 
@@ -695,9 +696,9 @@ public partial class IslandWindow : Window
         var r = Island.ShapeRect;
         return Presentation switch
         {
-            Presentation.Lip => !(FullscreenActive && Model.Settings.HideInFullscreen) && p.Y >= -2 && p.Y <= r.Height + 8 && p.X >= r.Left - 24 && p.X <= r.Right + 24,
-            Presentation.Peek => p.Y <= r.Height + 4 && p.X >= r.Left - 6 && p.X <= r.Right + 6,
-            _ => p.Y <= r.Height + 14 && p.X >= r.Left - 12 && p.X <= r.Right + 12,
+            Presentation.Lip => !(FullscreenActive && Model.Settings.HideInFullscreen) && p.Y >= -2 && p.Y <= r.Bottom + 8 && p.X >= r.Left - 24 && p.X <= r.Right + 24,
+            Presentation.Peek => p.Y <= r.Bottom + 4 && p.X >= r.Left - 6 && p.X <= r.Right + 6,
+            _ => p.Y <= r.Bottom + 14 && p.X >= r.Left - 12 && p.X <= r.Right + 12,
         };
     }
 
@@ -722,12 +723,13 @@ public partial class IslandWindow : Window
         var now = DateTime.UtcNow;
         if (inside)
         {
+            NoteInteraction();
             _outsideSince = DateTime.MaxValue;
             if (_insideSince == DateTime.MaxValue) _insideSince = now;
             if (!Hovering)
             {
                 Hovering = true;
-                if (Presentation == Presentation.Lip) Apply(ClosedShape(), animate: true, bouncy: true);
+                if (Presentation == Presentation.Lip) UpdateLive();
             }
             // Open after a short, deliberate rest, so passing by on the way to a tab doesn't open it.
             var delay = TimeSpan.FromSeconds(Math.Max(0.05, Model.Settings.HoverDelay));
@@ -740,7 +742,7 @@ public partial class IslandWindow : Window
             if (Hovering)
             {
                 Hovering = false;
-                if (Presentation == Presentation.Lip) Apply(ClosedShape(), animate: true);
+                if (Presentation == Presentation.Lip) UpdateLive();
             }
             // While you type, the island waits (an idle field still lets go after 20 s outside).
             var grace = Typing ? TimeSpan.FromSeconds(20) : TimeSpan.FromMilliseconds(500);
@@ -915,6 +917,7 @@ public partial class IslandWindow : Window
         {
             ConfigureSources();
             UpdateWeatherChip();
+            ApplyStyle(animate: true);
             // Settings feed Den, Oasis and the rest; the Settings room redraws itself.
             foreach (var r in _panes.Keys) if (r != Room.Settings) _stale.Add(r);
             if (Presentation == Presentation.Expanded && Selected != Room.Settings) ShowRoom(Selected);

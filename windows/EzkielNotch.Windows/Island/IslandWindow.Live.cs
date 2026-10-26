@@ -26,6 +26,40 @@ public partial class IslandWindow
     private bool _liveShown;
     private string _liveKey = "";
     private TextBlock? _liveTimer;
+    private Shape? _closedShape;
+    private LionEyes? _eyes;
+    private DateTime _happyUntil, _lastInteraction = DateTime.UtcNow;
+
+    // MARK: Style (Notch or Island, the Mac's 1.6 choice)
+
+    public bool IsIsland => Model.Settings.Style == "island";
+    private double IslandHeight => Model.Settings.IslandSize switch { "small" => 30, "large" => 38, _ => 34 };
+    private double IslandCenter => Model.Settings.IslandSize switch { "small" => 64, "large" => 128, _ => 96 };
+    private double IslandExpandedWidth => Model.Settings.IslandSize switch { "small" => 400, "large" => 480, _ => 440 };
+    private double IslandGap => Model.Settings.IslandGap switch { "tight" => 3, "roomy" => 10, _ => 6 };
+    private bool ShowsFace => Model.Settings.ClosedFace != "off";
+
+    /// <summary>Island: a floating pill with a gap above and an optional shadow. Notch: hangs from the top edge.</summary>
+    public void ApplyStyle(bool animate)
+    {
+        Island.Floating = IsIsland;
+        Island.Gap = IsIsland ? IslandGap : 0;
+        Island.Effect = IsIsland && Model.Settings.IslandShadow
+            ? new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 18, ShadowDepth = 3, Direction = 270, Opacity = 0.45 }
+            : null;
+        _eyes = null;
+        _liveKey = "";
+        _closedShape = null;
+        switch (Presentation)
+        {
+            case Presentation.Expanded: Apply(ExpandedShape(Selected), animate); break;
+            case Presentation.Peek: Apply(PeekShape, animate); break;
+            default:
+                if (!animate) Apply(ClosedShape(), false);
+                UpdateLive();
+                break;
+        }
+    }
 
     /// <summary>Something worth showing while closed (Mac: hasLiveActivity, or unread with Roar on).</summary>
     public bool IsLive
@@ -40,21 +74,41 @@ public partial class IslandWindow
         }
     }
 
-    private Shape ClosedShape() => IsLive ? (Hovering ? LiveHoverShape : LiveShape) : (Hovering ? LipHoverShape : LipShape);
+    /// <summary>The closed shape: the island pill (wider while live), or in Notch style the live pill,
+    /// a small tab for Ezkiel's face, or just the thin lip when the face is off.</summary>
+    private Shape ClosedShape()
+    {
+        bool live = IsLive;
+        if (IsIsland)
+        {
+            double w = IslandCenter + (live ? 88 : 0), h = IslandHeight;
+            if (Hovering) { w += 12; h += 2; }
+            return new(w, h, h / 2, 0);
+        }
+        if (live) return Hovering ? LiveHoverShape : LiveShape;
+        if (ShowsFace) return Hovering ? new(116, 24, 10, 7) : new(104, 22, 9, 6);
+        return Hovering ? LipHoverShape : LipShape;
+    }
 
     /// <summary>Called on every change that could start or end something live, and once a second.</summary>
     public void UpdateLive()
     {
         if (Presentation != Presentation.Lip) return;
-        bool live = IsLive;
-        if (live != _liveShown)
+        var shape = ClosedShape();
+        if (shape != _closedShape)
         {
-            _liveShown = live;
-            Apply(ClosedShape(), animate: true, bouncy: live);
-            Fade(LiveView, live ? 1 : 0, live ? 0.22 : 0.1, delay: live ? 0.12 : 0);
+            bool grows = _closedShape is null || shape.Width > _closedShape.Value.Width;
+            _closedShape = shape;
+            Apply(shape, animate: true, bouncy: grows);
+        }
+        bool show = IsLive || ShowsFace;
+        if (show != _liveShown)
+        {
+            _liveShown = show;
+            Fade(LiveView, show ? 1 : 0, show ? 0.22 : 0.1, delay: show ? 0.12 : 0);
             LiveView.IsHitTestVisible = false;
         }
-        if (!live) return;
+        if (!show) return;
         var key = LiveKey();
         if (key != _liveKey)
         {
@@ -62,13 +116,31 @@ public partial class IslandWindow
             BuildLive();
         }
         if (_liveTimer is not null) _liveTimer.Text = FocusClock.Format(Model.Focus.Remaining(DateTime.UtcNow));
+        _eyes?.Set(EyesMood(), Hovering);
     }
+
+    /// <summary>Ezkiel's mood, as on the Mac: an agent working or waiting first, then happy, napping, focusing.</summary>
+    private LionEyes.Mood EyesMood()
+    {
+        if (Model.LiveAgents.FirstOrDefault() is { } agent) return agent.Kind == ScoutKind.NeedsYou ? LionEyes.Mood.Waiting : LionEyes.Mood.Working;
+        var now = DateTime.UtcNow;
+        if (now < _happyUntil) return LionEyes.Mood.Happy;
+        if (Model.Focus.IsRunning && Model.Focus.Mode == FocusMode.Focus) return LionEyes.Mood.Focused;
+        if (Model.Settings.MascotSleeps && !IsLive && !Hovering && now - _lastInteraction > TimeSpan.FromMinutes(2)) return LionEyes.Mood.Sleeping;
+        return LionEyes.Mood.Awake;
+    }
+
+    /// <summary>A task done, a drink, a file stashed: Ezkiel smiles for a moment.</summary>
+    public void MakeLionHappy() => _happyUntil = DateTime.UtcNow.AddSeconds(2.5);
+
+    public void NoteInteraction() => _lastInteraction = DateTime.UtcNow;
 
     /// <summary>What the pill shows, as text: it is rebuilt only when this changes.</summary>
     private string LiveKey()
     {
         var np = Media.Current;
-        return string.Join("|", Model.Focus.IsRunning, Model.Focus.Mode, np?.IsPlaying == true ? np.TrackKey : "", Media.Artwork is not null,
+        return string.Join("|", IsLive, Model.Settings.ClosedFace, IsIsland, Model.Focus.IsRunning, Model.Focus.Mode,
+            np?.IsPlaying == true ? np.TrackKey : "", Media.Artwork is not null,
             Prowl.MicInUse, Prowl.CameraInUse, Model.Settings.Prowl, MeetingSoon?.Title, MeetingMinutes, Model.LiveAgents.Count,
             Model.LiveAgents.FirstOrDefault()?.Kind, Model.UnreadTotal, Power.Charging, Power.Percent, Lang.IsIndonesian);
     }
@@ -77,10 +149,23 @@ public partial class IslandWindow
     {
         LiveLeft.Children.Clear();
         LiveRight.Children.Clear();
+        LiveCenter.Content = null;
         _liveTimer = null;
         var np = Media.Current;
+        var face = Model.Settings.ClosedFace;
+        bool live = IsLive;
 
-        // Left: artwork while playing, else Ezkiel.
+        // Middle: Ezkiel's eyes (the closed island has no camera to make room for).
+        if (face == "eyes")
+        {
+            _eyes ??= new LionEyes(IsIsland ? 10 : 9);
+            LiveCenter.Content = _eyes;
+        }
+        else if (face == "lion" && !live)
+            LiveCenter.Content = new Image { Source = PurrPane.Lion, Width = 18, Height = 18 };
+        if (!live) return;
+
+        // Left: artwork while playing, else the lion when that's the face.
         if (np?.IsPlaying == true && Media.Artwork is { } art)
             LiveLeft.Children.Add(new Border
             {
@@ -89,7 +174,7 @@ public partial class IslandWindow
                 CornerRadius = new CornerRadius(4.5),
                 Background = new ImageBrush(art) { Stretch = Stretch.UniformToFill },
             });
-        else
+        else if (face == "lion")
             LiveLeft.Children.Add(new Image { Source = PurrPane.Lion, Width = 19, Height = 19 });
         if (Model.Settings.Prowl)
         {
@@ -111,8 +196,9 @@ public partial class IslandWindow
             t.ToolTip = meeting.Title;
             LiveRight.Children.Add(t);
         }
-        else if (Model.LiveAgents.FirstOrDefault() is { } agent)
+        else if (face != "eyes" && Model.LiveAgents.FirstOrDefault() is { } agent)
         {
+            // With the eyes on, they show the agent instead (they glance while it works and glow when it waits).
             bool waiting = agent.Kind == ScoutKind.NeedsYou;
             var accent = waiting ? Accent.Den : Accent.Scout;
             LiveRight.Children.Add(Ui.Glyph(RoarPane.Glyph(agent), 11.5, accent.LightBrush));
@@ -139,7 +225,7 @@ public partial class IslandWindow
         else if (Power.Charging && Power.Percent is { } pct)
         {
             var teal = new SolidColorBrush(Color.FromRgb(0x40, 0xE0, 0xD0));
-            LiveRight.Children.Add(Ui.Glyph("", 9, teal));
+            LiveRight.Children.Add(Ui.Glyph("\uE945", 9, teal));
             var t = Ui.Number($"{pct}%", 11, teal);
             t.Margin = new Thickness(2, 0, 0, 0);
             LiveRight.Children.Add(t);

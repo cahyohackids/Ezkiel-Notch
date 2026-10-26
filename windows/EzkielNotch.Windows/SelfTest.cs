@@ -53,9 +53,10 @@ internal static class SelfTest
             }),
             ("lip", () =>
             {
-                Check(w.Presentation == Presentation.Lip, "starts as the lip");
+                Check(w.Presentation == Presentation.Lip, "starts closed");
                 var shape = w.Island.ShapeRect;
-                Check(shape.Height <= 8 && shape.Width < 220, $"lip is thin and small ({shape.Width:0}×{shape.Height:0})");
+                Check(shape.Height <= 24 && shape.Width < 140, $"closed, it's a small tab for Ezkiel's face ({shape.Width:0}×{shape.Height:0})");
+                Check(w.LiveCenter.Content is LionEyes, "Ezkiel's eyes are in the closed island");
                 Check(w.OnIsland(new Point(shape.Left + shape.Width / 2, 2)), "the lip takes the pointer");
                 Check(!w.OnIsland(new Point(10, 200)), "everywhere else passes clicks through");
             }),
@@ -283,6 +284,35 @@ internal static class SelfTest
             {
                 w.Toggle();
                 Check(w.Presentation == Presentation.Lip, "and closes");
+            }),
+            ("island", () =>
+            {
+                m.FocusReset();
+                m.UpdateBadges([]);
+                m.Settings.Style = "island";
+                m.SettingsChanged();
+            }),
+            ("island closed", () =>
+            {
+                var r = w.Island.ShapeRect;
+                Check(w.Island.Floating && r.Top >= 5 && Math.Abs(r.Height - 34) < 1 && Math.Abs(r.Width - 96) < 1,
+                      $"Island style floats below the top edge as a 96×34 pill ({r.Left:0},{r.Top:0} {r.Width:0}×{r.Height:0})");
+            }),
+            ("island open", () => w.Expand()),
+            ("island open ok", () =>
+            {
+                RoomChecks(w, w.Selected);
+                Check(w.Island.ShapeRect.Top >= 5, "the open island floats too");
+                m.Settings.IslandSize = "large";
+                m.SettingsChanged();
+            }),
+            ("island large", () => Check(Math.Abs(w.Island.BodyRect.Width - 480) < 1, $"a large island opens 480 wide ({w.Island.BodyRect.Width:0})")),
+            ("island back", () =>
+            {
+                m.Settings.Style = "notch";
+                m.Settings.IslandSize = "medium";
+                m.SettingsChanged();
+                w.Collapse();
             }),
         };
 
