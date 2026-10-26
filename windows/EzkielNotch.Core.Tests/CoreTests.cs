@@ -695,3 +695,22 @@ public class UpdateTests
         Assert.False(AppVersion.IsNewer("v1.6", "1.6.0"));
     }
 }
+
+public class WindowsReleaseTests
+{
+    [Fact]
+    public void WindowsPreviewReleasesCountButOtherPrereleasesDont()
+    {
+        const string json = """
+            [
+              {"tag_name":"windows-v0.9.0","draft":false,"prerelease":true,"html_url":"w","assets":[
+                {"name":"EzkielNotch-windows-win-x64.zip","browser_download_url":"z"},{"name":"SHA256SUMS-windows.txt","browser_download_url":"s"}]},
+              {"tag_name":"v2.0.0-beta","draft":false,"prerelease":true,"html_url":"b","assets":[
+                {"name":"EzkielNotch-windows-win-x64.zip","browser_download_url":"zb"},{"name":"SHA256SUMS.txt","browser_download_url":"sb"}]}
+            ]
+            """;
+        var r = UpdateVerify.Pick(json, "win-x64")!;
+        Assert.Equal("windows-v0.9.0", r.Version);
+        Assert.Equal([0, 9, 0], AppVersion.Parts(r.Version));
+    }
+}

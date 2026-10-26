@@ -1,6 +1,6 @@
 # Ezkiel Notch 🦁
 
-**A living notch for your Mac, made for [ezkielyna.store](https://ezkielyna.store/notch).**
+**A living notch for your Mac (and now your Windows PC), made for [ezkielyna.store](https://ezkielyna.store/notch).**
 Ezkiel the lion lives in your MacBook's notch. Hover (or click) and it opens into a small workspace where every feature has its own name and colour: **Den, Hunt, Scratch, Purr, Stash, Oasis**, plus small **Whiskers** notifications beside the camera. Native SwiftUI + AppKit, macOS 13+, universal (Apple Silicon + Intel). Free and open source (Apache-2.0).
 
 <p align="center">
@@ -23,6 +23,46 @@ Get the latest **DMG** or **ZIP** from [ezkielyna.store/notch](https://ezkielyna
    `xattr -cr "/Applications/Ezkiel Notch.app"` once.
 3. macOS asks once for each permission a feature needs: Automation (Purr controls Spotify/Music), Calendar (Rally), Desktop/Downloads (Pounce). Each feature is off until you switch it on, except Purr.
 
+## Windows (Preview)
+
+The same rooms on Windows 10 (2004) and 11, x64 and ARM64: a native WPF app in [`windows/`](windows) with the Mac's names, colours, Bahasa Indonesia and the **same `data.json`** (copy it between `~/Library/Application Support/EzkielNotch` and `%APPDATA%\EzkielNotch`).
+
+<p align="center">
+  <img src="docs/screenshots/windows/island.png" width="49%" alt="The open Island on Windows">
+  <img src="docs/screenshots/windows/chorus.png" width="49%" alt="Purr with Chorus on Windows">
+  <img src="docs/screenshots/windows/roar.png" width="49%" alt="Roar on Windows">
+  <img src="docs/screenshots/windows/hunt.png" width="49%" alt="Hunt with Rally on Windows">
+</p>
+
+1. Download `EzkielNotch-windows-win-x64.zip` (or `-win-arm64.zip` for Snapdragon PCs) from the newest **windows-v…** release, unzip it anywhere and run `EzkielNotch.exe`.
+2. The Preview isn't code-signed yet, so SmartScreen asks once: **More info → Run anyway**.
+3. Hover the top centre of the screen, click it, or press **Ctrl+Alt+N**. Settings › General › Launch at login keeps Ezkiel there.
+
+How the Mac features map to Windows:
+
+| Mac | Windows |
+|---|---|
+| Purr: Spotify / Music via Apple Events | Any app in Windows' media controls (Spotify, Media Player, browsers) |
+| Roar: Dock badges | Windows' notification database: taskbar badge numbers, else notifications waiting in Notification Center (counts only, no permission) |
+| Scout: distributed notification | Same senders (`--claude-hook`, `--codex-notify`, `--notify`, `ezkielnotch://`), delivered over a per-user named pipe |
+| Rally: EventKit | Your calendar's private iCal address (Windows gives calendar access only to Store apps) |
+| Stash: AirDrop / Share | Windows' share sheet (Nearby sharing, mail, chats) |
+| Prowl: CoreAudio / CoreMediaIO | The camera/microphone consent store Windows keeps |
+| Whiskers volume HUD | Windows' own volume flyout (Caps Lock, keyboard language, network, headphones and battery peeks are there) |
+| Liquid Glass | Not on Windows |
+
+Build and test (works on macOS too, with the .NET 8 SDK):
+
+```sh
+cd windows
+dotnet test EzkielNotch.Core.Tests                  # data format, timers, lyrics, calendar, Scout, updates
+dotnet publish EzkielNotch.Windows -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
+tools/check_format.sh                               # the Mac's own Swift code reads what Windows writes, and back
+EzkielNotch.exe --self-test --snapshots <dir>       # on Windows: drives the real island, exit 0 = pass
+```
+
+CI (`.github/workflows/windows.yml`) builds both architectures and runs the tests and the self-test on a Windows runner; pushing a `windows-v*` tag publishes a release with both zips and `SHA256SUMS-windows.txt` (`windows-release.yml`).
+
 ## Bahasa Indonesia — cara pakai singkat
 
 - **Arahkan kursor ke notch** → terbuka. **Klik** juga bisa. Gerakkan kursor menjauh → notch menutup lagi.
@@ -30,6 +70,7 @@ Get the latest **DMG** or **ZIP** from [ezkielyna.store/notch](https://ezkielyna
 - **Den** = timer fokus + statistik & streak. **Hunt** = tugas + **Rally** (rapat berikutnya, tombol Join). **Scratch** = catatan + **Catch** (klip). **Purr** = musik + **Chorus** (lirik sinkron). **Stash** = rak file + **AirDrop** + **Pounce** (screenshot & unduhan baru). **Oasis** = minum air.
 - **Island** (mulai 1.6): Pengaturan › Umum › Gaya → Island. Melayang seperti Dynamic Island, ukuran dan jaraknya bisa diatur, bisa pakai Liquid Glass. **Mata singa** Ezkiel di tengah notch tertutup berkedip dan bereaksi.
 - **Update satu klik** (mulai 1.5): kalau ada versi baru, buka Pengaturan › Tentang lalu klik **Update sekarang**. App mengunduh, mengecek SHA-256, mengganti dirinya sendiri, lalu terbuka lagi. Datamu tetap.
+- **Windows**: versi Preview untuk Windows 10/11 (x64 & ARM64) ada di rilis **windows-v…**. Ekstrak zip-nya, jalankan `EzkielNotch.exe`, lalu klik *More info → Run anyway* sekali. Datanya sama dengan Mac (`data.json`).
 - **Bahasa Indonesia**: Pengaturan › Umum › Bahasa → Indonesia. **Cuaca** di header (ketik kotamu di Pengaturan › Fitur, tanpa izin lokasi), **Prowl** (titik hijau/oranye saat kamera/mikrofon menyala), **Cermin** kamera sebelum rapat, dan pilihan output suara di Purr.
 - **Roar** = jumlah pesan belum dibaca dari WhatsApp, Telegram, Teams, Mail, Slack, dan app lain yang punya badge di Dock (cuma angkanya, tanpa izin apa pun, isi pesan tidak dibaca). **Scout** = kabar dari agen AI: Claude Code dan Codex memberi tahu saat selesai atau butuh kamu (sambungkan di Settings › Roar).
 - **Whiskers**: volume, Caps Lock, bahasa keyboard, Wi-Fi, AirPods, dan baterai muncul sebentar di samping kamera.
@@ -94,6 +135,11 @@ Sources/EzkielNotch/
   Mascot/                 Ezkiel the lion (vector, animated)
   System/                 Music (Apple Events), lyrics, battery, system events, Pounce, Rally (EventKit), thumbnails
   Views/                  Compact, peek, expanded and every tab
+windows/
+  EzkielNotch.Core/       Plain .NET: the shared data.json format, focus clock, stats, lyrics, iCal, Scout, updates
+  EzkielNotch.Core.Tests/ xUnit tests (run on any OS)
+  EzkielNotch.Windows/    WPF app: Island (window, shapes, eyes), Rooms (every tab), Platform (Windows APIs)
+  tools/                  export_strings.py (Indonesian from the Mac table), check_format.sh (Mac ⇄ Windows data)
 ```
 
 Design follows the MacBook notch and the Dynamic Island (a pure-black, top-attached body with concave ears, spring motion, live activities, peek cards), built natively for macOS in SwiftUI and AppKit. Each feature has its own Apple-style two-stop accent: Den amber, Hunt coral, Rally purple, Scratch yellow, Purr pink (or the artwork's colour), Stash indigo, Oasis blue; the app's own accent is lion gold `#FFCF87`.

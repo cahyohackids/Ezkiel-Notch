@@ -54,9 +54,11 @@ public static class UpdateVerify
         return Convert.ToHexString(SHA256.HashData(f)).ToLowerInvariant();
     }
 
-    /// <summary>From GET /repos/…/releases: the newest non-draft, non-prerelease release that carries
+    /// <summary>From GET /repos/…/releases: the newest non-draft release that carries
     /// EzkielNotch-windows-&lt;rid&gt;.zip and its checksums (SHA256SUMS-windows.txt, written by the Windows release
-    /// job so it never races the Mac's SHA256SUMS.txt; that one is accepted too).</summary>
+    /// job so it never races the Mac's SHA256SUMS.txt; that one is accepted too). Windows releases have their own
+    /// tags (windows-v0.9.0) and may be marked Preview (a GitHub prerelease, so the Mac's update check never sees
+    /// them); any other prerelease is skipped.</summary>
     public static WindowsRelease? Pick(string releasesJson, string rid)
     {
         try
@@ -66,7 +68,9 @@ public static class UpdateVerify
             WindowsRelease? best = null;
             foreach (var r in releases.OfType<JsonObject>())
             {
-                if (Json.Bool(r["draft"]) == true || Json.Bool(r["prerelease"]) == true) continue;
+                var tagName = Json.String(r["tag_name"]) ?? "";
+                bool windowsTag = tagName.StartsWith("windows-", StringComparison.OrdinalIgnoreCase);
+                if (Json.Bool(r["draft"]) == true || (Json.Bool(r["prerelease"]) == true && !windowsTag)) continue;
                 var assets = (r["assets"] as JsonArray ?? []).OfType<JsonObject>().ToList();
                 string? Url(string name) => assets.FirstOrDefault(a => Json.String(a["name"]) == name) is { } a ? Json.String(a["browser_download_url"]) : null;
                 if (Url(zipName) is not { } zip || (Url("SHA256SUMS-windows.txt") ?? Url("SHA256SUMS.txt")) is not { } sums) continue;
