@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using EzkielNotch.Core;
 using EzkielNotch.Island;
@@ -107,7 +108,34 @@ internal static class SelfTest
             }),
             ("settings", () => w.Select(Room.Settings)),
             ("settings ok", () => RoomChecks(w, Room.Settings)),
-            ("roar", () => w.Select(Room.Roar)),
+            ("purr", () =>
+            {
+                w.Media.Simulate(new Platform.NowPlaying("Spotify.exe", "Golden Hour", "JVKE", "this is what ____ feels like", 209, 63, DateTime.UtcNow, true), DemoArtwork());
+                w.Select(Room.Purr);
+            }),
+            ("purr ok", () =>
+            {
+                RoomChecks(w, Room.Purr);
+                Check(w.Island.BodyRect.Height < 220, "Purr without Chorus is the short room");
+            }),
+            ("chorus", () =>
+            {
+                m.Settings.ShowLyrics = true;
+                var np = w.Media.Current!;
+                w.Lyrics.Preview(Lrc.Parse("[00:52.0]It was just two lovers\n[00:56.5]Sittin' in the car, listening to Blonde\n[01:01.0]Fallin' for each other\n[01:05.5]In pink and blue\n[01:10.0]Golden hour"), np.Song);
+                w.CurrentPane!.Refresh();
+                w.Select(Room.Purr);
+            }),
+            ("chorus ok", () =>
+            {
+                RoomChecks(w, Room.Purr);
+                Check(w.Island.BodyRect.Height > 240, "Chorus makes Purr taller, like the Mac");
+            }),
+            ("roar", () =>
+            {
+                m.Settings.ShowLyrics = false;
+                w.Select(Room.Roar);
+            }),
             ("roar ok", () => RoomChecks(w, Room.Roar)),
             ("indonesian", () =>
             {
@@ -207,6 +235,21 @@ internal static class SelfTest
         After(1.0, () => Step(0));
     }
 
+    /// <summary>A warm gradient square standing in for album art.</summary>
+    private static System.Windows.Media.Imaging.BitmapSource DemoArtwork()
+    {
+        var v = new System.Windows.Media.DrawingVisual();
+        using (var dc = v.RenderOpen())
+        {
+            dc.DrawRectangle(new LinearGradientBrush(Color.FromRgb(0xFF, 0xB3, 0x47), Color.FromRgb(0xD9, 0x3A, 0x5B), 45), null, new Rect(0, 0, 192, 192));
+            dc.DrawEllipse(new SolidColorBrush(Color.FromArgb(0x66, 0xFF, 0xF1, 0xC4)), null, new Point(130, 70), 38, 38);
+        }
+        var bmp = new RenderTargetBitmap(192, 192, 96, 96, PixelFormats.Pbgra32);
+        bmp.Render(v);
+        bmp.Freeze();
+        return bmp;
+    }
+
     /// <summary>Realistic data for the snapshots: a week of focus and water, tasks, notes and clips.</summary>
     private static void Seed(NotchModel m)
     {
@@ -241,7 +284,7 @@ internal static class SelfTest
     private static void RoomChecks(IslandWindow w, Room room)
     {
         var body = w.Island.BodyRect;
-        double want = IslandWindow.ExpandedHeight(room);
+        double want = w.ExpandedHeight(room);
         Check(Math.Abs(body.Width - 440) < 1 && Math.Abs(body.Height - want) < 1, $"{room}: the island is 440×{want:0} ({body.Width:0}×{body.Height:0})");
         var pane = w.CurrentPane;
         Check(pane is not null && pane.Info.Room == room, $"{room}: its page is shown");

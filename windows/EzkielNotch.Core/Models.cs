@@ -64,6 +64,8 @@ public sealed class NotchSettings
     public bool HideInFullscreen { get; set; } = true;
     public bool QuietDuringFocus { get; set; } = true;
     public AppLanguage Language { get; set; } = AppLanguage.Auto;
+    /// <summary>Chorus (lyrics) beside Purr. Off until the user taps the lyrics button (LRCLIB is only asked then).</summary>
+    public bool ShowLyrics { get; set; }
 
     /// <summary>The settings object as read, Mac-only keys included.</summary>
     internal JsonObject Raw { get; set; } = [];
@@ -86,6 +88,7 @@ public sealed class NotchSettings
         s.BreakMinutes = Json.Int(o["breakMinutes"]) ?? s.BreakMinutes;
         s.HideInFullscreen = Json.Bool(o["hideInFullscreen"]) ?? s.HideInFullscreen;
         s.QuietDuringFocus = Json.Bool(o["quietDuringFocus"]) ?? s.QuietDuringFocus;
+        s.ShowLyrics = Json.Bool(o["showLyrics"]) ?? s.ShowLyrics;
         s.Language = Json.String(o["language"]) switch
         {
             "en" => AppLanguage.En,
@@ -111,6 +114,7 @@ public sealed class NotchSettings
         o["breakMinutes"] = BreakMinutes;
         o["hideInFullscreen"] = HideInFullscreen;
         o["quietDuringFocus"] = QuietDuringFocus;
+        o["showLyrics"] = ShowLyrics;
         o["language"] = Language switch { AppLanguage.En => "en", AppLanguage.Id => "id", _ => "auto" };
         // Without it the Mac would treat these as pre-1.3.1 settings and migrate them again.
         o["defaultsRevision"] ??= CurrentRevision;

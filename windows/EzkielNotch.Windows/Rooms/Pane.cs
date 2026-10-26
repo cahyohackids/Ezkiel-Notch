@@ -23,6 +23,9 @@ public abstract class Pane : Grid
 
     public abstract void Refresh();
 
+    /// <summary>How tall the room is right now (Purr grows when Chorus is on).</summary>
+    public virtual double DesiredHeight => Info.PaneHeight;
+
     /// <summary>Once a second while the room is on screen.</summary>
     public virtual void SecondTick() { }
 

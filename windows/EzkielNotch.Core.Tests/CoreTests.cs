@@ -400,3 +400,46 @@ public class MacRoundTripTests
         Assert.Equal(AppLanguage.En, back.Settings.Language);
     }
 }
+
+public class LyricsTests
+{
+    [Fact]
+    public void ParsesLrcLikeTheMac()
+    {
+        var lines = Lrc.Parse("[ar:Someone]\n[offset:+500]\n[00:12.50][01:00.00]Chorus line\n[00:05.00]First\n[00:30:25]Third\nno tag");
+        Assert.Equal(["First", "Chorus line", "Third", "Chorus line"], lines.Select(l => l.Text));
+        Assert.Equal(4.5, lines[0].Time, 3);
+        Assert.Equal(12.0, lines[1].Time, 3);
+        Assert.Equal(29.75, lines[2].Time, 3);
+    }
+
+    [Fact]
+    public void FindsTheLineBeingSung()
+    {
+        var lines = Lrc.Parse("[00:01.00]a\n[00:03.00]b\n[00:05.00]c");
+        Assert.Null(Lrc.Index(0.5, lines));
+        Assert.Equal(0, Lrc.Index(1, lines));
+        Assert.Equal(1, Lrc.Index(4.9, lines));
+        Assert.Equal(2, Lrc.Index(100, lines));
+    }
+
+    [Theory]
+    [InlineData("Song - Remastered 2011", "Song")]
+    [InlineData("Song (feat. X)", "Song")]
+    [InlineData("Song [feat. Y]", "Song")]
+    [InlineData("Plain", "Plain")]
+    public void CleansTitlesForSearch(string title, string clean) => Assert.Equal(clean, Lrc.CleanTitle(title));
+
+    [Fact]
+    public void PrefersSyncedLyricsOfTheRightLength()
+    {
+        var best = LyricsClient.Best([
+            new(null, "plain", false, 200),
+            new("[00:01.00]x", null, false, 260),
+            new("[00:01.00]y", null, false, 201),
+        ], 200);
+        Assert.Equal("[00:01.00]y", best!.SyncedLyrics);
+        Assert.Equal(LyricsKind.Synced, LyricsClient.StateOf(best).Kind);
+        Assert.Equal(LyricsKind.Instrumental, LyricsClient.StateOf(new(null, null, true, 1)).Kind);
+    }
+}

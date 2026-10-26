@@ -35,10 +35,13 @@ public partial class IslandWindow : Window
     private static readonly Shape PeekShape = new(320, 52, 18, 10);
 
     /// <summary>Header 34 + tabs 30 + gap 10 + the room's pane + bottom 12, like the Mac's expandedSize.</summary>
-    public static double ExpandedHeight(Room room) => 34 + 30 + 10 + RoomInfo.Of(room).PaneHeight + 12;
-    private static Shape ExpandedShape(Room room) => new(440, ExpandedHeight(room), 22, 13);
+    public double ExpandedHeight(Room room) =>
+        34 + 30 + 10 + (_panes.TryGetValue(room, out var pane) ? pane.DesiredHeight : RoomInfo.Of(room).PaneHeight) + 12;
+    private Shape ExpandedShape(Room room) => new(440, ExpandedHeight(room), 22, 13);
 
     public NotchModel Model { get; }
+    public MediaWatcher Media { get; }
+    public LyricsClient Lyrics { get; }
     public Presentation Presentation { get; private set; } = Presentation.Lip;
     public bool Hovering { get; private set; }
     public bool FullscreenActive { get; private set; }
@@ -69,6 +72,8 @@ public partial class IslandWindow : Window
     public IslandWindow(NotchModel model)
     {
         Model = model;
+        Media = new MediaWatcher(Dispatcher);
+        Lyrics = new LyricsClient(version: typeof(IslandWindow).Assembly.GetName().Version?.ToString(3) ?? "0");
         InitializeComponent();
         BuildTabs();
         Apply(LipShape, animate: false);
@@ -91,6 +96,14 @@ public partial class IslandWindow : Window
         };
         Model.Toast += ShowToast;
         Model.Sound += name => { if (Model.Settings.Sounds) Sounds.Play(name); };
+
+        // A new song while the island is closed: a short peek (not in the first seconds after launch).
+        var launched = DateTime.UtcNow;
+        Media.TrackChanged += np =>
+        {
+            if (DateTime.UtcNow - launched < TimeSpan.FromSeconds(4) || Presentation == Presentation.Expanded) return;
+            ShowPeek(np.Title, np.Artist, room: Room.Purr);
+        };
     }
 
     // MARK: Window setup
@@ -115,6 +128,7 @@ public partial class IslandWindow : Window
         _winEventProc = (_, _, _, _, _, _, _) => Dispatcher.BeginInvoke(CheckFullscreen);
         _winEventHook = Win32.SetWinEventHook(Win32.EVENT_SYSTEM_FOREGROUND, Win32.EVENT_SYSTEM_FOREGROUND, 0, _winEventProc, 0, 0, Win32.WINEVENT_OUTOFCONTEXT);
 
+        Media.Start();
         _pointer.Start();
         _second.Start();
         _fullscreenPoll.Start();
@@ -512,8 +526,11 @@ public partial class IslandWindow : Window
             Room.Scratch => new ScratchPane(Model),
             Room.Oasis => new OasisPane(Model),
             Room.Settings => new SettingsPane(Model),
+            Room.Purr => new PurrPane(Model, Media, Lyrics),
             _ => new ComingPane(Model, room),
         };
+        if (pane is PurrPane purr)
+            purr.HeightChanged += () => { if (Presentation == Presentation.Expanded && Selected == Room.Purr) Apply(ExpandedShape(Room.Purr), animate: true); };
         if (pane is ScratchPane scratch) scratch.Copied += () => ShowToast(new ToastRequest(L("Copied")));
         pane.Refresh();
         _panes[room] = pane;

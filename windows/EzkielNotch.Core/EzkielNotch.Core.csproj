@@ -10,6 +10,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="EzkielNotch.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- indonesian.json is exported from the Mac app's Indonesian.swift (tools/export_strings.py). -->
     <EmbeddedResource Include="Strings\*.json" LogicalName="%(Filename).json" />
   </ItemGroup>
