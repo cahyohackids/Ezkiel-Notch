@@ -19,12 +19,20 @@ enum IconRenderer {
         return true
     }
 
+    /// Writes the review sheet, plus one transparent 512 px PNG per mood next to it (lion-awake.png, ...).
     static func renderMascotSheet(to path: String) -> Bool {
         let renderer = ImageRenderer(content: LionMascotSheet())
         renderer.scale = 2
         guard let cg = renderer.cgImage,
-              let data = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]) else { return false }
-        return (try? data.write(to: URL(fileURLWithPath: path))) != nil
+              let data = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]),
+              (try? data.write(to: URL(fileURLWithPath: path))) != nil else { return false }
+        let dir = URL(fileURLWithPath: path).deletingLastPathComponent()
+        let moods: [(String, LionMood)] = [("awake", .awake), ("happy", .happy), ("focused", .focused), ("sleeping", .sleeping)]
+        for (name, mood) in moods {
+            guard let png = png(LionMascot(size: 512, mood: mood, animated: false), size: 512) else { return false }
+            guard (try? png.write(to: dir.appendingPathComponent("lion-\(name).png"))) != nil else { return false }
+        }
+        return true
     }
 
     /// Small lion for the menu bar.
