@@ -4,15 +4,18 @@ import SwiftUI
 /// The notch silhouette: a body hanging from the top edge with rounded bottom
 /// corners and two concave "ears" that melt into the menu bar (like a real notch).
 /// The ears live inside `rect`, so the body is `rect.width - 2 * ear` wide.
+/// `belly` bows the bottom edge (+ down, − up) for the water-drop wobble.
 struct NotchShape: Shape {
     var bottomRadius: CGFloat
     var ear: CGFloat
+    var belly: CGFloat = 0
 
-    var animatableData: AnimatablePair<CGFloat, CGFloat> {
-        get { AnimatablePair(bottomRadius, ear) }
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, CGFloat> {
+        get { AnimatablePair(AnimatablePair(bottomRadius, ear), belly) }
         set {
-            bottomRadius = newValue.first
-            ear = newValue.second
+            bottomRadius = newValue.first.first
+            ear = newValue.first.second
+            belly = newValue.second
         }
     }
 
@@ -28,7 +31,8 @@ struct NotchShape: Shape {
         p.addQuadCurve(to: CGPoint(x: left, y: rect.minY + e), control: CGPoint(x: left, y: rect.minY))
         p.addLine(to: CGPoint(x: left, y: rect.maxY - r))
         p.addArc(tangent1End: CGPoint(x: left, y: rect.maxY), tangent2End: CGPoint(x: left + r, y: rect.maxY), radius: r)
-        p.addLine(to: CGPoint(x: right - r, y: rect.maxY))
+        // Quad control at twice the bow puts the lowest point exactly `belly` below the edge.
+        p.addQuadCurve(to: CGPoint(x: right - r, y: rect.maxY), control: CGPoint(x: rect.midX, y: rect.maxY + belly * 2))
         p.addArc(tangent1End: CGPoint(x: right, y: rect.maxY), tangent2End: CGPoint(x: right, y: rect.maxY - r), radius: r)
         p.addLine(to: CGPoint(x: right, y: rect.minY + e))
         // right ear (concave)

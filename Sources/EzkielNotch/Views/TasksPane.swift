@@ -29,38 +29,37 @@ struct TasksPane: View {
         let tasks = model.data.tasks
         let doneCount = tasks.filter(\.done).count
 
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 8) {
-                NotchField(placeholder: "Add something to do…", text: $draft, onSubmit: add)
-                IconButton(icon: "plus", size: 30, filled: true, help: "Add task (Return)", action: add)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                NotchField(placeholder: "New task", text: $draft, onSubmit: add)
+                IconButton(icon: "plus", size: 28, filled: true, help: "Add task (Return)", action: add)
             }
-            HStack(spacing: 5) {
-                Image(systemName: "bell").font(.system(size: 9.5, weight: .bold)).foregroundStyle(Theme.mist)
+            HStack(spacing: 4) {
+                Image(systemName: "bell").font(.system(size: 10)).foregroundStyle(Theme.mist)
                 ForEach(DueChoice.allCases) { choice in
-                    Chip(title: choice.rawValue, selected: dueChoice == choice, tint: Theme.orange) {
+                    Chip(title: choice.rawValue, selected: dueChoice == choice) {
                         dueChoice = choice
                     }
-                    .scaleEffect(0.9)
                 }
                 Spacer(minLength: 0)
                 Text("\(doneCount)/\(tasks.count) done")
-                    .font(Theme.rounded(10, .semibold))
+                    .font(Theme.font(10.5))
                     .foregroundStyle(Theme.mist)
                     .contentTransition(.numericText())
                 if doneCount > 0 {
-                    Button("Clear done") { model.clearDoneTasks() }
+                    Button("Clear") { model.clearDoneTasks() }
                         .buttonStyle(PressableStyle())
-                        .font(Theme.rounded(10, .semibold))
+                        .font(Theme.font(10.5, .medium))
                         .foregroundStyle(Theme.gold)
                 }
             }
 
             if tasks.isEmpty {
-                EmptyHint(title: "A clear list is a good start.", subtitle: "Type a task and press Return. Add a time and Ezkiel will remind you.")
+                EmptyHint(title: "No tasks", subtitle: "Type one and press Return. Pick a time to get a reminder.")
                     .transition(.opacity)
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 5) {
+                    LazyVStack(spacing: 4) {
                         ForEach(tasks) { task in
                             TaskRow(task: task,
                                     toggle: { model.toggleTask(task.id) },
@@ -96,17 +95,17 @@ private struct TaskRow: View {
                 ZStack {
                     Circle().strokeBorder(task.done ? Color.clear : Theme.mist.opacity(0.7), lineWidth: 1.5)
                     if task.done {
-                        Circle().fill(Theme.tealGradient)
+                        Circle().fill(Theme.teal)
                         Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(Theme.navy)
                             .transition(.scale.combined(with: .opacity))
                     }
                 }
-                .frame(width: 18, height: 18)
+                .frame(width: 16, height: 16)
             }
             .buttonStyle(PressableStyle(scale: 0.8))
 
             Text(task.title)
-                .font(Theme.rounded(12.5, .medium))
+                .font(Theme.font(12.5))
                 .foregroundStyle(task.done ? Theme.mist : Theme.ink)
                 .strikethrough(task.done, color: Theme.mist)
                 .lineLimit(1)
@@ -115,11 +114,8 @@ private struct TaskRow: View {
                 let overdue = due <= Date()
                 Label(due.formatted(Calendar.current.isDateInToday(due) ? .dateTime.hour().minute() : .dateTime.weekday(.abbreviated).hour().minute()),
                       systemImage: overdue ? "bell.badge.fill" : "bell")
-                    .font(Theme.rounded(10, .semibold))
-                    .foregroundStyle(overdue ? Theme.berry : Theme.orange)
-                    .padding(.horizontal, 7)
-                    .frame(height: 20)
-                    .background(Capsule().fill((overdue ? Theme.berry : Theme.orange).opacity(0.14)))
+                    .font(Theme.font(10.5))
+                    .foregroundStyle(overdue ? Theme.berry : Theme.mist)
             }
             Button(action: delete) {
                 Image(systemName: "xmark")
@@ -132,10 +128,10 @@ private struct TaskRow: View {
             .opacity(hovering ? 1 : 0.35)
             .help("Delete task")
         }
-        .padding(.horizontal, 11)
-        .frame(height: 34)
-        .background(RoundedRectangle(cornerRadius: 11, style: .continuous)
-            .fill(task.done ? Theme.teal.opacity(0.07) : Color.white.opacity(hovering ? 0.09 : 0.055)))
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(Color.white.opacity(hovering ? 0.08 : 0.045)))
         .onHover { h in withAnimation(Theme.soft) { hovering = h } }
         .animation(Theme.spring, value: task.done)
     }

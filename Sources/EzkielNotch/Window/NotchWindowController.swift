@@ -73,6 +73,10 @@ final class NotchWindowController {
             let bar = screen.frame.maxY - screen.visibleFrame.maxY
             g.barHeight = bar > 0 ? bar : 24
         }
+        // Screenshots for docs/the website: draw as if this display had a camera housing.
+        if ProcessInfo.processInfo.arguments.contains("--fake-notch") {
+            g = NotchGeometry(hasNotch: true, notchWidth: 186, barHeight: 32)
+        }
         if model.geometry != g { model.geometry = g }
 
         let size = model.panelSize

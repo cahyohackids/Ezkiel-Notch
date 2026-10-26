@@ -9,21 +9,23 @@ private struct BlurFade: ViewModifier {
     var opacity: Double
     var scale: CGFloat
     var x: CGFloat
+    var y: CGFloat = 0
     func body(content: Content) -> some View {
         content
             .blur(radius: blur)
             .opacity(opacity)
             .scaleEffect(scale, anchor: .top)
-            .offset(x: x)
+            .offset(x: x, y: y)
     }
 }
 
 extension AnyTransition {
     static var notchContent: AnyTransition {
         .asymmetric(
-            insertion: .modifier(active: BlurFade(blur: 8, opacity: 0, scale: 0.94, x: 0),
+            // Content pours down from the camera housing as the body opens.
+            insertion: .modifier(active: BlurFade(blur: 10, opacity: 0, scale: 0.92, x: 0, y: -14),
                                  identity: BlurFade(blur: 0, opacity: 1, scale: 1, x: 0))
-                .animation(Theme.spring.delay(0.09)),
+                .animation(Theme.liquid.delay(0.08)),
             removal: .modifier(active: BlurFade(blur: 6, opacity: 0, scale: 0.97, x: 0),
                                identity: BlurFade(blur: 0, opacity: 1, scale: 1, x: 0))
                 .animation(.easeOut(duration: 0.12))
@@ -89,17 +91,15 @@ struct PillButton: View {
                 if let icon {
                     Image(systemName: icon).font(.system(size: 11, weight: .bold))
                 }
-                Text(title).font(Theme.rounded(12, .semibold)).lineLimit(1)
+                Text(title).font(Theme.font(12, .medium)).lineLimit(1)
             }
-            .padding(.horizontal, 13)
-            .frame(height: 30)
+            .padding(.horizontal, 12)
+            .frame(height: 28)
             .foregroundStyle(prominent ? Theme.navy : Theme.ink)
             .background {
-                Capsule().fill(prominent ? AnyShapeStyle(LinearGradient(colors: [tint, tint.opacity(0.82)], startPoint: .top, endPoint: .bottom))
+                Capsule().fill(prominent ? AnyShapeStyle(tint.opacity(hovering ? 0.9 : 1))
                                          : AnyShapeStyle(Color.white.opacity(hovering ? 0.14 : 0.08)))
             }
-            .overlay(Capsule().strokeBorder(Color.white.opacity(prominent ? 0.25 : 0.06), lineWidth: 0.6))
-            .shadow(color: prominent ? tint.opacity(hovering ? 0.55 : 0.3) : .clear, radius: hovering ? 10 : 6)
         }
         .buttonStyle(PressableStyle())
         .onHover { h in withAnimation(Theme.soft) { hovering = h } }
@@ -122,8 +122,7 @@ struct IconButton: View {
                 .font(.system(size: size * 0.42, weight: .bold))
                 .foregroundStyle(filled ? Theme.navy : tint)
                 .frame(width: size, height: size)
-                .background(Circle().fill(filled ? AnyShapeStyle(Theme.lionGradient) : AnyShapeStyle(Color.white.opacity(hovering ? 0.16 : 0.08))))
-                .scaleEffect(hovering ? 1.06 : 1)
+                .background(Circle().fill(filled ? AnyShapeStyle(Theme.gold) : AnyShapeStyle(Color.white.opacity(hovering ? 0.14 : 0.07))))
         }
         .buttonStyle(PressableStyle(scale: 0.86))
         .help(help)
@@ -142,12 +141,11 @@ struct Chip: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(Theme.rounded(11.5, .semibold))
-                .foregroundStyle(selected ? tint : Theme.ink.opacity(0.75))
-                .padding(.horizontal, 11)
-                .frame(height: 26)
-                .background(Capsule().fill(selected ? tint.opacity(0.16) : Color.white.opacity(hovering ? 0.12 : 0.06)))
-                .overlay(Capsule().strokeBorder(selected ? tint.opacity(0.55) : .clear, lineWidth: 1))
+                .font(Theme.font(11, .medium))
+                .foregroundStyle(selected ? Theme.navy : Theme.ink.opacity(0.8))
+                .padding(.horizontal, 9)
+                .frame(height: 22)
+                .background(Capsule().fill(selected ? AnyShapeStyle(tint) : AnyShapeStyle(Color.white.opacity(hovering ? 0.12 : 0.06))))
         }
         .buttonStyle(PressableStyle())
         .onHover { h in withAnimation(Theme.soft) { hovering = h } }
@@ -166,24 +164,23 @@ struct ToggleRow: View {
         Button {
             withAnimation(Theme.snappy) { isOn.toggle() }
         } label: {
-            HStack(spacing: 9) {
+            HStack(spacing: 8) {
                 Image(systemName: icon)
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(isOn ? Theme.gold : Theme.mist)
-                    .frame(width: 24, height: 24)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.07)))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(Theme.rounded(12, .semibold)).foregroundStyle(Theme.ink)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.mist)
+                    .frame(width: 16)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(title).font(Theme.font(12, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
                     if let subtitle {
-                        Text(subtitle).font(Theme.rounded(9.5)).foregroundStyle(Theme.mist).lineLimit(1)
+                        Text(subtitle).font(Theme.font(10)).foregroundStyle(Theme.mist).lineLimit(1)
                     }
                 }
                 Spacer(minLength: 4)
                 NotchSwitch(isOn: isOn)
             }
             .padding(.horizontal, 9)
-            .frame(height: 38)
-            .background(RoundedRectangle(cornerRadius: 11).fill(Theme.surface))
+            .frame(height: 36)
+            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.surface))
         }
         .buttonStyle(PressableStyle(scale: 0.97))
     }
@@ -193,8 +190,8 @@ struct NotchSwitch: View {
     var isOn: Bool
     var body: some View {
         ZStack(alignment: isOn ? .trailing : .leading) {
-            Capsule().fill(isOn ? AnyShapeStyle(Theme.lionGradient) : AnyShapeStyle(Color.white.opacity(0.16)))
-            Circle().fill(.white).padding(2).shadow(color: .black.opacity(0.3), radius: 1, y: 1)
+            Capsule().fill(isOn ? Theme.gold : Color.white.opacity(0.16))
+            Circle().fill(.white).padding(2)
         }
         .frame(width: 30, height: 18)
         .animation(Theme.snappy, value: isOn)
@@ -224,33 +221,30 @@ struct EqualizerBars: View {
     }
 }
 
-/// Circular progress ring with a glowing lion gradient.
-struct GlowRing: View {
+/// Circular progress ring in one flat color.
+struct ProgressRing: View {
     var progress: Double
-    var lineWidth: CGFloat = 8
-    var colors: [Color] = [Theme.gold, Theme.orange, Theme.ember, Theme.gold]
-    var glow: Color = Theme.orange
+    var lineWidth: CGFloat = 6
+    var color: Color = Theme.gold
 
     var body: some View {
         ZStack {
-            Circle().stroke(Color.white.opacity(0.08), lineWidth: lineWidth)
+            Circle().stroke(Color.white.opacity(0.1), lineWidth: lineWidth)
             Circle()
                 .trim(from: 0, to: max(0.001, progress))
-                .stroke(AngularGradient(colors: colors, center: .center), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-                .shadow(color: glow.opacity(0.55), radius: lineWidth * 0.9)
         }
     }
 }
 
-/// Section label in the gold small-caps style.
+/// Small muted heading.
 struct SectionLabel: View {
     var text: String
     var body: some View {
-        Text(text.uppercased())
-            .font(Theme.rounded(9.5, .heavy))
-            .tracking(1.4)
-            .foregroundStyle(Theme.gold.opacity(0.85))
+        Text(text)
+            .font(Theme.font(11, .semibold))
+            .foregroundStyle(Theme.mist)
     }
 }
 
@@ -261,10 +255,10 @@ struct EmptyHint: View {
     var mood: LionMood = .awake
     var body: some View {
         HStack(spacing: 14) {
-            LionMascot(size: 54, mood: mood)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(Theme.rounded(14, .bold)).foregroundStyle(Theme.ink)
-                Text(subtitle).font(Theme.rounded(11)).foregroundStyle(Theme.mist).fixedSize(horizontal: false, vertical: true)
+            LionMascot(size: 44, mood: mood)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(Theme.font(13, .semibold)).foregroundStyle(Theme.ink)
+                Text(subtitle).font(Theme.font(11)).foregroundStyle(Theme.mist).fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -280,12 +274,50 @@ struct NotchField: View {
     var body: some View {
         TextField("", text: $text, prompt: Text(placeholder).foregroundColor(Theme.mist))
             .textFieldStyle(.plain)
-            .font(Theme.rounded(12.5, .medium))
+            .font(Theme.font(12.5))
             .foregroundStyle(Theme.ink)
-            .padding(.horizontal, 11)
-            .frame(height: 30)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.07)))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.hairline, lineWidth: 1))
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.07)))
             .onSubmit(onSubmit)
     }
+}
+
+// MARK: - Motion helpers
+
+/// Level bar for overlays; springs to its value.
+struct LevelBar: View {
+    var level: Double
+    var tint: Color = Theme.gold
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.14))
+                Capsule().fill(tint)
+                    .frame(width: max(5, geo.size.width * max(0, min(1, level))))
+            }
+        }
+        .frame(height: 5)
+        .animation(.spring(response: 0.32, dampingFraction: 0.62), value: level)
+    }
+}
+
+/// Springs a view in from small the first time it appears.
+struct PopIn: ViewModifier {
+    var delay: Double = 0
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(shown ? 1 : 0.4)
+            .opacity(shown ? 1 : 0)
+            .onAppear {
+                withAnimation(Theme.bouncy.delay(delay)) { shown = true }
+            }
+    }
+}
+
+extension View {
+    func popIn(delay: Double = 0) -> some View { modifier(PopIn(delay: delay)) }
 }

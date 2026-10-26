@@ -11,48 +11,45 @@ struct ShelfPane: View {
         let targeted = model.dropTargeted || model.fileDragNear
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                SectionLabel(text: "Shelf")
-                Text(model.data.shelf.isEmpty ? "Keep it within reach" : "\(model.data.shelf.count) item\(model.data.shelf.count == 1 ? "" : "s") · drag out to share")
-                    .font(Theme.rounded(10.5))
-                    .foregroundStyle(Theme.mist)
+                SectionLabel(text: model.data.shelf.isEmpty ? "Empty" : "\(model.data.shelf.count) item\(model.data.shelf.count == 1 ? "" : "s") · drag out to share")
                 Spacer()
                 if !model.data.shelf.isEmpty {
                     Button("Clear") { model.clearShelf() }
                         .buttonStyle(PressableStyle())
-                        .font(Theme.rounded(10.5, .semibold))
+                        .font(Theme.font(10.5, .medium))
                         .foregroundStyle(Theme.gold)
                 }
-                IconButton(icon: "plus", size: 26, filled: true, help: "Choose files…") { model.chooseShelfFiles() }
+                IconButton(icon: "plus", size: 24, filled: true, help: "Choose files…") { model.chooseShelfFiles() }
             }
 
             ZStack {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(targeted ? Theme.gold.opacity(0.10) : Color.white.opacity(0.03))
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(targeted ? Theme.gold.opacity(0.85) : Color.white.opacity(0.22),
-                                  style: StrokeStyle(lineWidth: targeted ? 1.6 : 1.2, dash: [6, 5]))
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(targeted ? Theme.gold.opacity(0.08) : Color.white.opacity(0.03))
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(targeted ? Theme.gold.opacity(0.8) : Color.white.opacity(0.16),
+                                  style: StrokeStyle(lineWidth: 1.2, dash: [5, 4]))
 
                 if model.data.shelf.isEmpty || targeted {
-                    VStack(spacing: 8) {
+                    VStack(spacing: 6) {
                         Image(systemName: "arrow.down")
-                            .font(.system(size: 22, weight: .bold))
-                            .foregroundStyle(Theme.lionGradient)
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(Theme.gold)
                             .offset(y: targeted ? (bob ? 8 : 2) : 0)
                             .animation(targeted ? .easeInOut(duration: 0.6).repeatForever(autoreverses: true) : .default, value: bob)
-                        Text(targeted ? "Release to keep it here" : "Drop files here")
-                            .font(Theme.rounded(14, .bold))
+                        Text(targeted ? "Release to add" : "Drop files here")
+                            .font(Theme.font(13, .semibold))
                             .foregroundStyle(Theme.ink)
                             .id(targeted)
                             .transition(.opacity.combined(with: .offset(y: targeted ? 5 : -5)))
                         if !targeted {
-                            Text("Drag from Finder onto the notch, or press + to choose files. Originals stay in place.")
-                                .font(Theme.rounded(10.5))
+                            Text("Originals stay where they are")
+                                .font(Theme.font(10.5))
                                 .foregroundStyle(Theme.mist)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(model.data.shelf.isEmpty ? Color.clear : Color.black.opacity(0.7))
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .zIndex(1)
                     .onAppear { bob = true }
                 }
@@ -91,9 +88,8 @@ private struct ShelfCard: View {
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 54, height: 54)
-                    .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
-                    .scaleEffect(hovering ? 1.08 : 1)
+                    .frame(width: 46, height: 46)
+                    .scaleEffect(hovering ? 1.05 : 1)
                 if hovering {
                     Button(action: remove) {
                         Image(systemName: "xmark")
@@ -109,18 +105,18 @@ private struct ShelfCard: View {
                 }
             }
             Text(record.name)
-                .font(Theme.rounded(10, .semibold))
+                .font(Theme.font(10, .medium))
                 .foregroundStyle(Theme.ink)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(width: 78)
+                .frame(width: 70)
             Text(sizeText)
-                .font(Theme.rounded(9))
+                .font(Theme.font(9))
                 .foregroundStyle(Theme.mist)
         }
-        .padding(.vertical, 8)
-        .frame(width: 88)
-        .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Color.white.opacity(hovering ? 0.1 : 0.0)))
+        .padding(.vertical, 6)
+        .frame(width: 78)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.white.opacity(hovering ? 0.08 : 0.0)))
         .contentShape(Rectangle())
         .onHover { h in withAnimation(Theme.snappy) { hovering = h } }
         .onTapGesture(count: 2) { NSWorkspace.shared.open(url) }

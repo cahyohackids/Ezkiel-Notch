@@ -9,6 +9,10 @@ MainActor.assumeIsolated {
         exit(IconRenderer.renderIconset(to: args[i + 1]) ? 0 : 1)
     }
 
+    if let i = args.firstIndex(of: "--render-mascot"), i + 1 < args.count {
+        exit(IconRenderer.renderMascotSheet(to: args[i + 1]) ? 0 : 1)
+    }
+
     let delegate = AppDelegate()
     app.delegate = delegate
     app.setActivationPolicy(.accessory)

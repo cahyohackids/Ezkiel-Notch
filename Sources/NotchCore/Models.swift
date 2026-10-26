@@ -113,6 +113,14 @@ public struct NotchSettings: Codable, Equatable {
     public var breakMinutes: Int = 5
     public var musicSource: MusicSource = .auto
     public var minimalClosed: Bool = false
+    /// Lyrics view in the Music tab. Off until the user taps the lyrics button (LRCLIB is only asked then).
+    public var showLyrics: Bool = false
+    /// While lyrics are on, sing along under the closed notch too.
+    public var closedLyrics: Bool = true
+    /// Volume, Caps Lock and keyboard-language overlays.
+    public var systemOverlays: Bool = true
+    /// Wi-Fi and headphones peeks.
+    public var connectionPeeks: Bool = true
 
     public init() {}
 
@@ -137,6 +145,10 @@ public struct NotchSettings: Codable, Equatable {
         breakMinutes = (try? c.decode(Int.self, forKey: .breakMinutes)) ?? d.breakMinutes
         musicSource = (try? c.decode(MusicSource.self, forKey: .musicSource)) ?? d.musicSource
         minimalClosed = (try? c.decode(Bool.self, forKey: .minimalClosed)) ?? d.minimalClosed
+        showLyrics = (try? c.decode(Bool.self, forKey: .showLyrics)) ?? d.showLyrics
+        closedLyrics = (try? c.decode(Bool.self, forKey: .closedLyrics)) ?? d.closedLyrics
+        systemOverlays = (try? c.decode(Bool.self, forKey: .systemOverlays)) ?? d.systemOverlays
+        connectionPeeks = (try? c.decode(Bool.self, forKey: .connectionPeeks)) ?? d.connectionPeeks
     }
 
     public static let defaults = NotchSettings()
