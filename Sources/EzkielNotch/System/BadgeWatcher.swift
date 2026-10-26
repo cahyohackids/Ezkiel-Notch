@@ -18,6 +18,10 @@ final class BadgeWatcher: ObservableObject {
     }
 
     @Published private(set) var badges: [Badge] = []
+    /// Also read the Dock's own badges (apps that aren't open, too). Needs Accessibility.
+    var readDock = false
+    /// Accessibility is granted, so the Dock can be read.
+    @Published private(set) var dockAccess = AXIsProcessTrusted()
     /// An app's count went up. Not called for what is already there when watching starts.
     var onIncrease: ((Badge, _ before: Int) -> Void)?
 
@@ -79,11 +83,21 @@ final class BadgeWatcher: ObservableObject {
             return (app.processIdentifier, id, app.localizedName ?? id)
         }
         reading = true
+        let trusted = AXIsProcessTrusted()
+        if trusted != dockAccess { dockAccess = trusted }
+        let dock = readDock && trusted
         queue.async { [weak self] in
-            let found = apps.compactMap { app -> (id: String, name: String, label: String)? in
+            var found = apps.compactMap { app -> (id: String, name: String, label: String)? in
                 BadgeReader.label(pid: app.pid, bundleID: app.id).map { (app.id, app.name, $0) }
             }
-            let running = Set(apps.map(\.id))
+            var running = Set(apps.map(\.id))
+            if dock {
+                // The Dock knows the badges of apps that aren't open (WhatsApp, Teams…) as well.
+                for item in DockBadges.read() where !running.contains(item.id) && item.id != own {
+                    found.append(item)
+                    running.insert(item.id)
+                }
+            }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.apply(found, running: running) }
             }
@@ -157,5 +171,44 @@ enum BadgeReader {
         guard let text = String(data: data, encoding: .utf8),
               let range = text.range(of: #""label"="([^"]*)""#, options: .regularExpression) else { return nil }
         return String(text[range].dropFirst(9).dropLast())
+    }
+}
+
+/// Badges as the Dock shows them, read through Accessibility: every app in the Dock, open or not.
+enum DockBadges {
+    static func read() -> [(id: String, name: String, label: String)] {
+        guard let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else { return [] }
+        let app = AXUIElementCreateApplication(dock.processIdentifier)
+        var result: [(id: String, name: String, label: String)] = []
+        for list in children(of: app) where role(of: list) == kAXListRole as String {
+            for item in children(of: list) {
+                guard let label = string(item, "AXStatusLabel"), !label.isEmpty,
+                      let url = value(item, kAXURLAttribute as String).flatMap({ $0 as? URL }) ?? (value(item, kAXURLAttribute as String) as? NSURL as URL?),
+                      let id = Bundle(url: url)?.bundleIdentifier else { continue }
+                result.append((id, string(item, kAXTitleAttribute as String) ?? id, label))
+            }
+        }
+        return result
+    }
+
+    private static func value(_ element: AXUIElement, _ attribute: String) -> AnyObject? {
+        var out: AnyObject?
+        return AXUIElementCopyAttributeValue(element, attribute as CFString, &out) == .success ? out : nil
+    }
+
+    private static func string(_ element: AXUIElement, _ attribute: String) -> String? {
+        value(element, attribute) as? String
+    }
+
+    private static func role(of element: AXUIElement) -> String? { string(element, kAXRoleAttribute as String) }
+
+    private static func children(of element: AXUIElement) -> [AXUIElement] {
+        (value(element, kAXChildrenAttribute as String) as? [AXUIElement]) ?? []
+    }
+
+    /// Asks macOS to show the Accessibility prompt (once; after that the switch lives in System Settings).
+    static func requestAccess() {
+        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
     }
 }

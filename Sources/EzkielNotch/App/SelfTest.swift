@@ -41,7 +41,7 @@ enum SelfTest {
             steps.append(("tab \(tab.title)", {
                 model.select(tab)
                 check(model.tab == tab, "selected \(tab.title)")
-                let expected = NotchMetrics.expandedSize(model.geometry, pane: NotchMetrics.paneHeight(tab, lyrics: tab == .purr && model.purrShowsLyrics)).height
+                let expected = model.expandedSize.height
                 check(abs(model.shapeRect.height - expected) < 0.5,
                       "\(tab.title): notch is \(Int(expected))pt tall (got \(Int(model.shapeRect.height)), \(model.presentation), tab \(model.tab.title))")
                 let r = model.shapeRect
@@ -360,6 +360,72 @@ enum SelfTest {
             check(L("Settings") == "Settings", "back to English")
             model.settings.weatherCity = ""
             model.weather.simulate(nil)
+        }))
+
+        // 1.6: Island style.
+        steps.append(("island compact", {
+            model.collapse()
+            let notchCompact = model.shapeRect
+            model.settings.style = .island
+            let r = model.shapeRect
+            check(model.shape.ear == 0 && model.shape.top > 0, "island has no ears and round top corners")
+            check(abs(r.minY - ((model.geometry.hasNotch ? model.geometry.barHeight : 0) + 6)) < 0.5,
+                  "island floats \(Int(model.topInset)) pt down (under the camera on a notched display)")
+            check(r.width < notchCompact.width, "the closed island is narrower than the notch (\(Int(r.width)) < \(Int(notchCompact.width)))")
+            check(controller.hitTest(topLeft: CGPoint(x: r.midX, y: r.midY)) != nil, "the island takes clicks")
+            check(controller.hitTest(topLeft: CGPoint(x: r.midX, y: max(1, r.minY - 3))) == nil, "the gap above the island passes clicks through")
+            check(model.hotRect.minY == 0, "pushing the pointer to the top edge still reaches the island")
+        }))
+        steps.append(("island peek", {
+            model.showPeek(Peek(icon: "airpodspro", title: "AirPods Pro", subtitle: "Connected", tint: Theme.teal))
+            check(model.presentation == .peek && model.shapeRect.minY == model.topInset, "peeks float with the island")
+            check(model.peeksInline, "island peeks are one tidy row")
+        }))
+        steps.append(("island charging", {
+            model.dismissPeek()
+            model.showPeek(Peek(icon: "bolt.fill", title: "Charging", subtitle: "Charger connected", tint: Theme.teal,
+                                progress: 0.7, value: "70%"))
+        }))
+        steps.append(("island screenshot", {
+            model.dismissPeek()
+            if let demoFile {
+                model.showPeek(Peek(icon: "camera.viewfinder", title: "Screenshot", subtitle: demoFile.lastPathComponent,
+                                    tint: Accent.stash.deep, tab: .stash, file: demoFile))
+            }
+        }))
+        steps.append(("island eyes", {
+            model.dismissPeek()
+            model.settings.closedFace = .eyes
+            check(model.centerIsFree, "the island's middle is free for Ezkiel's eyes")
+            if let e = hook("UserPromptSubmit", #","prompt":"look around""#) { model.scout.receive(e) }
+            check(model.eyesState == .working, "the eyes follow a working agent")
+            if let e = hook("SessionEnd", "") { model.scout.receive(e) }
+            check(model.eyesState != .working, "and settle when it ends")
+        }))
+        steps.append(("island den", {
+            model.dismissPeek()
+            model.expand(.den)
+            check(abs(model.shapeRect.height - model.expandedSize.height) < 0.5, "the open island is as tall as its tab")
+        }))
+        steps.append(("island roar large glass", {
+            model.settings.islandSize = .large
+            model.settings.islandGlass = true
+            model.roarMode = .roar
+            model.expand(.roar)
+            check(abs(model.shapeRect.width - NotchMetrics.islandExpandedWidth(.large)) < 0.5, "Large opens wider")
+        }))
+        steps.append(("island small roomy", {
+            model.collapse()
+            model.settings.islandSize = .small
+            model.settings.islandGap = .roomy
+            model.settings.islandGlass = false
+            check(abs(model.topInset - ((model.geometry.hasNotch ? model.geometry.barHeight : 0) + 10)) < 0.5, "Roomy gap is 10 pt")
+        }))
+        steps.append(("notch again", {
+            model.settings.style = .notch
+            model.settings.islandSize = .medium
+            model.settings.islandGap = .medium
+            check(model.shapeRect.minY == 0 && model.shape.ear > 0, "back to a notch hanging from the top")
         }))
 
         steps.append(("settings about", {

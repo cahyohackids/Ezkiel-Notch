@@ -1,3 +1,4 @@
+import NotchCore
 import SwiftUI
 
 /// The places in the open notch, each with its own name, symbol, accent and height.
@@ -185,10 +186,40 @@ enum NotchMetrics {
         CGSize(width: expandedWidth, height: barHeight(g) + tabStripTop + tabStripHeight + pageTop + pane + pageBottom)
     }
 
-    /// The panel never resizes: it always fits the tallest tab.
+    // Island style: a floating pill, sized by the user.
+
+    /// Height of the island's top row (the closed pill, a peek's first row, the open header).
+    static func islandHeight(_ size: IslandSize) -> CGFloat {
+        switch size {
+        case .small: return 30
+        case .medium: return 34
+        case .large: return 38
+        }
+    }
+
+    /// The middle of the closed island (where a notch has its camera housing).
+    static func islandCenter(_ size: IslandSize) -> CGFloat {
+        switch size {
+        case .small: return 64
+        case .medium: return 96
+        case .large: return 128
+        }
+    }
+
+    static func islandExpandedWidth(_ size: IslandSize) -> CGFloat {
+        switch size {
+        case .small: return 400
+        case .medium: return 440
+        case .large: return 480
+        }
+    }
+
+    /// The panel never resizes: it always fits the tallest tab in the largest style, wherever it floats.
     static func panelSize(_ g: NotchGeometry) -> CGSize {
-        let e = expandedSize(g, pane: maxPaneHeight)
-        return CGSize(width: e.width + expandedShape.ear * 2 + shadowMargin * 2,
-                      height: e.height + shadowMargin + 10)
+        let row = max(barHeight(g), islandHeight(.large))
+        let height = row + tabStripTop + tabStripHeight + pageTop + maxPaneHeight + pageBottom
+        let topRoom = (g.hasNotch ? g.barHeight : 0) + CGFloat(IslandGap.roomy.points)
+        return CGSize(width: max(expandedWidth, islandExpandedWidth(.large)) + expandedShape.ear * 2 + shadowMargin * 2,
+                      height: height + topRoom + shadowMargin + 10)
     }
 }
