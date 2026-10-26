@@ -183,6 +183,9 @@ public partial class IslandWindow : Window
 
     private void Apply(Shape s, bool animate, bool bouncy = false)
     {
+        // Lay the content out at the final size once; the animation only moves the outline.
+        Island.ContentWidth = s.Width;
+        Island.ContentHeight = s.Height;
         if (!animate || SpringEase.ReduceMotion)
         {
             Set(IslandSurface.BodyWidthProperty, s.Width);

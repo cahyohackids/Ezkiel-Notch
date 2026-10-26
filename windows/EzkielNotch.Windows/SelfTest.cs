@@ -51,6 +51,7 @@ internal static class SelfTest
                 var r = w.Island.BodyRect;
                 Check(Math.Abs(r.Width - 440) < 1 && Math.Abs(r.Height - 252) < 1, $"open island is 440×252 ({r.Width:0}×{r.Height:0})");
                 Check(w.OnIsland(new Point(w.Island.ShapeRect.Left + 100, 120)), "the open island takes clicks");
+                Check(FullyInside(w, w.PageTitle) && FullyInside(w, w.PageBody), "the page's text is laid out in full, inside the island");
             }),
             ("tab Roar", () => w.Select(2)),
             ("leave", () => w.PointerMoved(false)),
@@ -64,6 +65,7 @@ internal static class SelfTest
                 w.ShowPeek("Telegram", "2 new · 8 unread");
                 Check(w.Presentation == Presentation.Peek, "a peek shows");
             }),
+            ("peek text", () => Check(FullyInside(w, w.PeekTitle), "the peek's text is laid out in full, inside the island")),
             ("fullscreen", () =>
             {
                 w.Collapse();
@@ -112,6 +114,17 @@ internal static class SelfTest
             });
         }
         After(1.0, () => Step(0));
+    }
+
+    /// <summary>The element has a real size and its whole box lies inside the island's body.</summary>
+    private static bool FullyInside(IslandWindow w, FrameworkElement e)
+    {
+        if (e.ActualHeight < 8 || e.ActualWidth < 8) return false;
+        var topLeft = e.TranslatePoint(new Point(0, 0), w.Island);
+        var bottomRight = e.TranslatePoint(new Point(e.ActualWidth, e.ActualHeight), w.Island);
+        var body = w.Island.BodyRect;
+        body.Inflate(1, 1);
+        return body.Contains(topLeft) && body.Contains(bottomRight);
     }
 
     private static void After(double seconds, Action action)

@@ -6,9 +6,10 @@ namespace EzkielNotch.Island;
 
 /// <summary>
 /// The island: a black body hanging from the top edge, with rounded bottom corners and two concave
-/// "ears" that melt into the screen edge (the same silhouette as the Mac notch). It draws itself,
-/// centres horizontally in its bounds, and clips its child to the body. Every size is a dependency
-/// property, so one animation moves shape and content together.
+/// "ears" that melt into the screen edge (the same silhouette as the Mac notch). It draws itself and
+/// centres horizontally in its bounds. Its content is laid out once at the target size
+/// (<see cref="ContentWidth"/> × <see cref="ContentHeight"/>) and only clipped by the animated
+/// silhouette, so nothing re-flows while the island grows or shrinks.
 /// </summary>
 public sealed class IslandSurface : Decorator
 {
@@ -16,6 +17,17 @@ public sealed class IslandSurface : Decorator
     public static readonly DependencyProperty BodyHeightProperty = Register(nameof(BodyHeight), 6);
     public static readonly DependencyProperty BottomRadiusProperty = Register(nameof(BottomRadius), 3);
     public static readonly DependencyProperty EarProperty = Register(nameof(Ear), 4);
+
+    /// <summary>The size the content is laid out at: the body size the current animation is heading to.</summary>
+    public static readonly DependencyProperty ContentWidthProperty = DependencyProperty.Register(
+        nameof(ContentWidth), typeof(double), typeof(IslandSurface),
+        new FrameworkPropertyMetadata(180.0, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsArrange));
+    public static readonly DependencyProperty ContentHeightProperty = DependencyProperty.Register(
+        nameof(ContentHeight), typeof(double), typeof(IslandSurface),
+        new FrameworkPropertyMetadata(6.0, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsArrange));
+
+    public double ContentWidth { get => (double)GetValue(ContentWidthProperty); set => SetValue(ContentWidthProperty, value); }
+    public double ContentHeight { get => (double)GetValue(ContentHeightProperty); set => SetValue(ContentHeightProperty, value); }
 
     public static readonly DependencyProperty FillProperty = DependencyProperty.Register(
         nameof(Fill), typeof(Brush), typeof(IslandSurface),
@@ -87,7 +99,7 @@ public sealed class IslandSurface : Decorator
 
     protected override Size MeasureOverride(Size constraint)
     {
-        Child?.Measure(new Size(Math.Max(0, BodyWidth), Math.Max(0, BodyHeight)));
+        Child?.Measure(new Size(Math.Max(0, ContentWidth), Math.Max(0, ContentHeight)));
         return new Size(0, 0);
     }
 
@@ -95,12 +107,12 @@ public sealed class IslandSurface : Decorator
     {
         if (Child is not null)
         {
-            // Content is laid out at the body's size and clipped to the silhouette, so nothing spills
-            // out while the island grows or shrinks.
-            var body = BodyRect;
-            Child.Arrange(body);
-            var clip = Build(new Rect(-Ear, 0, body.Width + Ear * 2, body.Height), BottomRadius, Ear);
-            Child.Clip = clip;
+            // Content keeps its final layout; the animated silhouette (in the child's own coordinates)
+            // reveals it as the island grows.
+            double x = (arrangeSize.Width - ContentWidth) / 2;
+            Child.Arrange(new Rect(x, 0, Math.Max(0, ContentWidth), Math.Max(0, ContentHeight)));
+            var shape = ShapeRect;
+            Child.Clip = Build(new Rect(shape.X - x, 0, shape.Width, shape.Height), BottomRadius, Ear);
         }
         return arrangeSize;
     }
