@@ -105,3 +105,35 @@ final class PersistenceTests: XCTestCase {
         XCTAssertTrue(decoded.settings.expandOnHover)
     }
 }
+
+final class LyricsTests: XCTestCase {
+    func testParsesTimedLinesAndSkipsMetadata() {
+        let lrc = """
+        [ar:Lumen Coast]
+        [ti:Paper Sky]
+        [00:12.50]we fold the summer light
+        [00:15.00][01:02.25]into paper birds tonight
+        [00:18:40]
+        """
+        let lines = LRC.parse(lrc)
+        XCTAssertEqual(lines.map(\.time), [12.5, 15, 18.4, 62.25])
+        XCTAssertEqual(lines[0].text, "we fold the summer light")
+        XCTAssertEqual(lines[1].text, "into paper birds tonight")
+        XCTAssertEqual(lines[2].text, "")
+        XCTAssertEqual(lines[3].text, "into paper birds tonight")
+    }
+
+    func testOffsetShiftsEarlier() {
+        let lines = LRC.parse("[offset:500]\n[00:10.00]hello")
+        XCTAssertEqual(lines.first?.time ?? 0, 9.5, accuracy: 0.001)
+    }
+
+    func testIndexFindsCurrentLine() {
+        let lines = [LyricLine(time: 5, text: "a"), LyricLine(time: 10, text: "b"), LyricLine(time: 20, text: "c")]
+        XCTAssertNil(LRC.index(at: 4.9, in: lines))
+        XCTAssertEqual(LRC.index(at: 5, in: lines), 0)
+        XCTAssertEqual(LRC.index(at: 19.99, in: lines), 1)
+        XCTAssertEqual(LRC.index(at: 500, in: lines), 2)
+        XCTAssertNil(LRC.index(at: 1, in: []))
+    }
+}

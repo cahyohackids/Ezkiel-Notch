@@ -24,7 +24,7 @@ struct SettingsPane: View {
                     NSApp.terminate(nil)
                 } label: {
                     Label("Quit", systemImage: "power")
-                        .font(Theme.rounded(11, .semibold))
+                        .font(Theme.font(11, .semibold))
                         .foregroundStyle(Theme.berry)
                         .padding(.horizontal, 10)
                         .frame(height: 26)
@@ -67,6 +67,14 @@ struct SettingsPane: View {
                               isOn: $model.settings.sounds)
                     ToggleRow(title: "Haptics", subtitle: "Trackpad tap when opening", icon: "hand.tap.fill",
                               isOn: $model.settings.haptics)
+                    ToggleRow(title: "Synced lyrics", subtitle: "From LRCLIB, only while on", icon: "quote.bubble.fill",
+                              isOn: Binding(get: { model.settings.showLyrics }, set: { if $0 != model.settings.showLyrics { model.toggleLyrics() } }))
+                    ToggleRow(title: "Lyrics under the notch", subtitle: "Sing along while it's closed", icon: "text.line.first.and.arrowtriangle.forward",
+                              isOn: $model.settings.closedLyrics)
+                    ToggleRow(title: "Volume & keyboard", subtitle: "Volume, Caps Lock, language", icon: "speaker.wave.2.circle.fill",
+                              isOn: $model.settings.systemOverlays)
+                    ToggleRow(title: "Wi-Fi & headphones", subtitle: "Peek when they connect", icon: "wifi",
+                              isOn: $model.settings.connectionPeeks)
                 }
                 optionRow("Music", icon: "music.note") {
                     ForEach(MusicSource.allCases) { source in
@@ -106,9 +114,9 @@ struct SettingsPane: View {
 
     private func optionRow<Content: View>(_ title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: icon).font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.gold)
+            Image(systemName: icon).font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.mist)
                 .frame(width: 18)
-            Text(title).font(Theme.rounded(11.5, .semibold)).foregroundStyle(Theme.ink)
+            Text(title).font(Theme.font(11.5, .medium)).foregroundStyle(Theme.ink)
                 .frame(width: 88, alignment: .leading)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 5) { content() }
@@ -129,16 +137,16 @@ struct SettingsPane: View {
 
     private var about: some View {
         HStack(spacing: 18) {
-            LionMascot(size: 110, mood: .happy)
-            VStack(alignment: .leading, spacing: 6) {
+            LionMascot(size: 92, mood: .happy)
+            VStack(alignment: .leading, spacing: 5) {
                 Text("Ezkiel Notch")
-                    .font(Theme.rounded(22, .heavy))
-                    .foregroundStyle(Theme.lionGradient)
+                    .font(Theme.font(18, .semibold))
+                    .foregroundStyle(Theme.ink)
                 Text("Version \(AppModel.version) · made for ezkielyna.store")
-                    .font(Theme.rounded(11, .semibold))
+                    .font(Theme.font(11))
                     .foregroundStyle(Theme.mist)
-                Text("Everything stays on this Mac. No account, no tracking. Music uses Apple Events only when Spotify or Music is open.")
-                    .font(Theme.rounded(11))
+                Text("Everything stays on this Mac. No account, no tracking. Music uses Apple Events only when Spotify or Music is open. With lyrics on, the song's title, artist and length go to LRCLIB to find them.")
+                    .font(Theme.font(11))
                     .foregroundStyle(Theme.ink.opacity(0.8))
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
@@ -168,7 +176,7 @@ private struct LaunchTile: View {
                     .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(item.tint.opacity(0.14)))
                     .scaleEffect(hovering ? 1.08 : 1)
                 Text(item.title)
-                    .font(Theme.rounded(12, .semibold))
+                    .font(Theme.font(12, .semibold))
                     .foregroundStyle(Theme.ink)
                 Spacer(minLength: 0)
             }

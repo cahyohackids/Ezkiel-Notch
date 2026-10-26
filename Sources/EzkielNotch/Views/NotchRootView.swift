@@ -12,7 +12,7 @@ struct NotchRootView: View {
     var body: some View {
         let size = model.bodySize
         let shape = model.shape
-        let notch = NotchShape(bottomRadius: shape.radius, ear: shape.ear)
+        let notch = NotchShape(bottomRadius: shape.radius, ear: shape.ear, belly: model.ripple)
         let expanded = model.presentation == .expanded
 
         ZStack(alignment: .top) {
@@ -28,13 +28,6 @@ struct NotchRootView: View {
                                          startPoint: .top, endPoint: .bottom))
                     .allowsHitTesting(false)
 
-                // Hairline rim in lion gold.
-                notch
-                    .stroke(LinearGradient(colors: [Theme.gold.opacity(0), Theme.gold.opacity(expanded ? 0.28 : 0.12),
-                                                    Theme.ember.opacity(expanded ? 0.35 : 0.1)],
-                                           startPoint: .top, endPoint: .bottom), lineWidth: 1)
-                    .opacity(model.presentation == .compact && !model.hovering ? 0 : 1)
-                    .allowsHitTesting(false)
 
                 content
                     .padding(.horizontal, shape.ear)
@@ -43,13 +36,13 @@ struct NotchRootView: View {
             }
             .frame(width: size.width + shape.ear * 2, height: size.height)
             .compositingGroup()
-            .shadow(color: .black.opacity(expanded ? 0.55 : 0.0), radius: expanded ? 22 : 0, y: expanded ? 10 : 0)
-            .shadow(color: Theme.orange.opacity(model.fileDragNear || model.dropTargeted ? 0.5 : 0), radius: 24)
+            .shadow(color: .black.opacity(expanded ? 0.45 : 0.0), radius: expanded ? 18 : 0, y: expanded ? 8 : 0)
             .onDrop(of: [UTType.fileURL], isTargeted: $model.dropTargeted) { providers in
                 model.receiveDrop(providers)
             }
         }
         .frame(width: model.panelSize.width, height: model.panelSize.height, alignment: .top)
+        .animation(Theme.liquid, value: model.showsClosedLyrics)
         .environment(\.colorScheme, .dark)
         .onChange(of: model.dropTargeted) { targeted in
             if targeted { model.expand(.shelf) }
@@ -57,9 +50,8 @@ struct NotchRootView: View {
     }
 
     private var glowOpacity: Double {
-        if model.dropTargeted { return 0.35 }
-        if model.fileDragNear { return 0.22 }
-        if model.presentation == .peek { return 0.10 }
+        if model.dropTargeted { return 0.22 }
+        if model.fileDragNear { return 0.12 }
         return 0
     }
 
@@ -90,6 +82,21 @@ struct CompactView: View {
 
     var body: some View {
         let bar = NotchMetrics.barHeight(model.geometry)
+        VStack(spacing: 0) {
+            topRow(bar: bar)
+            if model.showsClosedLyrics, let np = music.nowPlaying, let lines = model.lyrics.syncedLines {
+                ClosedLyricLine(np: np, lines: lines)
+                    .frame(height: NotchMetrics.lyricBand)
+                    .transition(.opacity.combined(with: .offset(y: -8)))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture { model.expand() }
+        .help("Ezkiel Notch · hover or click to open · ⌥⌘I")
+    }
+
+    private func topRow(bar: CGFloat) -> some View {
         HStack(spacing: 0) {
             if model.showsWings {
                 leftWing
@@ -106,9 +113,6 @@ struct CompactView: View {
         }
         .frame(height: bar + (model.hovering ? 4 : 0))
         .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-        .onTapGesture { model.expand() }
-        .help("Ezkiel Notch · hover or click to open · ⌥⌘I")
     }
 
     @ViewBuilder
@@ -134,7 +138,7 @@ struct CompactView: View {
             // No hardware notch: show a clock in the closed notch.
             TimelineView(.everyMinute) { tl in
                 Text(tl.date, format: .dateTime.hour().minute())
-                    .font(Theme.rounded(13, .bold))
+                    .font(Theme.font(13, .bold))
                     .monospacedDigit()
                     .foregroundStyle(Theme.ink)
             }
@@ -166,9 +170,7 @@ struct CompactView: View {
             .foregroundStyle(Theme.teal)
             .transition(.scale.combined(with: .opacity))
         } else {
-            GlowRing(progress: model.waterProgress, lineWidth: 2.6,
-                     colors: [Color(hex: 0x9FE7FF), Color(hex: 0x4FA3E8), Color(hex: 0x9FE7FF)],
-                     glow: Color(hex: 0x4FA3E8))
+            ProgressRing(progress: model.waterProgress, lineWidth: 2.4, color: Theme.water)
                 .frame(width: 13, height: 13)
                 .help("\(model.waterToday) ml of water today")
                 .transition(.scale.combined(with: .opacity))
@@ -183,48 +185,153 @@ struct PeekView: View {
     var peek: Peek
 
     var body: some View {
-        let bar = NotchMetrics.barHeight(model.geometry)
-        VStack(spacing: 0) {
-            Color.clear.frame(height: bar)
-            HStack(spacing: 12) {
-                ZStack {
-                    if peek.showsLion {
-                        LionMascot(size: 38, mood: peek.mood)
-                    } else if let progress = peek.progress {
-                        GlowRing(progress: progress, lineWidth: 3.2, colors: [peek.tint, peek.tint.opacity(0.7), peek.tint],
-                                 glow: peek.tint)
-                            .frame(width: 32, height: 32)
-                        Image(systemName: peek.icon).font(.system(size: 12, weight: .bold)).foregroundStyle(peek.tint)
-                    } else {
-                        Circle().fill(peek.tint.opacity(0.18)).frame(width: 34, height: 34)
-                        Image(systemName: peek.icon).font(.system(size: 14, weight: .bold)).foregroundStyle(peek.tint)
-                    }
-                }
-                .frame(width: 40, height: 40)
+        if peek.isHUD { hud } else { card }
+    }
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(peek.title)
-                        .font(Theme.rounded(13.5, .bold))
+    /// Overlay: icon and value in the wings, then the level bar (volume) or a label.
+    private var hud: some View {
+        VStack(spacing: 0) {
+            wings {
+                Image(systemName: peek.icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(peek.tint)
+            } trailing: {
+                if let value = peek.value {
+                    Text(value)
+                        .font(Theme.font(13, .semibold))
+                        .monospacedDigit()
                         .foregroundStyle(Theme.ink)
-                        .lineLimit(1)
-                    Text(peek.subtitle)
-                        .font(Theme.rounded(11))
-                        .foregroundStyle(Theme.mist)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 6)
-                if peek.showsLion {
-                    Image(systemName: peek.icon)
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(peek.tint)
-                        .frame(width: 30, height: 30)
-                        .background(Circle().fill(peek.tint.opacity(0.16)))
                 }
             }
-            .padding(.horizontal, 18)
-            .frame(maxHeight: .infinity)
+            if let level = peek.level {
+                LevelBar(level: level, tint: peek.tint)
+                    .padding(.horizontal, 22)
+                    .frame(maxHeight: .infinity, alignment: .top)
+            } else {
+                caption
+            }
         }
         .contentShape(Rectangle())
         .onTapGesture { model.openPeek() }
+    }
+
+    private var card: some View {
+        VStack(spacing: 0) {
+            wings {
+                leading.popIn(delay: 0.04)
+            } trailing: {
+                trailing.popIn(delay: 0.08)
+            }
+            caption
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { model.openPeek() }
+    }
+
+    /// The menu-bar row: left and right of the camera housing.
+    private func wings<L: View, T: View>(@ViewBuilder leading: () -> L, @ViewBuilder trailing: () -> T) -> some View {
+        HStack(spacing: 0) {
+            leading().frame(maxWidth: .infinity)
+            Color.clear.frame(width: model.geometry.notchWidth)
+            trailing().frame(maxWidth: .infinity)
+        }
+        .frame(height: NotchMetrics.barHeight(model.geometry))
+    }
+
+    /// One line under the camera: title, then the detail in grey.
+    private var caption: some View {
+        HStack(spacing: 6) {
+            Text(peek.title)
+                .font(Theme.font(12, .semibold))
+                .foregroundStyle(Theme.ink)
+            if !peek.subtitle.isEmpty {
+                Text(peek.subtitle)
+                    .font(Theme.font(11.5))
+                    .foregroundStyle(Theme.mist)
+            }
+        }
+        .lineLimit(1)
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.top, 2)
+    }
+
+    @ViewBuilder
+    private var leading: some View {
+        if peek.artwork, let art = model.music.artwork {
+            Image(nsImage: art)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 22, height: 22)
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        } else if peek.showsLion {
+            LionMascot(size: 26, mood: peek.mood)
+        } else if let progress = peek.progress {
+            ZStack {
+                ProgressRing(progress: progress, lineWidth: 2.4, color: peek.tint)
+                Image(systemName: peek.icon).font(.system(size: 8.5, weight: .bold)).foregroundStyle(peek.tint)
+            }
+            .frame(width: 22, height: 22)
+        } else {
+            Image(systemName: peek.icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(peek.tint)
+        }
+    }
+
+    @ViewBuilder
+    private var trailing: some View {
+        if let value = peek.value {
+            Text(value)
+                .font(Theme.font(15, .semibold))
+                .monospacedDigit()
+                .foregroundStyle(peek.tint)
+        } else if peek.artwork {
+            EqualizerBars(playing: true, color: peek.tint, height: 12)
+        } else if peek.showsLion {
+            Image(systemName: peek.icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(peek.tint)
+        }
+    }
+}
+
+// MARK: - Closed-notch sing-along
+
+/// The line being sung, under the closed notch. Each new line rises in like a bubble.
+struct ClosedLyricLine: View {
+    var np: NowPlaying
+    var lines: [LyricLine]
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.25)) { tl in
+            let index = LRC.index(at: np.position(at: tl.date) + 0.15, in: lines)
+            let text = index.map { lines[$0].text } ?? ""
+            ZStack {
+                Text(text.isEmpty ? "♪" : text)
+                    .font(Theme.font(12, .medium))
+                    .foregroundStyle(Theme.cream)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .padding(.horizontal, 16)
+                    .id(index ?? -1)
+                    .transition(.asymmetric(
+                        insertion: .modifier(active: LyricRise(progress: 0), identity: LyricRise(progress: 1)),
+                        removal: .opacity.combined(with: .offset(y: -6))))
+            }
+            .animation(Theme.liquid, value: index)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .clipped()
+    }
+}
+
+private struct LyricRise: ViewModifier {
+    var progress: CGFloat
+    func body(content: Content) -> some View {
+        content
+            .offset(y: (1 - progress) * 10)
+            .blur(radius: (1 - progress) * 4)
+            .opacity(Double(progress))
     }
 }

@@ -12,58 +12,49 @@ struct WaterPane: View {
         let week = WaterLog.lastDays(7, entries: model.data.water)
         let streak = WaterLog.streak(model.data.water, goal: goal)
 
-        HStack(spacing: 18) {
+        HStack(spacing: 16) {
             // Animated water drop that fills up
             TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
                 WaterDrop(level: progress, t: tl.date.timeIntervalSinceReferenceDate)
             }
-            .frame(width: 104, height: 128)
-            .overlay(alignment: .bottom) {
-                VStack(spacing: 0) {
-                    Text("\(today)")
-                        .font(.system(size: 22, weight: .heavy, design: .rounded))
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                    Text("of \(goal) ml")
-                        .font(Theme.rounded(9.5, .semibold))
-                        .opacity(0.85)
-                }
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.35), radius: 3)
-                .padding(.bottom, 26)
-            }
+            .frame(width: 84, height: 108)
 
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(progress >= 1 ? "Goal reached, nice!" : "Make room for a sip.")
-                        .font(Theme.rounded(16, .bold))
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("\(today) ml")
+                        .font(Theme.font(15, .semibold))
+                        .monospacedDigit()
                         .foregroundStyle(Theme.ink)
+                        .contentTransition(.numericText())
+                    Text(progress >= 1 ? "goal reached" : "of \(goal)")
+                        .font(Theme.font(11))
+                        .foregroundStyle(Theme.mist)
                     Spacer()
                     if streak > 0 {
-                        Label("\(streak)-day streak", systemImage: "flame.fill")
-                            .font(Theme.rounded(10, .bold))
-                            .foregroundStyle(Theme.orange)
+                        Text("\(streak)-day streak")
+                            .font(Theme.font(10.5))
+                            .foregroundStyle(Theme.mist)
                     }
                 }
 
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     ForEach([200, 350, 500], id: \.self) { ml in
-                        PillButton(title: "+\(ml)", icon: "drop.fill", prominent: ml == 350, tint: Color(hex: 0x7FD3FF)) {
+                        PillButton(title: "+\(ml)", prominent: ml == 350, tint: Theme.water) {
                             model.addWater(ml)
                         }
                     }
-                    IconButton(icon: "arrow.uturn.backward", size: 30, tint: Theme.mist, help: "Undo last drink") {
+                    IconButton(icon: "arrow.uturn.backward", size: 28, tint: Theme.mist, help: "Undo last drink") {
                         model.undoWater()
                     }
                 }
 
                 WeekChart(week: week, goal: goal)
-                    .frame(height: 58)
+                    .frame(height: 44)
 
-                HStack(spacing: 5) {
-                    Text("Goal").font(Theme.rounded(10, .semibold)).foregroundStyle(Theme.mist)
+                HStack(spacing: 4) {
+                    Text("Goal").font(Theme.font(10.5)).foregroundStyle(Theme.mist)
                     ForEach([1500, 2000, 2500, 3000], id: \.self) { g in
-                        Chip(title: "\(g / 1000).\(g % 1000 / 100)L", selected: goal == g, tint: Color(hex: 0x7FD3FF)) {
+                        Chip(title: "\(g / 1000).\(g % 1000 / 100)L", selected: goal == g, tint: Theme.water) {
                             model.settings.waterGoal = g
                         }
                     }
@@ -73,8 +64,8 @@ struct WaterPane: View {
                     } label: {
                         Label(model.settings.waterReminders ? "Every \(model.settings.waterIntervalMinutes)m" : "Reminder off",
                               systemImage: model.settings.waterReminders ? "bell.fill" : "bell.slash")
-                            .font(Theme.rounded(10, .semibold))
-                            .foregroundStyle(model.settings.waterReminders ? Theme.gold : Theme.mist)
+                            .font(Theme.font(10.5))
+                            .foregroundStyle(model.settings.waterReminders ? Theme.ink : Theme.mist)
                     }
                     .buttonStyle(PressableStyle())
                     .help("Gentle in-notch reminder between \(model.settings.activeHourStart):00 and \(model.settings.activeHourEnd):00")
@@ -82,7 +73,7 @@ struct WaterPane: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 2)
         .frame(maxHeight: .infinity)
     }
 }
@@ -98,14 +89,13 @@ private struct WaterDrop: View {
             ZStack {
                 DropShape().fill(Color.white.opacity(0.07))
                 Wave(level: level, phase: t * 2.2, amplitude: level > 0 && level < 1 ? 3.5 : 0)
-                    .fill(Theme.waterGradient)
+                    .fill(Theme.water)
                     .clipShape(DropShape())
                     .animation(.spring(response: 0.8, dampingFraction: 0.7), value: level)
                 Wave(level: level, phase: t * 2.2 + 1.6, amplitude: level > 0 && level < 1 ? 2.5 : 0)
-                    .fill(Color.white.opacity(0.18))
+                    .fill(Color.white.opacity(0.15))
                     .clipShape(DropShape())
                     .animation(.spring(response: 0.8, dampingFraction: 0.7), value: level)
-                DropShape().stroke(Color(hex: 0x9FE7FF).opacity(0.45), lineWidth: 1.2)
             }
             .frame(width: rect.width, height: rect.height)
         }
@@ -172,22 +162,21 @@ private struct WeekChart: View {
                     p.move(to: CGPoint(x: 0, y: y))
                     p.addLine(to: CGPoint(x: geo.size.width, y: y))
                 }
-                .stroke(Theme.gold.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                .stroke(Color.white.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
 
                 HStack(alignment: .bottom, spacing: 0) {
                     ForEach(Array(week.enumerated()), id: \.offset) { index, entry in
                         let isToday = index == week.count - 1
                         VStack(spacing: 3) {
                             Capsule()
-                                .fill(entry.ml >= goal ? AnyShapeStyle(Theme.tealGradient)
-                                                       : AnyShapeStyle(LinearGradient(colors: [Color(hex: 0x9FE7FF), Color(hex: 0x4FA3E8)], startPoint: .top, endPoint: .bottom)))
-                                .opacity(entry.ml > 0 ? (isToday ? 1 : 0.75) : 0.18)
-                                .frame(width: 9, height: max(4, appeared ? barArea * Double(entry.ml) / maxValue : 4))
+                                .fill(Theme.water)
+                                .opacity(entry.ml > 0 ? (isToday ? 1 : 0.55) : 0.15)
+                                .frame(width: 8, height: max(4, appeared ? barArea * Double(entry.ml) / maxValue : 4))
                                 .animation(.spring(response: 0.7, dampingFraction: 0.6).delay(Double(index) * 0.04), value: appeared)
                                 .animation(.spring(response: 0.6, dampingFraction: 0.65), value: entry.ml)
                             Text(entry.day.formatted(.dateTime.weekday(.narrow)))
-                                .font(Theme.rounded(8.5, isToday ? .heavy : .medium))
-                                .foregroundStyle(isToday ? Theme.gold : Theme.mist)
+                                .font(Theme.font(9, isToday ? .semibold : .regular))
+                                .foregroundStyle(isToday ? Theme.ink : Theme.mist)
                                 .frame(height: 11)
                         }
                         .frame(maxWidth: .infinity)

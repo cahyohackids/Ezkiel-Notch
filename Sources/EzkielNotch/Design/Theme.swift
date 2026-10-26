@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Ezkielyna palette (navy night + lion gold/orange + teal), shared by every view.
+/// Ezkielyna palette (navy night + lion gold + teal), shared by every view. Flat colors only:
+/// gold is the one accent, teal marks rest/done, water blue belongs to the Water tab.
 enum Theme {
     // Base
     static let void = Color(hex: 0x05070F)
@@ -26,10 +27,7 @@ enum Theme {
     static let sky = Color(hex: 0x6786B0)
     static let berry = Color(hex: 0xE4497A)
 
-    static let lionGradient = LinearGradient(colors: [gold, orange, ember], startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let glowGradient = LinearGradient(colors: [gold, orange, ember, orange, gold], startPoint: .leading, endPoint: .trailing)
-    static let tealGradient = LinearGradient(colors: [teal, teal2], startPoint: .leading, endPoint: .trailing)
-    static let waterGradient = LinearGradient(colors: [Color(hex: 0x9FE7FF), Color(hex: 0x4FA3E8)], startPoint: .top, endPoint: .bottom)
+    static let water = Color(hex: 0x7CC6F2)
 
     static let surface = Color.white.opacity(0.06)
     static let surfaceHi = Color.white.opacity(0.10)
@@ -40,9 +38,16 @@ enum Theme {
     static let snappy = Animation.spring(response: 0.3, dampingFraction: 0.8)
     static let bouncy = Animation.spring(response: 0.55, dampingFraction: 0.58)
     static let soft = Animation.easeInOut(duration: 0.22)
+    /// Opening: a touch more overshoot than `spring`, so the body pours out like liquid.
+    static let liquid = Animation.spring(response: 0.5, dampingFraction: 0.68, blendDuration: 0.1)
+    /// The settle of a water surface: low damping, a few visible ripples.
+    static let wobble = Animation.spring(response: 0.42, dampingFraction: 0.32)
+    /// Tab indicator and small selections: quick, with one soft overshoot.
+    static let jelly = Animation.spring(response: 0.4, dampingFraction: 0.66)
 
-    static func rounded(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .rounded)
+    /// The system face, like the rest of macOS. Numbers use `.monospacedDigit()` where they tick.
+    static func font(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight)
     }
 }
 

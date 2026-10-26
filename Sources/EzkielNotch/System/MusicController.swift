@@ -94,8 +94,17 @@ final class MusicController: ObservableObject {
         return wanted.filter { running.contains($0.bundleID) }
     }
 
+    /// Self-test snapshots: show a made-up track and stop polling the real players.
+    func simulate(_ np: NowPlaying?) {
+        simulated = np != nil
+        nowPlaying = np
+        status = np == nil ? .noPlayer : .playing
+    }
+
+    private var simulated = false
+
     func refresh() {
-        guard !inFlight else { return }
+        guard !inFlight, !simulated else { return }
         let players = candidates
         guard !players.isEmpty else {
             apply(nil, status: .noPlayer)

@@ -19,6 +19,14 @@ enum IconRenderer {
         return true
     }
 
+    static func renderMascotSheet(to path: String) -> Bool {
+        let renderer = ImageRenderer(content: LionMascotSheet())
+        renderer.scale = 2
+        guard let cg = renderer.cgImage,
+              let data = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]) else { return false }
+        return (try? data.write(to: URL(fileURLWithPath: path))) != nil
+    }
+
     /// Small lion for the menu bar.
     static func statusImage(points: CGFloat = 18) -> NSImage {
         let renderer = ImageRenderer(content: LionMascot(size: points, mood: .awake, animated: false))

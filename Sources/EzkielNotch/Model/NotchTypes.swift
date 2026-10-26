@@ -46,7 +46,7 @@ enum LionMood: Equatable {
 
 /// A short, self-dismissing activity card.
 struct Peek: Identifiable, Equatable {
-    let id = UUID()
+    var id = UUID()
     var icon: String
     var title: String
     var subtitle: String
@@ -57,8 +57,21 @@ struct Peek: Identifiable, Equatable {
     /// 0...1 shows a progress arc (battery), nil hides it.
     var progress: Double? = nil
     var showsLion: Bool = false
+    /// Slim overlay (volume, Caps Lock, keyboard) instead of a card. Overlays with the same
+    /// key update in place, so holding a volume key doesn't restart the animation.
+    var hudKey: String? = nil
+    /// 0...1 shows a level bar in an overlay.
+    var level: Double? = nil
+    /// Big value in the right wing, beside the camera ("70%").
+    var value: String? = nil
+    /// Show the now-playing artwork in the left wing and an equalizer in the right.
+    var artwork: Bool = false
 
-    static func == (lhs: Peek, rhs: Peek) -> Bool { lhs.id == rhs.id }
+    var isHUD: Bool { hudKey != nil }
+
+    static func == (lhs: Peek, rhs: Peek) -> Bool {
+        lhs.id == rhs.id && lhs.level == rhs.level && lhs.title == rhs.title && lhs.icon == rhs.icon
+    }
 }
 
 /// Where the notch lives on the current display.
@@ -73,13 +86,16 @@ struct NotchGeometry: Equatable {
 /// All layout numbers in one place. Sizes are the notch *body*; ears are added on both sides.
 enum NotchMetrics {
     static let wing: CGFloat = 46
-    static let expandedWidth: CGFloat = 600
-    static let expandedContentHeight: CGFloat = 286
+    static let expandedWidth: CGFloat = 500
+    static let expandedContentHeight: CGFloat = 214
     static let shadowMargin: CGFloat = 34
+
+    /// Height of the sing-along line under the closed notch.
+    static let lyricBand: CGFloat = 24
 
     static let compactShape = (radius: CGFloat(12), ear: CGFloat(8))
     static let peekShape = (radius: CGFloat(20), ear: CGFloat(12))
-    static let expandedShape = (radius: CGFloat(30), ear: CGFloat(16))
+    static let expandedShape = (radius: CGFloat(24), ear: CGFloat(14))
 
     static func barHeight(_ g: NotchGeometry) -> CGFloat {
         g.hasNotch ? g.barHeight : max(30, g.barHeight)

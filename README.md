@@ -32,6 +32,8 @@ Grab the latest **DMG** or **ZIP** from [Releases](https://github.com/cahyohacki
 - **Pin** (ikon paku) membuat notch tetap terbuka. **Esc** atau tombol ⌃ menutupnya. Klik di luar notch juga menutupnya.
 - **Seret file ke notch** → otomatis membuka Shelf; seret file keluar dari Shelf ke chat/email/folder.
 - **Klik kanan notch** untuk menu cepat (buka, pin, mode minimal, Quit). Ikon singa di menu bar juga punya menu yang sama.
+- **Lirik sinkron**: buka tab Music → tombol 💬. Notch terbelah dua, baris lirik menyala sesuai lagu; klik baris untuk lompat. Saat notch tertutup, baris yang sedang dinyanyikan muncul di bawah notch.
+- **Overlay**: volume (dengan bar emas), Caps Lock dan ganti bahasa keyboard muncul di notch. Wi-Fi putus/nyambung dan AirPods/headphone yang tersambung juga muncul sebagai peek. Semua bisa dimatikan di Settings.
 - Semua data (tugas, catatan, klip, shelf, air minum) disimpan lokal di `~/Library/Application Support/EzkielNotch/data.json`.
 
 ## What's inside
@@ -42,12 +44,12 @@ Grab the latest **DMG** or **ZIP** from [Releases](https://github.com/cahyohacki
 | **Tasks** | Add with Return, optional reminder (15m, 1h, 3h, tomorrow 9:00). Ezkiel peeks out of the notch when a task is due. |
 | **Notes** | Multiple notes with titles, autosaved. |
 | **Capture** | Reads the clipboard **only** when you press Capture. Up to 30 clips; copy back with one click. |
-| **Music** | Spotify and Apple Music: artwork, title, artist, live progress bar with seeking, previous/play/next. Track changes peek in the closed notch with an equalizer. |
+| **Music** | Spotify and Apple Music: artwork, title, artist, live progress bar with seeking, previous/play/next. Track changes peek in the closed notch with an equalizer. **Synced lyrics** (LRCLIB): the notch splits in two, each line lights up as it's sung, click a line to jump; the closed notch sings along underneath. |
 | **Shelf** | Drop files on the notch, drag them out anywhere, Quick Look thumbnails, double-click to open, right-click to reveal/copy path. References only; originals stay in place. |
 | **Water** | +200/+350/+500 ml, animated water drop, 7-day chart with goal line, streaks, gentle in-notch reminders during your active hours. |
 | **Settings** | Hover behaviour and delay, launch at login, lion mascot & naps, minimal closed notch, sounds, haptics, music source, display picker, quick launch (Ezkielyna, Claude, Finder, Terminal, Downloads, System Settings). |
 
-Plus: battery peeks (plugged in / on battery / low battery), a sleepy lion that naps when you are away and cheers when you come back, and `⌘1…⌘8` to switch tabs while typing.
+Plus: **volume, Caps Lock and keyboard-language overlays** (no Accessibility permission; it never sees what you type), **Wi-Fi and headphones peeks** (AirPods and wired), liquid motion (the notch pours open, wobbles like a water drop and settles, tabs drop in one by one), peeks that put the icon and value beside the camera with one line underneath, battery peeks (plugged in / on battery / low battery), a sleepy lion that naps when you are away and cheers when you come back, and `⌘1…⌘8` to switch tabs while typing.
 
 ## Why it no longer "ignores clicks"
 

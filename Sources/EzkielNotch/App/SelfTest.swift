@@ -12,6 +12,7 @@ enum SelfTest {
         let args = ProcessInfo.processInfo.arguments
         let snapshotDir = args.firstIndex(of: "--snapshots").flatMap { i in i + 1 < args.count ? args[i + 1] : nil }
         if snapshotDir != nil { seedDemoData(model) }
+        model.ignoresPointer = true
 
         steps.append(("panel on screen", {
             check(controller.panel.isVisible, "panel is visible")
@@ -54,13 +55,62 @@ enum SelfTest {
 
         steps.append(("peek", {
             model.showPeek(Peek(icon: "sparkle", title: "Self test", subtitle: "Peek card"))
-            check(model.presentation == .peek, "peek shows")
+            check(model.presentation == .peek, "peek shows (\(model.presentation))")
         }))
         steps.append(("peek tap opens", {
             model.openPeek()
             check(model.presentation == .expanded, "tapping a peek opens the notch")
             model.collapse()
         }))
+
+        steps.append(("volume overlay", {
+            model.showPeek(Peek(icon: "speaker.wave.2.fill", title: "Volume", subtitle: "", hudKey: "volume", level: 0.4, value: "40%"))
+            let first = model.peek?.id
+            model.showPeek(Peek(icon: "speaker.wave.3.fill", title: "Volume", subtitle: "", hudKey: "volume", level: 0.7, value: "70%"))
+            check(model.presentation == .peek && model.peek?.isHUD == true, "overlay shows (\(model.presentation))")
+            check(model.peek?.id == first && model.peek?.level == 0.7, "overlay updates in place")
+        }))
+        steps.append(("headphones peek", {
+            model.collapse()
+            model.showPeek(Peek(icon: "airpodspro", title: "AirPods Pro", subtitle: "Connected · sound plays here", tint: Theme.teal))
+            check(model.presentation == .peek && model.peek?.isHUD == false, "card peek replaces overlay")
+        }))
+        steps.append(("battery peek", {
+            model.collapse()
+            model.showPeek(Peek(icon: "bolt.fill", title: "Charging", subtitle: "Charger connected", tint: Theme.teal,
+                                progress: 0.7, value: "70%"))
+            check(model.presentation == .peek, "battery peek shows")
+        }))
+        steps.append(("splash settles", {
+            // Give the wobble's reset a moment even when the machine is busy.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                check(model.ripple == 0, "notch edge settles back to straight (\(model.ripple))")
+            }
+        }))
+
+        if snapshotDir != nil {
+            let np = NowPlaying(player: .spotify, title: "Paper Sky", artist: "Lumen Coast", album: "Summer Flows",
+                                duration: 196, position: 41, isPlaying: true, artworkURL: nil, fetchedAt: Date())
+            let lines = ["we fold the summer light", "into paper birds tonight", "and send them through the sky",
+                         "to find you by the sea", "every wing a little song", "that carries us along"]
+                .enumerated().map { LyricLine(time: 30 + Double($0.offset) * 5, text: $0.element) }
+            let lyricsWereOn = model.settings.showLyrics
+            steps.append(("lyrics split", {
+                model.music.simulate(np)
+                model.settings.showLyrics = true
+                model.lyrics.preview(lines, for: np)
+                model.expand(.music)
+            }))
+            steps.append(("lyrics closed notch", {
+                model.collapse()
+                check(model.showsClosedLyrics, "closed notch sings along")
+            }))
+            steps.append(("lyrics off", {
+                model.settings.showLyrics = lyricsWereOn
+                model.music.simulate(nil)
+                model.music.refresh()
+            }))
+        }
 
         steps.append(("lion icon", {
             check(IconRenderer.statusImage().size.width > 0, "lion renders")
@@ -93,9 +143,16 @@ enum SelfTest {
         let rect = "\(Int(f.minX)),\(Int(main.frame.maxY - f.maxY)),\(Int(f.width)),\(Int(f.height))"
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        task.arguments = ["-x", "-R", rect, (dir as NSString).appendingPathComponent("\(name).png")]
+        let path = (dir as NSString).appendingPathComponent("\(name).png")
+        task.arguments = ["-x", "-R", rect, path]
         try? task.run()
         task.waitUntilExit()
+        // No Screen Recording permission (local runs): draw the panel's own view instead.
+        if !FileManager.default.fileExists(atPath: path), let view = panel.contentView,
+           let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        }
     }
 
     private static func seedDemoData(_ model: AppModel) {

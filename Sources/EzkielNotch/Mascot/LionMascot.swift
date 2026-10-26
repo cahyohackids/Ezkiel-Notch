@@ -31,6 +31,13 @@ struct LionMascot: View {
 }
 
 enum LionPainter {
+    // Flat palette: two mane tones, one face tone. No gradients.
+    static let maneOuter = Color(hex: 0xD9672C)
+    static let maneInner = Color(hex: 0xF0914A)
+    static let face = Color(hex: 0xFFCF87)
+    static let muzzle = Color(hex: 0xFFF0D4)
+    static let ink = Color(hex: 0x1A1420)
+
     static func draw(in ctx: inout GraphicsContext, size: CGSize, t: Double, mood: LionMood, detailed: Bool) {
         let s = min(size.width, size.height) / 100
         ctx.translateBy(x: (size.width - 100 * s) / 2, y: (size.height - 100 * s) / 2)
@@ -38,16 +45,15 @@ enum LionPainter {
 
         let sleeping = mood == .sleeping
         let happy = mood == .happy
+        let focused = mood == .focused
 
-        // Motion
-        let breath = sleeping ? 1 + 0.035 * sin(t * 1.4) : 1 + 0.022 * sin(t * 2.2)
-        var bob = sleeping ? 1.6 * sin(t * 1.4) : 1.0 * sin(t * 1.7)
+        // Motion: slow breathing, a hop and a head tilt when happy.
+        let breath = sleeping ? 1 + 0.03 * sin(t * 1.4) : 1 + 0.015 * sin(t * 2.0)
+        var bob = sleeping ? 1.2 * sin(t * 1.4) : 0.6 * sin(t * 1.7)
         var tilt = 0.0
         if happy {
-            bob = -3.2 * abs(sin(t * 7))
-            tilt = 7 * sin(t * 7)
-        } else if mood == .focused {
-            tilt = 1.5 * sin(t * 0.8)
+            bob = -3 * abs(sin(t * 6.5))
+            tilt = 6 * sin(t * 6.5)
         }
 
         var head = ctx
@@ -55,187 +61,181 @@ enum LionPainter {
         head.rotate(by: .degrees(tilt))
         head.translateBy(x: -50, y: -54)
 
-        // Mane: two rings of soft petals, slowly rippling.
+        // Mane: scalloped ring with a slight swirl, plus an inner ring offset by half a tuft.
         var mane = head
         mane.translateBy(x: 50, y: 52)
         mane.scaleBy(x: breath, y: breath)
-        let outer = 14
-        for i in 0..<outer {
-            let a = Double(i) / Double(outer) * 2 * .pi + (sleeping ? 0 : 0.03 * sin(t * 1.3 + Double(i)))
-            var petal = mane
-            petal.rotate(by: .radians(a))
-            let rect = CGRect(x: -11.5, y: -46, width: 23, height: 30)
-            petal.fill(Path(ellipseIn: rect), with: .color(i % 2 == 0 ? Theme.ember : Theme.orange))
-        }
         if detailed {
-            for i in 0..<outer {
-                let a = (Double(i) + 0.5) / Double(outer) * 2 * .pi
-                var petal = mane
-                petal.rotate(by: .radians(a))
-                petal.fill(Path(ellipseIn: CGRect(x: -9, y: -39, width: 18, height: 24)),
-                           with: .color(i % 2 == 0 ? Theme.orange : Color(hex: 0xF4AE5E)))
-            }
+            mane.fill(scallops(count: 12, outer: 48, inner: 39, swirl: 0.05, offset: 0), with: .color(maneOuter))
+            mane.fill(scallops(count: 12, outer: 41.5, inner: 33, swirl: 0.05, offset: 0.5), with: .color(maneInner))
+        } else {
+            mane.fill(scallops(count: 9, outer: 48, inner: 38, swirl: 0, offset: 0), with: .color(maneOuter))
         }
 
         // Ears
-        let earDrop: Double = sleeping ? 2.5 : 0
-        for x in [30.0, 70.0] {
-            head.fill(Path(ellipseIn: CGRect(x: x - 9, y: 24 + earDrop, width: 18, height: 17)), with: .color(Theme.gold))
-            head.fill(Path(ellipseIn: CGRect(x: x - 5, y: 28 + earDrop, width: 10, height: 9)), with: .color(Theme.ember.opacity(0.85)))
+        let earDrop: Double = sleeping ? 2 : 0
+        for x in [29.0, 71.0] {
+            head.fill(Path(ellipseIn: CGRect(x: x - 9, y: 22 + earDrop, width: 18, height: 18)), with: .color(face))
+            head.fill(Path(ellipseIn: CGRect(x: x - 4.5, y: 26.5 + earDrop, width: 9, height: 9)), with: .color(maneOuter))
         }
 
-        // Face
-        let face = Path(ellipseIn: CGRect(x: 23, y: 28, width: 54, height: 52))
-        head.fill(face, with: .radialGradient(
-            Gradient(colors: [Color(hex: 0xFFE2AE), Theme.gold, Color(hex: 0xF7B865)]),
-            center: CGPoint(x: 46, y: 46), startRadius: 2, endRadius: 34))
+        // Face: broad cheeks, tapered chin.
+        var faceShape = Path()
+        faceShape.move(to: CGPoint(x: 50, y: 26))
+        faceShape.addCurve(to: CGPoint(x: 78, y: 53), control1: CGPoint(x: 67, y: 26), control2: CGPoint(x: 78, y: 37))
+        faceShape.addCurve(to: CGPoint(x: 50, y: 83), control1: CGPoint(x: 78, y: 71), control2: CGPoint(x: 64, y: 83))
+        faceShape.addCurve(to: CGPoint(x: 22, y: 53), control1: CGPoint(x: 36, y: 83), control2: CGPoint(x: 22, y: 71))
+        faceShape.addCurve(to: CGPoint(x: 50, y: 26), control1: CGPoint(x: 22, y: 37), control2: CGPoint(x: 33, y: 26))
+        head.fill(faceShape, with: .color(face))
 
-        // Brows
-        if detailed {
-            let browY: Double = mood == .focused ? 41 : 39
-            for (x, dir) in [(39.0, -1.0), (61.0, 1.0)] {
-                var brow = Path()
-                brow.move(to: CGPoint(x: x - 5, y: browY + (mood == .focused ? -dir * 1.2 : 0.8)))
-                brow.addQuadCurve(to: CGPoint(x: x + 5, y: browY + (mood == .focused ? dir * 1.2 : 0.8)),
-                                  control: CGPoint(x: x, y: browY - 2))
-                head.stroke(brow, with: .color(Theme.ember.opacity(0.7)), style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
-            }
-        }
-
-        // Eyes
-        let navy = Theme.navy3
+        // Eyes. Small sizes get bigger eyes so they still read at 20 pt.
+        let eyeX = [39.5, 60.5]
+        let eyeY = 50.0
+        let ew = detailed ? 7.6 : 9.5
+        let eh = detailed ? 9.6 : 11.5
         if sleeping {
-            for x in [39.0, 61.0] {
+            for x in eyeX {
                 var lid = Path()
-                lid.move(to: CGPoint(x: x - 5, y: 50))
-                lid.addQuadCurve(to: CGPoint(x: x + 5, y: 50), control: CGPoint(x: x, y: 54.5))
-                head.stroke(lid, with: .color(navy), style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
+                lid.move(to: CGPoint(x: x - 5, y: eyeY))
+                lid.addQuadCurve(to: CGPoint(x: x + 5, y: eyeY), control: CGPoint(x: x, y: eyeY + 4.5))
+                head.stroke(lid, with: .color(ink), style: StrokeStyle(lineWidth: detailed ? 2.4 : 3.2, lineCap: .round))
             }
         } else if happy {
-            for x in [39.0, 61.0] {
+            for x in eyeX {
                 var arc = Path()
-                arc.move(to: CGPoint(x: x - 5, y: 52))
-                arc.addQuadCurve(to: CGPoint(x: x + 5, y: 52), control: CGPoint(x: x, y: 45))
-                head.stroke(arc, with: .color(navy), style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
+                arc.move(to: CGPoint(x: x - 5, y: eyeY + 2))
+                arc.addQuadCurve(to: CGPoint(x: x + 5, y: eyeY + 2), control: CGPoint(x: x, y: eyeY - 5.5))
+                head.stroke(arc, with: .color(ink), style: StrokeStyle(lineWidth: detailed ? 2.6 : 3.2, lineCap: .round))
             }
         } else {
-            // Blink every ~4.2 s, sometimes double.
-            let cycle = t.truncatingRemainder(dividingBy: 4.2)
-            let blinking = cycle > 4.02 || (Int(t / 4.2) % 3 == 0 && cycle > 3.7 && cycle < 3.82)
-            let openness: Double = blinking ? 0.12 : (mood == .focused ? 0.75 : 1)
-            // Eyes drift slightly, as if looking around.
-            let look = sin(t * 0.37) * 1.2
-            for x in [39.0, 61.0] {
-                let h = 9.5 * openness
-                head.fill(Path(ellipseIn: CGRect(x: x - 3.6 + look, y: 50.5 - h / 2, width: 7.2, height: h)), with: .color(navy))
+            let cycle = t.truncatingRemainder(dividingBy: 4.6)
+            let blinking = cycle > 4.45 || (Int(t / 4.6) % 3 == 0 && cycle > 4.1 && cycle < 4.22)
+            let openness = blinking ? 0.12 : (focused ? 0.72 : 1)
+            let look = sin(t * 0.37) * (detailed ? 1.2 : 0.6)
+            for x in eyeX {
+                let h = eh * openness
+                head.fill(Path(ellipseIn: CGRect(x: x - ew / 2 + look, y: eyeY - h / 2, width: ew, height: h)), with: .color(ink))
                 if !blinking && detailed {
-                    head.fill(Path(ellipseIn: CGRect(x: x - 1.6 + look, y: 47.4, width: 2.6, height: 2.6)), with: .color(.white.opacity(0.95)))
+                    head.fill(Path(ellipseIn: CGRect(x: x + 0.4 + look, y: eyeY - 3.6, width: 2.6, height: 2.6)), with: .color(.white))
                 }
             }
         }
 
-        // Cheeks
-        let blush = happy ? 0.75 : 0.42
-        for x in [31.5, 68.5] {
-            head.fill(Path(ellipseIn: CGRect(x: x - 4.5, y: 58, width: 9, height: 6)), with: .color(Theme.blush.opacity(blush)))
+        // Brows: they carry most of the expression.
+        if detailed {
+            // dir points from the inner end (near the nose) to the outer end.
+            let innerY = focused ? 42.5 : (sleeping ? 41.5 : 39.6)
+            let outerY = focused ? 40.2 : 41.2
+            for (x, dir) in [(eyeX[0], -1.0), (eyeX[1], 1.0)] {
+                var brow = Path()
+                brow.move(to: CGPoint(x: x - 3.5 * dir, y: innerY))
+                brow.addLine(to: CGPoint(x: x + 4.5 * dir, y: outerY))
+                head.stroke(brow, with: .color(maneOuter), style: StrokeStyle(lineWidth: 2.6, lineCap: .round))
+            }
         }
 
         // Muzzle
-        head.fill(Path(ellipseIn: CGRect(x: 36, y: 59, width: 15, height: 13)), with: .color(Theme.cream))
-        head.fill(Path(ellipseIn: CGRect(x: 49, y: 59, width: 15, height: 13)), with: .color(Theme.cream))
-        head.fill(Path(ellipseIn: CGRect(x: 44, y: 68, width: 12, height: 8)), with: .color(Color(hex: 0xEAD7B2)))
+        head.fill(Path(ellipseIn: CGRect(x: 37.5, y: 58.5, width: 14, height: 12)), with: .color(muzzle))
+        head.fill(Path(ellipseIn: CGRect(x: 48.5, y: 58.5, width: 14, height: 12)), with: .color(muzzle))
 
         // Nose
         var nose = Path()
-        nose.move(to: CGPoint(x: 45, y: 58.5))
-        nose.addQuadCurve(to: CGPoint(x: 55, y: 58.5), control: CGPoint(x: 50, y: 56))
-        nose.addQuadCurve(to: CGPoint(x: 50, y: 64), control: CGPoint(x: 55, y: 61.5))
-        nose.addQuadCurve(to: CGPoint(x: 45, y: 58.5), control: CGPoint(x: 45, y: 61.5))
-        head.fill(nose, with: .color(navy))
+        nose.move(to: CGPoint(x: 45, y: 58))
+        nose.addQuadCurve(to: CGPoint(x: 55, y: 58), control: CGPoint(x: 50, y: 55.5))
+        nose.addQuadCurve(to: CGPoint(x: 50, y: 63.5), control: CGPoint(x: 55, y: 61))
+        nose.addQuadCurve(to: CGPoint(x: 45, y: 58), control: CGPoint(x: 45, y: 61))
+        head.fill(nose, with: .color(ink))
 
         // Mouth
         if happy {
             var mouth = Path()
-            mouth.move(to: CGPoint(x: 45, y: 66))
-            mouth.addQuadCurve(to: CGPoint(x: 55, y: 66), control: CGPoint(x: 50, y: 74))
+            mouth.move(to: CGPoint(x: 44.5, y: 65.5))
+            mouth.addQuadCurve(to: CGPoint(x: 55.5, y: 65.5), control: CGPoint(x: 50, y: 75))
             mouth.closeSubpath()
             head.fill(mouth, with: .color(Theme.rust))
-        } else {
+        } else if detailed {
             var mouth = Path()
-            mouth.move(to: CGPoint(x: 50, y: 64))
-            mouth.addLine(to: CGPoint(x: 50, y: 66.5))
-            mouth.move(to: CGPoint(x: 45.5, y: 67))
-            mouth.addQuadCurve(to: CGPoint(x: 50, y: 66.5), control: CGPoint(x: 48, y: 69))
-            mouth.addQuadCurve(to: CGPoint(x: 54.5, y: 67), control: CGPoint(x: 52, y: 69))
-            head.stroke(mouth, with: .color(navy.opacity(0.85)), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            mouth.move(to: CGPoint(x: 50, y: 63.5))
+            mouth.addLine(to: CGPoint(x: 50, y: 66))
+            mouth.move(to: CGPoint(x: 45.5, y: 66))
+            mouth.addQuadCurve(to: CGPoint(x: 50, y: 66), control: CGPoint(x: 47.5, y: 68.5))
+            mouth.addQuadCurve(to: CGPoint(x: 54.5, y: 66), control: CGPoint(x: 52.5, y: 68.5))
+            head.stroke(mouth, with: .color(ink), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
         }
 
-        // Whisker dots
-        if detailed {
-            for (x, y) in [(40.0, 64.0), (42.5, 67.0), (60.0, 64.0), (57.5, 67.0)] {
-                head.fill(Path(ellipseIn: CGRect(x: x - 0.8, y: y - 0.8, width: 1.6, height: 1.6)), with: .color(Theme.rust.opacity(0.6)))
-            }
-        }
-
-        // Zzz while napping
-        if sleeping {
-            for k in 0..<3 {
-                let phase = (t * 0.45 + Double(k) / 3).truncatingRemainder(dividingBy: 1)
-                var z = ctx
-                z.opacity = sin(phase * .pi)
-                let fontSize = 10 + phase * 8
-                z.draw(Text("z").font(.system(size: fontSize, weight: .heavy, design: .rounded)).foregroundColor(Theme.gold),
-                       at: CGPoint(x: 80 + phase * 12, y: 30 - phase * 26))
-            }
-        }
-
-        // Sparkles when happy
+        // Blush only when happy.
         if happy && detailed {
-            for k in 0..<3 {
-                let phase = (t * 1.2 + Double(k) / 3).truncatingRemainder(dividingBy: 1)
-                let angle = Double(k) * 2.1 + 0.4
-                let r = 44 + phase * 8
-                let p = CGPoint(x: 50 + cos(angle) * r, y: 50 + sin(angle) * r * 0.9)
-                var spark = ctx
-                spark.opacity = sin(phase * .pi)
-                spark.fill(sparkle(at: p, radius: 4.5 * (1 - phase * 0.4)), with: .color(Theme.gold))
+            for x in [30.5, 69.5] {
+                head.fill(Path(ellipseIn: CGRect(x: x - 4, y: 57, width: 8, height: 5)), with: .color(Theme.blush.opacity(0.6)))
             }
+        }
+
+        // One drifting "z" while napping.
+        if sleeping {
+            let phase = (t * 0.4).truncatingRemainder(dividingBy: 1)
+            var z = ctx
+            z.opacity = sin(phase * .pi)
+            z.draw(Text("z").font(.system(size: 16, weight: .bold)).foregroundColor(Theme.cream),
+                   at: CGPoint(x: 82 + phase * 8, y: 26 - phase * 18))
         }
     }
 
-    private static func sparkle(at p: CGPoint, radius r: Double) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: p.x, y: p.y - r))
-        path.addQuadCurve(to: CGPoint(x: p.x + r, y: p.y), control: CGPoint(x: p.x, y: p.y))
-        path.addQuadCurve(to: CGPoint(x: p.x, y: p.y + r), control: CGPoint(x: p.x, y: p.y))
-        path.addQuadCurve(to: CGPoint(x: p.x - r, y: p.y), control: CGPoint(x: p.x, y: p.y))
-        path.addQuadCurve(to: CGPoint(x: p.x, y: p.y - r), control: CGPoint(x: p.x, y: p.y))
-        path.closeSubpath()
-        return path
+    /// A ring of `count` rounded tufts. `swirl` leans each tuft (radians); `offset` rotates by tufts.
+    private static func scallops(count: Int, outer: Double, inner: Double, swirl: Double, offset: Double) -> Path {
+        var p = Path()
+        let step = 2 * Double.pi / Double(count)
+        func point(_ r: Double, _ a: Double) -> CGPoint { CGPoint(x: r * cos(a), y: r * sin(a)) }
+        for i in 0...count {
+            let a = (Double(i) + offset) * step - .pi / 2
+            let valley = point(inner, a)
+            if i == 0 {
+                p.move(to: valley)
+                continue
+            }
+            let prev = a - step
+            p.addCurve(to: valley,
+                       control1: point(outer * 1.08, prev + step * 0.2 + swirl),
+                       control2: point(outer * 1.08, prev + step * 0.8 + swirl))
+        }
+        p.closeSubpath()
+        return p
     }
 }
 
-/// App icon artwork: the lion on a navy squircle with a warm glow.
+/// App icon artwork: the lion on a flat navy squircle.
 struct LionIconArtwork: View {
     var size: CGFloat
     var body: some View {
         let inset = size * 0.1
         ZStack {
             RoundedRectangle(cornerRadius: (size - inset * 2) * 0.225, style: .continuous)
-                .fill(LinearGradient(colors: [Theme.navy3, Theme.navy, Theme.void], startPoint: .top, endPoint: .bottom))
-                .overlay(
-                    RadialGradient(colors: [Theme.orange.opacity(0.45), .clear], center: .center,
-                                   startRadius: 0, endRadius: size * 0.42)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: (size - inset * 2) * 0.225, style: .continuous)
-                        .strokeBorder(LinearGradient(colors: [Theme.gold.opacity(0.7), Theme.ember.opacity(0.2)],
-                                                     startPoint: .top, endPoint: .bottom), lineWidth: max(1, size * 0.008))
-                )
+                .fill(Theme.navy2)
                 .padding(inset)
-            LionMascot(size: size * 0.66, mood: .awake, animated: false)
-                .offset(y: size * 0.01)
+            LionMascot(size: size * 0.7, mood: .awake, animated: false)
         }
         .frame(width: size, height: size)
+    }
+}
+
+/// `--render-mascot <file.png>`: every mood at large and notch size, for design review.
+struct LionMascotSheet: View {
+    var body: some View {
+        let moods: [LionMood] = [.awake, .happy, .focused, .sleeping]
+        VStack(spacing: 20) {
+            HStack(spacing: 24) {
+                ForEach(moods.indices, id: \.self) { i in LionMascot(size: 140, mood: moods[i], animated: false) }
+            }
+            HStack(spacing: 24) {
+                ForEach(moods.indices, id: \.self) { i in
+                    HStack(spacing: 12) {
+                        LionMascot(size: 22, mood: moods[i], animated: false)
+                        LionMascot(size: 38, mood: moods[i], animated: false)
+                    }
+                    .frame(width: 140)
+                }
+            }
+        }
+        .padding(28)
+        .background(Color.black)
     }
 }

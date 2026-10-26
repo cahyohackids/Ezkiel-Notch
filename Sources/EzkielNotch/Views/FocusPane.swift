@@ -10,43 +10,34 @@ struct FocusPane: View {
         let isRest = focus.mode == .rest
         let tint = isRest ? Theme.teal : Theme.gold
 
-        HStack(spacing: 22) {
+        HStack(spacing: 20) {
             TimelineView(.animation(minimumInterval: 1.0 / 20, paused: !focus.isRunning)) { tl in
                 let remaining = focus.remaining(at: tl.date)
                 let progress = 1 - focus.progress(at: tl.date)
                 ZStack {
-                    // Soft pulse behind the ring while running
-                    Circle()
-                        .fill(RadialGradient(colors: [tint.opacity(focus.isRunning ? 0.22 : 0.1), .clear],
-                                             center: .center, startRadius: 10, endRadius: 86))
-                        .scaleEffect(focus.isRunning ? 1 + 0.04 * sin(tl.date.timeIntervalSinceReferenceDate * 2) : 1)
-                    GlowRing(progress: progress, lineWidth: 9,
-                             colors: isRest ? [Theme.teal, Theme.teal2, Theme.teal] : [Theme.gold, Theme.orange, Theme.ember, Theme.gold],
-                             glow: isRest ? Theme.teal : Theme.orange)
-                        .padding(14)
-                    VStack(spacing: 2) {
+                    ProgressRing(progress: progress, lineWidth: 6, color: tint)
+                    VStack(spacing: 0) {
                         Text(FocusClock.format(remaining))
-                            .font(.system(size: 30, weight: .bold, design: .rounded))
+                            .font(.system(size: 24, weight: .semibold))
                             .monospacedDigit()
                             .foregroundStyle(Theme.ink)
                             .contentTransition(.numericText())
-                        Text(isRest ? "BREAK" : "FOCUS")
-                            .font(Theme.rounded(9, .heavy))
-                            .tracking(1.6)
-                            .foregroundStyle(tint)
+                        Text(isRest ? "Break" : "Focus")
+                            .font(Theme.font(10, .medium))
+                            .foregroundStyle(Theme.mist)
                     }
                 }
             }
-            .frame(width: 168, height: 168)
+            .frame(width: 112, height: 112)
 
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(Theme.rounded(19, .bold))
+                        .font(Theme.font(15, .semibold))
                         .foregroundStyle(Theme.ink)
                         .contentTransition(.opacity)
                     Text(subtitle)
-                        .font(Theme.rounded(11.5))
+                        .font(Theme.font(11))
                         .foregroundStyle(Theme.mist)
                 }
 
@@ -57,12 +48,12 @@ struct FocusPane: View {
                         model.focusStartPause()
                     }
                     .keyboardShortcut(.space, modifiers: [])
-                    IconButton(icon: "arrow.counterclockwise", size: 30, help: "Reset timer") {
+                    IconButton(icon: "arrow.counterclockwise", size: 28, help: "Reset timer") {
                         model.focusReset()
                     }
                 }
 
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     ForEach([15, 25, 45, 60], id: \.self) { minutes in
                         Chip(title: "\(minutes)m",
                              selected: !isRest && Int(focus.duration / 60) == minutes) {
@@ -70,7 +61,7 @@ struct FocusPane: View {
                         }
                     }
                     Spacer(minLength: 4)
-                    Chip(title: isRest ? "Back to focus" : "\(model.settings.breakMinutes)m break",
+                    Chip(title: isRest ? "Focus" : "\(model.settings.breakMinutes)m break",
                          selected: isRest, tint: Theme.teal) {
                         model.toggleBreak()
                     }
@@ -78,23 +69,25 @@ struct FocusPane: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var title: String {
         let f = model.focus
-        if f.isRunning { return f.mode == .focus ? "Stay with it" : "Breathe out" }
-        if f.isPaused { return "Paused" }
-        return f.mode == .focus ? "Ready when you are" : "Time for a break"
+        let minutes = Int(f.duration / 60)
+        if f.isRunning || f.isPaused {
+            return f.isPaused ? "Paused" : (f.mode == .focus ? "Focusing" : "On a break")
+        }
+        return f.mode == .focus ? "\(minutes) min focus" : "\(minutes) min break"
     }
 
     private var subtitle: String {
         let f = model.focus
         if f.isRunning {
             let end = Date().addingTimeInterval(f.remaining())
-            return "Ends at \(end.formatted(date: .omitted, time: .shortened)) · Ezkiel guards your focus"
+            return "Ends at \(end.formatted(date: .omitted, time: .shortened))"
         }
-        return f.mode == .focus ? "Pick a length and press Start" : "Stretch, sip some water, look away"
+        return "Space starts and pauses"
     }
 }

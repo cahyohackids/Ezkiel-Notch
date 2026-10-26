@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import NotchCore
 import ServiceManagement
 import SwiftUI
@@ -24,6 +25,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var toast: String?
     @Published var geometry = NotchGeometry()
     @Published private(set) var lionMood: LionMood = .awake
+    /// How far the notch's bottom edge bows (+ down like a hanging drop, − pulled up).
+    /// Kicked on every open/close/peek and springs back with a wobble, like water.
+    @Published private(set) var ripple: CGFloat = 0
 
     // Data
     @Published var data: AppData {
@@ -35,6 +39,9 @@ final class AppModel: ObservableObject {
 
     let music = MusicController()
     let battery = BatteryMonitor()
+    let lyrics = LyricsService()
+    private let system = SystemMonitor()
+    private var subscriptions = Set<AnyCancellable>()
 
     /// Reasons the notch must stay open (menu open, file picker, ...).
     private var blockers = Set<String>()
@@ -46,12 +53,16 @@ final class AppModel: ObservableObject {
     private var toastWork: DispatchWorkItem?
     private var saveWork: DispatchWorkItem?
     private var happyWork: DispatchWorkItem?
+    private var rippleWork: DispatchWorkItem?
     private var ticker: Timer?
     private var tickCount = 0
     private var lastInteraction = Date()
     private var lastWaterReminder: Date?
     private var lastBatteryWarning = 100
     private let store: DataStore
+
+    /// Self-test: ignore the real pointer so a cursor resting near the notch can't change the outcome.
+    var ignoresPointer = false
 
     /// Provided by the window controller: is a text field currently being edited?
     var isEditingText: () -> Bool = { false }
@@ -80,6 +91,20 @@ final class AppModel: ObservableObject {
         music.onTrackChange = { [weak self] np in self?.trackChanged(np) }
         battery.onChange = { [weak self] old, new in self?.batteryChanged(from: old, to: new) }
         battery.start()
+        system.onEvent = { [weak self] event in self?.systemEvent(event) }
+        system.start()
+
+        // Lyrics follow the song; the notch re-lays out when the closed sing-along line appears.
+        music.$nowPlaying
+            .map { $0?.trackKey }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshLyrics() }
+            }
+            .store(in: &subscriptions)
+        lyrics.objectWillChange
+            .sink { [weak self] in self?.objectWillChange.send() }
+            .store(in: &subscriptions)
 
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
@@ -112,7 +137,12 @@ final class AppModel: ObservableObject {
 
     var showsWings: Bool {
         if !settings.minimalClosed { return true }
-        return hovering || hasLiveActivity
+        return hovering || hasLiveActivity || showsClosedLyrics
+    }
+
+    /// The closed notch grows a line underneath and sings along.
+    var showsClosedLyrics: Bool {
+        settings.showLyrics && settings.closedLyrics && (music.nowPlaying?.isPlaying ?? false) && lyrics.syncedLines != nil
     }
 
     var bodySize: CGSize {
@@ -121,14 +151,21 @@ final class AppModel: ObservableObject {
         case .compact:
             var w = geometry.notchWidth + (showsWings ? NotchMetrics.wing * 2 : 0)
             var h = bar
+            if showsClosedLyrics {
+                w = max(w, 340)
+                h += NotchMetrics.lyricBand
+            }
             if hovering {
                 w += 14
                 h += 4
             }
             return CGSize(width: w, height: h)
         case .peek:
-            let w = max(geometry.notchWidth + NotchMetrics.wing * 2, 380)
-            return CGSize(width: w, height: bar + 56)
+            // Icon and value sit in the wings beside the camera; one short line goes underneath.
+            if peek?.isHUD == true {
+                return CGSize(width: max(geometry.notchWidth + 104, 260), height: bar + (peek?.level != nil ? 18 : 24))
+            }
+            return CGSize(width: max(geometry.notchWidth + 128, 300), height: bar + 26)
         case .expanded:
             return NotchMetrics.expandedSize(geometry)
         }
@@ -167,10 +204,11 @@ final class AppModel: ObservableObject {
         noteInteraction()
         guard presentation != .expanded else { return }
         peekWork?.cancel()
-        withAnimation(Theme.spring) {
+        withAnimation(Theme.liquid) {
             presentation = .expanded
             hovering = false
         }
+        splash(16)
         peek = nil
         if settings.haptics {
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
@@ -193,6 +231,7 @@ final class AppModel: ObservableObject {
             hovering = explicit ? false : pointerInside
             fileDragNear = false
         }
+        splash(-5)
         peek = nil
         onCollapse()
         updateMusicPolling()
@@ -206,7 +245,7 @@ final class AppModel: ObservableObject {
         guard newTab != tab else { return }
         tabForward = newTab.index > tab.index
         noteInteraction()
-        withAnimation(Theme.snappy) { tab = newTab }
+        withAnimation(Theme.jelly) { tab = newTab }
         updateMusicPolling()
     }
 
@@ -229,7 +268,7 @@ final class AppModel: ObservableObject {
     // MARK: - Pointer (driven by NotchWindowController)
 
     func pointerMoved(inside: Bool) {
-        guard inside != pointerInside else { return }
+        guard !ignoresPointer, inside != pointerInside else { return }
         pointerInside = inside
         hoverWork?.cancel()
         if inside {
@@ -237,6 +276,7 @@ final class AppModel: ObservableObject {
             wakeLion()
             if presentation != .expanded {
                 withAnimation(Theme.snappy) { hovering = true }
+                splash(4)
             }
             guard settings.expandOnHover, !suppressHoverUntilExit, presentation != .expanded else { return }
             let work = DispatchWorkItem { [weak self] in
@@ -294,26 +334,47 @@ final class AppModel: ObservableObject {
     // MARK: - Peeks and toasts
 
     func showPeek(_ p: Peek) {
+        var p = p
         if settings.sounds, let sound = p.sound { NSSound(named: sound)?.play() }
-        makeLionHappy()
+        if !p.isHUD { makeLionHappy() }
         if presentation == .expanded {
-            showToast("\(p.title) · \(p.subtitle)")
+            showToast(p.subtitle.isEmpty ? p.title : "\(p.title) · \(p.subtitle)")
             return
         }
         peekWork?.cancel()
-        withAnimation(Theme.bouncy) {
-            peek = p
-            presentation = .peek
-            hovering = false
+        if presentation == .peek, let current = peek, p.hudKey != nil, current.hudKey == p.hudKey {
+            // Same overlay again (volume key held): update in place, no re-entrance.
+            p.id = current.id
+            withAnimation(Theme.snappy) { peek = p }
+        } else {
+            withAnimation(Theme.liquid) {
+                peek = p
+                presentation = .peek
+                hovering = false
+            }
+            splash(p.isHUD ? 5 : 9)
         }
+        let id = p.id
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.presentation == .peek, self.peek?.id == p.id else { return }
+            guard let self, self.presentation == .peek, self.peek?.id == id else { return }
             if self.pointerInside { return } // hovering keeps it; hover-open takes over
             withAnimation(Theme.spring) { self.presentation = .compact }
+            self.splash(-4)
             self.peek = nil
         }
         peekWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.4, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + (p.isHUD ? 1.6 : 3.4), execute: work)
+    }
+
+    /// Water-drop wobble of the bottom edge: bow out fast, then spring back with a few ripples.
+    func splash(_ amount: CGFloat) {
+        rippleWork?.cancel()
+        withAnimation(.easeOut(duration: 0.14)) { ripple = amount }
+        let work = DispatchWorkItem { [weak self] in
+            withAnimation(Theme.wobble) { self?.ripple = 0 }
+        }
+        rippleWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14, execute: work)
     }
 
     func openPeek() {
@@ -630,7 +691,7 @@ final class AppModel: ObservableObject {
         guard let np, np.isPlaying, presentation == .compact else { return }
         showPeek(Peek(icon: "music.note", title: np.title, subtitle: np.artist,
                       tint: np.player == .spotify ? Color(hex: 0x1ED760) : Theme.berry,
-                      tab: .music, mood: .happy))
+                      tab: .music, mood: .happy, artwork: true))
     }
 
     func updateMusicPolling() {
@@ -643,6 +704,70 @@ final class AppModel: ObservableObject {
         music.refresh()
     }
 
+    // MARK: - Lyrics
+
+    func toggleLyrics() {
+        noteInteraction()
+        withAnimation(Theme.liquid) { settings.showLyrics.toggle() }
+        refreshLyrics()
+    }
+
+    func refreshLyrics() {
+        lyrics.load(for: settings.showLyrics ? music.nowPlaying : nil)
+    }
+
+    // MARK: - System overlays and connection peeks
+
+    private func systemEvent(_ event: SystemMonitor.Event) {
+        switch event {
+        case .volume(let level, let muted):
+            guard settings.systemOverlays else { return }
+            let icon: String
+            switch muted ? 0 : level {
+            case ..<0.001: icon = "speaker.slash.fill"
+            case ..<0.34: icon = "speaker.wave.1.fill"
+            case ..<0.67: icon = "speaker.wave.2.fill"
+            default: icon = "speaker.wave.3.fill"
+            }
+            showPeek(Peek(icon: icon, title: muted ? "Muted" : "Volume", subtitle: "",
+                          tint: muted ? Theme.mist : Theme.gold, hudKey: "volume", level: muted ? 0 : level,
+                          value: muted ? "Muted" : "\(Int((level * 100).rounded()))%"))
+        case .capsLock(let on):
+            guard settings.systemOverlays else { return }
+            showPeek(Peek(icon: on ? "capslock.fill" : "capslock", title: on ? "Caps Lock on" : "Caps Lock off", subtitle: "",
+                          tint: on ? Theme.teal : Theme.mist, hudKey: "keyboard"))
+        case .inputSource(let name):
+            guard settings.systemOverlays else { return }
+            showPeek(Peek(icon: "globe", title: name, subtitle: "Keyboard", tint: Theme.sky, hudKey: "keyboard"))
+        case .network(let online, let wifi):
+            guard settings.connectionPeeks else { return }
+            if online {
+                showPeek(Peek(icon: wifi ? "wifi" : "network", title: wifi ? "Wi-Fi connected" : "Back online",
+                              subtitle: "You're online again", tint: Theme.teal, mood: .happy))
+            } else {
+                showPeek(Peek(icon: "wifi.slash", title: "Connection lost", subtitle: "Check your Wi-Fi or network",
+                              tint: Theme.berry, mood: .awake, sound: "Funk"))
+            }
+        case .output(let name, let kind, let previous):
+            guard settings.connectionPeeks else { return }
+            if kind == .bluetooth || kind == .wired {
+                showPeek(Peek(icon: Self.headphonesIcon(name, kind), title: name, subtitle: "Connected · sound plays here",
+                              tint: Theme.teal, mood: .happy))
+            } else if let previous, previous.kind == .bluetooth || previous.kind == .wired {
+                showPeek(Peek(icon: Self.headphonesIcon(previous.name, previous.kind), title: "\(previous.name) disconnected",
+                              subtitle: "Sound plays on \(name)", tint: Theme.mist, mood: .awake))
+            }
+        }
+    }
+
+    private static func headphonesIcon(_ name: String, _: SystemMonitor.OutputKind) -> String {
+        let n = name.lowercased()
+        if n.contains("airpods max") { return "airpodsmax" }
+        if n.contains("airpods pro") { return "airpodspro" }
+        if n.contains("airpods") { return "airpods" }
+        return "headphones"
+    }
+
     // MARK: - Battery
 
     private func batteryChanged(from old: BatteryState?, to new: BatteryState?) {
@@ -651,18 +776,18 @@ final class AppModel: ObservableObject {
         if let old, old.onAC != new.onAC {
             if new.onAC {
                 showPeek(Peek(icon: "bolt.fill", title: new.isCharging ? "Charging" : "Connected to power",
-                              subtitle: "\(new.percent)% battery", tint: Theme.teal, mood: .happy,
-                              progress: fraction))
+                              subtitle: "Charger connected", tint: Theme.teal, mood: .happy,
+                              progress: fraction, value: "\(new.percent)%"))
             } else {
-                showPeek(Peek(icon: "battery.75", title: "On battery", subtitle: "\(new.percent)% remaining",
-                              tint: Theme.gold, mood: .awake, progress: fraction))
+                showPeek(Peek(icon: "battery.75", title: "On battery", subtitle: "Charger unplugged",
+                              tint: Theme.gold, mood: .awake, progress: fraction, value: "\(new.percent)%"))
             }
             lastBatteryWarning = 100
         } else if !new.onAC, new.percent <= 20, new.percent < lastBatteryWarning,
                   [20, 10, 5].contains(new.percent) {
             lastBatteryWarning = new.percent
-            showPeek(Peek(icon: "battery.25", title: "Battery low", subtitle: "\(new.percent)% left · plug in soon",
-                          tint: Theme.berry, mood: .awake, sound: "Funk", progress: fraction))
+            showPeek(Peek(icon: "battery.25", title: "Battery low", subtitle: "Plug in soon",
+                          tint: Theme.berry, mood: .awake, sound: "Funk", progress: fraction, value: "\(new.percent)%"))
         }
     }
 
