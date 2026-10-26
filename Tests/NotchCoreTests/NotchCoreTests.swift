@@ -248,10 +248,56 @@ final class ScoutSetupTests: XCTestCase {
     func testCodex() throws {
         let toml = "model = \"o3\"\n\n[tui]\nnotify = true\n"
         let on = try ScoutSetup.connectCodex(toml, executable: exe)
-        XCTAssertTrue(on.hasPrefix("notify = [\"\(exe)\", \"--codex-notify\"]\n"))
+        XCTAssertTrue(on.hasPrefix(ScoutSetup.codexLine(executable: exe) + "\n"))
+        XCTAssertTrue(on.contains("--codex-notify"))
         XCTAssertEqual(ScoutSetup.codexState(on, executable: exe), .on)
+        let old = "notify = [\"\(exe)\", \"--codex-notify\"]\n"
+        XCTAssertEqual(ScoutSetup.codexState(old, executable: exe), .stale, "1.3.0's unguarded line gets repaired")
         XCTAssertEqual(try ScoutSetup.connectCodex(on, executable: exe), on)
         XCTAssertEqual(ScoutSetup.disconnectCodex(on), toml)
         XCTAssertThrowsError(try ScoutSetup.connectCodex("notify = [\"terminal-notifier\"]\n", executable: exe))
+    }
+}
+
+final class DataSafetyTests: XCTestCase {
+    func testOneBadItemDoesNotLoseTheList() throws {
+        let json = #"{"tasks":[{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","title":"ok","done":false,"reminded":false,"created":"2026-10-26T01:00:00Z"},{"title":42}],"settings":{}}"#
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        let data = try d.decode(AppData.self, from: Data(json.utf8))
+        XCTAssertEqual(data.tasks.map(\.title), ["ok"])
+    }
+
+    func testBrokenFileIsKeptAndBackupRestored() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ezk-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let store = DataStore(url: dir.appendingPathComponent("data.json"))
+        var good = AppData()
+        good.notes = [NoteItem(title: "keep me")]
+        store.save(good, synchronously: true)
+        _ = store.load()  // makes the daily backup
+        try Data("{ not json".utf8).write(to: store.url)
+        let loaded = store.load()
+        XCTAssertEqual(loaded.notes.first?.title, "keep me")
+        guard case .restoredBackup(let broken, _) = store.recovery else { return XCTFail("expected a restore") }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: broken.path))
+    }
+
+    func testCalmerDefaultsMigrate() throws {
+        let old = #"{"hoverDelay":0.12,"minimalClosed":false}"#
+        let s = try JSONDecoder().decode(NotchSettings.self, from: Data(old.utf8))
+        XCTAssertEqual(s.hoverDelay, 0.25)
+        XCTAssertTrue(s.minimalClosed)
+        XCTAssertTrue(s.musicAllowed)
+        let chosen = try JSONDecoder().decode(NotchSettings.self, from: Data(#"{"hoverDelay":0.45,"minimalClosed":false,"defaultsRevision":2}"#.utf8))
+        XCTAssertEqual(chosen.hoverDelay, 0.45)
+        XCTAssertFalse(chosen.minimalClosed)
+    }
+
+    func testVersionCompare() {
+        XCTAssertTrue(AppVersion.isNewer("v1.4.0", than: "1.3.1"))
+        XCTAssertTrue(AppVersion.isNewer("1.3.10", than: "1.3.9"))
+        XCTAssertFalse(AppVersion.isNewer("1.3.1", than: "1.3.1"))
+        XCTAssertFalse(AppVersion.isNewer("1.3", than: "1.3.0"))
     }
 }

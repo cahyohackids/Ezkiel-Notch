@@ -25,6 +25,31 @@ final class BadgeWatcher: ObservableObject {
     private var primed = false
     private var reading = false
     private var simulated = false
+    /// Paused while the screens sleep or the user switched away (fast user switching).
+    private var asleep = false
+    private var observers: [NSObjectProtocol] = []
+    /// Counts of apps that quit recently: relaunching WhatsApp with 5 unread isn't 5 new messages.
+    private var recentlyQuit: [String: (count: Int, at: Date)] = [:]
+
+    init() {
+        let ws = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.screensDidSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
+            observers.append(ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.asleep = true }
+            })
+        }
+        for name in [NSWorkspace.screensDidWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification, NSWorkspace.didWakeNotification] {
+            observers.append(ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.asleep = false
+                    // What piled up while away shows in the list, not as a burst of peeks.
+                    self.primed = false
+                    self.refresh()
+                }
+            })
+        }
+    }
     private let queue = DispatchQueue(label: "store.ezkielyna.notch.badges", qos: .utility)
 
     func setEnabled(_ on: Bool) {
@@ -47,7 +72,7 @@ final class BadgeWatcher: ObservableObject {
     }
 
     func refresh() {
-        guard !simulated, !reading else { return }
+        guard !simulated, !reading, !asleep else { return }
         let own = Bundle.main.bundleIdentifier
         let apps: [(pid: pid_t, id: String, name: String)] = NSWorkspace.shared.runningApplications.compactMap { app in
             guard app.activationPolicy == .regular, let id = app.bundleIdentifier, id != own else { return nil }
@@ -58,24 +83,30 @@ final class BadgeWatcher: ObservableObject {
             let found = apps.compactMap { app -> (id: String, name: String, label: String)? in
                 BadgeReader.label(pid: app.pid, bundleID: app.id).map { (app.id, app.name, $0) }
             }
+            let running = Set(apps.map(\.id))
             DispatchQueue.main.async {
-                MainActor.assumeIsolated { self?.apply(found) }
+                MainActor.assumeIsolated { self?.apply(found, running: running) }
             }
         }
     }
 
-    private func apply(_ found: [(id: String, name: String, label: String)]) {
+    private func apply(_ found: [(id: String, name: String, label: String)], running: Set<String>) {
         reading = false
         guard timer != nil, !simulated else { return }
+        let now = Date()
         let old = Dictionary(badges.map { ($0.bundleID, $0) }, uniquingKeysWith: { a, _ in a })
+        for b in badges where !running.contains(b.bundleID) { recentlyQuit[b.bundleID] = (b.count, now) }
+        recentlyQuit = recentlyQuit.filter { now.timeIntervalSince($0.value.at) < 600 }
         var next: [Badge] = []
         for f in found {
             guard let count = BadgeLabel.count(f.label) else { continue }
             let before = old[f.id]
+            let carried = before == nil ? recentlyQuit.removeValue(forKey: f.id)?.count : nil
             let since = (before?.count == count ? before?.since : nil) ?? Date()
             let badge = Badge(bundleID: f.id, name: f.name, label: f.label, count: count, since: since)
             next.append(badge)
-            if primed, count > (before?.count ?? 0) { onIncrease?(badge, before?.count ?? 0) }
+            let previous = before?.count ?? carried ?? 0
+            if primed, count > previous { onIncrease?(badge, previous) }
         }
         next.sort { $0.since > $1.since }
         primed = true

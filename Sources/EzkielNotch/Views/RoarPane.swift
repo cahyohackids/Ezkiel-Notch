@@ -81,8 +81,10 @@ private struct BadgeRow: View {
             AppIconView(bundleID: badge.bundleID, size: 26)
             VStack(alignment: .leading, spacing: 1) {
                 Text(badge.name).font(Theme.font(Theme.Size.body, .semibold)).foregroundStyle(Theme.ink).lineLimit(1)
-                Text(badge.since.formatted(.relative(presentation: .named)))
-                    .font(Theme.font(Theme.Size.caption)).foregroundStyle(Theme.faint).lineLimit(1)
+                TimelineView(.everyMinute) { _ in
+                    Text(badge.since.formatted(.relative(presentation: .named)))
+                        .font(Theme.font(Theme.Size.caption)).foregroundStyle(Theme.faint).lineLimit(1)
+                }
             }
             Spacer(minLength: 6)
             IconButton(icon: "bell.slash", label: "Mute \(badge.name)", size: 24, tint: Theme.mist, action: mute)
@@ -99,6 +101,7 @@ private struct BadgeRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(badge.name), \(badge.label) unread")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: "Mute \(badge.name)", mute)
     }
 }
 
@@ -126,7 +129,7 @@ private struct ScoutList: View {
     var body: some View {
         if !model.settings.scout {
             EmptyHint(title: "Scout is off", subtitle: "Turn it on in Settings › Roar.", mood: .sleeping)
-        } else if model.agents.isEmpty && model.data.scoutLog.isEmpty && model.aiBadges.isEmpty {
+        } else if model.agents.isEmpty && model.scoutHistory.isEmpty && model.aiBadges.isEmpty {
             ScoutSetupCard(model: model)
         } else {
             ScrollView(.vertical, showsIndicators: false) {
@@ -140,10 +143,11 @@ private struct ScoutList: View {
                         }
                     }
                     ForEach(model.liveAgents) { event in
-                        ScoutRow(event: event, live: true) { model.openScout(event) }
+                        ScoutRow(event: event, live: true, open: { model.openScout(event) },
+                                 dismiss: { model.dismissAgent(event) })
                     }
-                    ForEach(model.data.scoutLog) { event in
-                        ScoutRow(event: event, live: false) { model.openScout(event) }
+                    ForEach(model.scoutHistory) { event in
+                        ScoutRow(event: event, live: false, open: { model.openScout(event) })
                             .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
                     }
                 }
@@ -158,6 +162,8 @@ private struct ScoutRow: View {
     var event: ScoutEvent
     var live: Bool
     var open: () -> Void
+    /// Live rows only: "it's not working any more" (Esc in Claude Code sends nothing).
+    var dismiss: (() -> Void)? = nil
     @State private var hovering = false
 
     private var accent: Accent { event.kind == .needsYou ? .den : .scout }
@@ -184,6 +190,10 @@ private struct ScoutRow: View {
                 }
             }
             Spacer(minLength: 6)
+            if let dismiss {
+                IconButton(icon: "xmark", label: "Clear", size: 22, tint: Theme.mist, action: dismiss)
+                    .opacity(hovering ? 1 : 0)
+            }
             TimelineView(.everyMinute) { tl in
                 Text(Self.age(event.date, now: tl.date))
                     .font(Theme.number(Theme.Size.caption, .medium))
@@ -204,6 +214,8 @@ private struct ScoutRow: View {
         .onHover { h in withAnimation(Theme.soft) { hovering = h } }
         .help(event.appBundleID == nil ? event.title : "Open where it ran")
         .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(event.appBundleID == nil ? [] : .isButton)
+        .modifier(DismissAction(dismiss: dismiss))
     }
 
     /// "now", "4m", "2h", "3d".
@@ -213,6 +225,13 @@ private struct ScoutRow: View {
         if s < 3600 { return "\(Int(s / 60))m" }
         if s < 86_400 { return "\(Int(s / 3600))h" }
         return "\(Int(s / 86_400))d"
+    }
+}
+
+private struct DismissAction: ViewModifier {
+    var dismiss: (() -> Void)?
+    func body(content: Content) -> some View {
+        if let dismiss { content.accessibilityAction(named: "Clear", dismiss) } else { content }
     }
 }
 

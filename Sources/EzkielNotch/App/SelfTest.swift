@@ -268,10 +268,57 @@ enum SelfTest {
             try? FileManager.default.removeItem(at: dir)
         }))
 
+        // 1.3.1: calm in fullscreen, quiet during focus, Scout clean-up, update parsing.
+        steps.append(("fullscreen calm", {
+            model.collapse()
+            model.fullscreenActive = true
+            model.showPeek(Peek(icon: "music.note", title: "Song", subtitle: "Not urgent"))
+            check(model.presentation == .compact, "fullscreen holds back ordinary peeks")
+            model.showPeek(Peek(icon: "battery.25", title: "Battery low", subtitle: "Plug in soon", urgent: true))
+            check(model.presentation == .peek, "urgent peeks still show in fullscreen")
+            model.dismissPeek()
+            check(!model.showsWings, "no wings over a fullscreen app")
+            let notched = model.geometry
+            model.geometry = NotchGeometry(hasNotch: false, notchWidth: 190, barHeight: 24)
+            check(model.hiddenForFullscreen, "no pill over fullscreen on a display without a notch")
+            let r = model.shapeRect
+            check(controller.hitTest(topLeft: CGPoint(x: r.midX, y: r.midY)) == nil, "the hidden pill lets clicks through")
+            model.geometry = notched
+            model.fullscreenActive = false
+        }))
+        steps.append(("focus quiet", {
+            model.select(.den)
+            model.focusStartPause()
+            model.lastRoarPeek = [:]
+            model.badgeIncreased(telegram, before: 7)
+            check(model.presentation == .compact, "Roar waits while Den is focusing")
+            model.focusReset()
+        }))
+        steps.append(("scout clean-up", {
+            if let e = hook("UserPromptSubmit", #","prompt":"one more thing""#) { model.scout.receive(e) }
+            if let e = hook("Notification", #","message":"Claude needs your permission to use Edit""#) { model.scout.receive(e) }
+            model.dismissPeek()
+            let live = model.liveAgents.first
+            check(live?.kind == .needsYou && !model.scoutHistory.contains { $0.id == live?.id }, "a live agent isn't listed twice")
+            model.agentAppActivated("com.microsoft.VSCode")
+            check(model.liveAgents.first?.kind == .working, "opening the agent's app turns 'needs you' back into working")
+            if let e = hook("SessionEnd", "") { model.scout.receive(e) }
+            check(model.agents.isEmpty, "SessionEnd clears the agent")
+            check(ScoutParser.url(URL(string: "ezkielnotch://notify?title=x&app=com.apple.Terminal")!)?.appBundleID == nil,
+                  "links can't choose an app to open")
+            let release = UpdateChecker.parse(Data(#"{"tag_name":"v9.9.0","html_url":"https://github.com/cahyohackids/Ezkiel-Notch/releases/tag/v9.9.0","draft":false,"prerelease":false}"#.utf8))
+            check(release?.version == "9.9.0" && AppVersion.isNewer(release?.version ?? "", than: AppModel.version), "reads a GitHub release")
+        }))
+
         steps.append(("settings roar", {
             model.settingsSection = .roar
             model.expand(.settings)
             check(model.agentLinks.count == AgentLinks.Agent.allCases.count, "Settings knows each agent's link state")
+        }))
+
+        steps.append(("settings about", {
+            model.settingsSection = .about
+            model.expand(.settings)
         }))
 
         steps.append(("splash settles", {

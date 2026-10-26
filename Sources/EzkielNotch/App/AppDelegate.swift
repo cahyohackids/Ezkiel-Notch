@@ -50,7 +50,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.toggleFromKeyboard() }
         }
         hotKeyRegistered = hotKey != nil
-        if !hotKeyRegistered { model?.showToast("\(choice.label) is taken by another app · pick another in Settings") }
+        // A peek, so it's seen even with the notch closed (a toast only shows in the open notch).
+        if !hotKeyRegistered {
+            model?.showPeek(Peek(icon: "command", title: "\(choice.label) is taken by another app", subtitle: "Pick another in Settings",
+                                 tint: Theme.gold, tab: .settings, mood: .awake, urgent: true))
+        }
     }
 
     /// Opened from the keyboard: take key status so Esc and ⌘1…⌘8 work right away.

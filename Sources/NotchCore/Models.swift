@@ -113,7 +113,7 @@ public enum HotkeyChoice: String, Codable, CaseIterable, Identifiable {
 
 public struct NotchSettings: Codable, Equatable {
     public var expandOnHover: Bool = true
-    public var hoverDelay: Double = 0.12
+    public var hoverDelay: Double = 0.25
     public var showMascot: Bool = true
     public var mascotSleeps: Bool = true
     public var haptics: Bool = true
@@ -128,7 +128,8 @@ public struct NotchSettings: Codable, Equatable {
     public var focusMinutes: Int = 25
     public var breakMinutes: Int = 5
     public var musicSource: MusicSource = .auto
-    public var minimalClosed: Bool = false
+    /// Closed notch shows its wings only while something is live (calmer, keeps the menu bar clear).
+    public var minimalClosed: Bool = true
     /// Lyrics view in the Music tab. Off until the user taps the lyrics button (LRCLIB is only asked then).
     public var showLyrics: Bool = false
     /// While lyrics are on, sing along under the closed notch too.
@@ -156,6 +157,21 @@ public struct NotchSettings: Codable, Equatable {
     public var roarMuted: [String] = []
     /// Scout: notifications from AI agents and scripts (Claude Code, Codex, ezkiel-notify).
     public var scout: Bool = true
+    /// While an app is fullscreen on the notch's display: no wings, no pill on displays without a notch,
+    /// and only urgent peeks (low battery, a meeting, an agent that needs you).
+    public var hideInFullscreen: Bool = true
+    /// During a Den focus session, Roar and finished-agent peeks wait (the lists still update).
+    public var quietDuringFocus: Bool = true
+    /// Keep the notch out of screen sharing and screen recordings.
+    public var hideFromScreenShare: Bool = false
+    /// Ask GitHub once a day whether a newer version exists.
+    public var checkUpdates: Bool = true
+    /// Purr may ask Spotify and Music what is playing (macOS asks for Automation access the first time).
+    /// Off until the user opens Purr, so the permission prompt never comes out of nowhere.
+    public var musicAllowed: Bool = false
+    /// Bumped when defaults change in a way existing users should get too (see the decoder).
+    public var defaultsRevision: Int = NotchSettings.currentRevision
+    public static let currentRevision = 2
 
     public init() {}
 
@@ -194,6 +210,20 @@ public struct NotchSettings: Codable, Equatable {
         roarPeeks = (try? c.decode(Bool.self, forKey: .roarPeeks)) ?? d.roarPeeks
         roarMuted = (try? c.decode([String].self, forKey: .roarMuted)) ?? d.roarMuted
         scout = (try? c.decode(Bool.self, forKey: .scout)) ?? d.scout
+        hideInFullscreen = (try? c.decode(Bool.self, forKey: .hideInFullscreen)) ?? d.hideInFullscreen
+        quietDuringFocus = (try? c.decode(Bool.self, forKey: .quietDuringFocus)) ?? d.quietDuringFocus
+        hideFromScreenShare = (try? c.decode(Bool.self, forKey: .hideFromScreenShare)) ?? d.hideFromScreenShare
+        checkUpdates = (try? c.decode(Bool.self, forKey: .checkUpdates)) ?? d.checkUpdates
+        musicAllowed = (try? c.decode(Bool.self, forKey: .musicAllowed)) ?? d.musicAllowed
+        let revision = (try? c.decode(Int.self, forKey: .defaultsRevision)) ?? 1
+        if revision < 2 {
+            // 1.3.1: calmer defaults. Only values still at the old default move; choices the user made stay.
+            if hoverDelay == 0.12 { hoverDelay = d.hoverDelay }
+            minimalClosed = true
+            // Settings from before 1.3.1 means Purr already ran (and macOS already asked).
+            musicAllowed = true
+        }
+        defaultsRevision = NotchSettings.currentRevision
     }
 
     public static let defaults = NotchSettings()
@@ -213,20 +243,54 @@ public struct AppData: Codable, Equatable {
     /// The Den timer, so a running session survives a restart.
     public var focusState: FocusSnapshot?
     public var onboarded: Bool = false
+    /// Update check: when GitHub was last asked, and the newest version already announced with a peek.
+    public var lastUpdateCheck: Date?
+    public var announcedVersion: String?
 
     public init() {}
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        tasks = (try? c.decode([TaskItem].self, forKey: .tasks)) ?? []
-        notes = (try? c.decode([NoteItem].self, forKey: .notes)) ?? []
-        clips = (try? c.decode([ClipItem].self, forKey: .clips)) ?? []
-        shelf = (try? c.decode([ShelfRecord].self, forKey: .shelf)) ?? []
-        water = (try? c.decode([WaterEntry].self, forKey: .water)) ?? []
+        // Item by item: one damaged entry costs that entry, never the whole list.
+        tasks = c.lossy([TaskItem].self, forKey: .tasks)
+        notes = c.lossy([NoteItem].self, forKey: .notes)
+        clips = c.lossy([ClipItem].self, forKey: .clips)
+        shelf = c.lossy([ShelfRecord].self, forKey: .shelf)
+        water = c.lossy([WaterEntry].self, forKey: .water)
         settings = (try? c.decode(NotchSettings.self, forKey: .settings)) ?? NotchSettings()
-        focusLog = (try? c.decode([FocusEntry].self, forKey: .focusLog)) ?? []
-        scoutLog = (try? c.decode([ScoutEvent].self, forKey: .scoutLog)) ?? []
+        focusLog = c.lossy([FocusEntry].self, forKey: .focusLog)
+        scoutLog = c.lossy([ScoutEvent].self, forKey: .scoutLog)
         focusState = try? c.decode(FocusSnapshot.self, forKey: .focusState)
         onboarded = (try? c.decode(Bool.self, forKey: .onboarded)) ?? false
+        lastUpdateCheck = try? c.decode(Date.self, forKey: .lastUpdateCheck)
+        announcedVersion = try? c.decode(String.self, forKey: .announcedVersion)
+    }
+}
+
+/// Decodes whatever elements of an array it can and skips the rest.
+private struct LossyElement<T: Decodable>: Decodable {
+    let value: T?
+    init(from decoder: Decoder) throws { value = try? T(from: decoder) }
+}
+
+extension KeyedDecodingContainer {
+    func lossy<T: Decodable>(_ type: [T].Type, forKey key: Key) -> [T] {
+        ((try? decode([LossyElement<T>].self, forKey: key)) ?? []).compactMap(\.value)
+    }
+}
+
+/// "1.3.1" vs "v1.4.0": numeric, missing parts count as 0.
+public enum AppVersion {
+    public static func parts(_ version: String) -> [Int] {
+        version.trimmingCharacters(in: CharacterSet(charactersIn: "vV ")).split(separator: ".").map { Int($0.prefix { $0.isNumber }) ?? 0 }
+    }
+
+    public static func isNewer(_ candidate: String, than current: String) -> Bool {
+        let a = parts(candidate), b = parts(current)
+        for i in 0..<max(a.count, b.count) {
+            let x = i < a.count ? a[i] : 0, y = i < b.count ? b[i] : 0
+            if x != y { return x > y }
+        }
+        return false
     }
 }

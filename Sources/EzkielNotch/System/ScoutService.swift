@@ -120,9 +120,13 @@ enum AgentLinks {
     }
 
     /// Returns nil on success, otherwise a short reason for a toast.
+    /// macOS runs a downloaded app from a temporary, read-only copy until it's moved to Applications.
+    static var isTranslocated: Bool { executable.contains("/AppTranslocation/") }
+
     @discardableResult
     static func set(_ agent: Agent, connected: Bool, file: URL? = nil) -> String? {
         let url = file ?? agent.file
+        if connected && isTranslocated { return "Move Ezkiel Notch to Applications first, then connect" }
         let existing = try? Data(contentsOf: url)
         do {
             let output: Data
@@ -137,7 +141,9 @@ enum AgentLinks {
             }
             guard output != existing else { return nil }
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if let existing { try existing.write(to: url.appendingPathExtension("ezkiel-backup"), options: .atomic) }
+            // The first backup is the original file; later connects never overwrite it.
+            let backup = url.appendingPathExtension("ezkiel-backup")
+            if let existing, !FileManager.default.fileExists(atPath: backup.path) { try existing.write(to: backup, options: .atomic) }
             try output.write(to: url, options: .atomic)
             return nil
         } catch ScoutSetup.SetupError.unreadable {

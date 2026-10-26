@@ -48,6 +48,8 @@ struct NotchRootView: View {
             }
         }
         .frame(width: model.panelSize.width, height: model.panelSize.height, alignment: .top)
+        .opacity(model.hiddenForFullscreen ? 0 : 1)
+        .animation(Theme.soft, value: model.hiddenForFullscreen)
         .environment(\.colorScheme, .dark)
         .onChange(of: model.dropTargeted) { targeted in
             if targeted { model.expand(.stash) }

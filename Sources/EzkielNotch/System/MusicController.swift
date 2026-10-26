@@ -111,8 +111,27 @@ final class MusicController: ObservableObject {
 
     private var simulated = false
 
+    /// Off until the user opens Purr: reading Spotify/Music is what makes macOS ask for Automation access.
+    var allowed = true {
+        didSet { if allowed, !oldValue { refresh() } }
+    }
+
+    /// Screens asleep or the user switched away: no polling at all.
+    var paused = false {
+        didSet {
+            guard paused != oldValue else { return }
+            if paused {
+                timer?.invalidate()
+                timer = nil
+            } else {
+                reschedule()
+                refresh()
+            }
+        }
+    }
+
     func refresh() {
-        guard !inFlight, !simulated else { return }
+        guard !inFlight, !simulated, allowed, !paused else { return }
         let players = candidates
         guard !players.isEmpty else {
             apply(nil, status: .noPlayer)
