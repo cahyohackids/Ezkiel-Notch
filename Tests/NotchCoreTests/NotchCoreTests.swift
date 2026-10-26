@@ -137,3 +137,47 @@ final class LyricsTests: XCTestCase {
         XCTAssertNil(LRC.index(at: 1, in: []))
     }
 }
+
+final class FocusStatsTests: XCTestCase {
+    private let cal: Calendar = {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "UTC")!
+        return c
+    }()
+
+    private func day(_ d: Int, _ h: Int = 10) -> Date {
+        cal.date(from: DateComponents(year: 2026, month: 10, day: d, hour: h))!
+    }
+
+    func testMinutesAndLastDays() {
+        let log = [FocusEntry(start: day(26), minutes: 25), FocusEntry(start: day(26, 15), minutes: 50),
+                   FocusEntry(start: day(24), minutes: 15)]
+        XCTAssertEqual(FocusStats.minutes(log, on: day(26), calendar: cal), 75)
+        let week = FocusStats.lastDays(3, entries: log, today: day(26), calendar: cal)
+        XCTAssertEqual(week.map(\.minutes), [15, 0, 75])
+    }
+
+    func testStreakCountsBackFromTodayOrYesterday() {
+        let log = [FocusEntry(start: day(23), minutes: 25), FocusEntry(start: day(24), minutes: 25),
+                   FocusEntry(start: day(25), minutes: 25)]
+        // Nothing yet today: the streak still counts up to yesterday.
+        XCTAssertEqual(FocusStats.streak(log, today: day(26), calendar: cal), 3)
+        XCTAssertEqual(FocusStats.streak(log + [FocusEntry(start: day(26), minutes: 25)], today: day(26), calendar: cal), 4)
+        // A gap of two days ends it.
+        XCTAssertEqual(FocusStats.streak(log, today: day(27), calendar: cal), 0)
+    }
+
+    func testSnapshotRoundTripKeepsRunningEnd() {
+        let t0 = Date(timeIntervalSince1970: 10_000)
+        var clock = FocusClock(minutes: 25)
+        clock.start(at: t0)
+        let restored = FocusClock(snapshot: clock.snapshot)
+        XCTAssertTrue(restored.isRunning)
+        XCTAssertEqual(restored.remaining(at: t0.addingTimeInterval(60)), 1440, accuracy: 0.001)
+
+        clock.pause(at: t0.addingTimeInterval(100))
+        let paused = FocusClock(snapshot: clock.snapshot)
+        XCTAssertTrue(paused.isPaused)
+        XCTAssertEqual(paused.remaining(), 1400, accuracy: 0.001)
+    }
+}

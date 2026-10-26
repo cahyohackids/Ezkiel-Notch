@@ -22,7 +22,8 @@ final class BatteryMonitor: ObservableObject {
             let monitor = Unmanaged<BatteryMonitor>.fromOpaque(ctx).takeUnretainedValue()
             DispatchQueue.main.async { monitor.update() }
         }, context)?.takeRetainedValue() else { return }
-        CFRunLoopAddSource(CFRunLoopGetMain(), src, .defaultMode)
+        // Common modes: updates keep arriving while a menu is tracking.
+        CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
         source = src
     }
 

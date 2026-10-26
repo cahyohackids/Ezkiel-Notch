@@ -13,7 +13,8 @@ final class NotchWindowController {
     private var observers: [NSObjectProtocol] = []
     private var cancellables = Set<AnyCancellable>()
     private var pollTimer: Timer?
-    private var dragChangeCount = NSPasteboard(name: .drag).changeCount
+    private let dragPasteboard = NSPasteboard(name: .drag)
+    private lazy var dragChangeCount = dragPasteboard.changeCount
     private var fileDragActive = false
 
     init(model: AppModel) {
@@ -23,7 +24,8 @@ final class NotchWindowController {
     func start() {
         let size = model.panelSize
         panel = NotchPanel(size: size)
-        hosting = NotchHostingView(rootView: NotchRootView(model: model, music: model.music, battery: model.battery))
+        hosting = NotchHostingView(rootView: NotchRootView(model: model, chrome: model.chrome, music: model.music,
+                                                           battery: model.battery, lyrics: model.lyrics, calendar: model.calendar))
         hosting.sizingOptions = []
         hosting.frame = NSRect(origin: .zero, size: size)
         hosting.autoresizingMask = [.width, .height]
@@ -42,6 +44,12 @@ final class NotchWindowController {
         }
 
         model.isEditingText = { [weak self] in self?.isEditingText ?? false }
+        model.pointerAnchor = { [weak self] in
+            guard let self, let hosting = self.hosting, let panel = self.panel else { return nil }
+            let inWindow = panel.convertPoint(fromScreen: NSEvent.mouseLocation)
+            let local = hosting.convert(inWindow, from: nil)
+            return (hosting, NSRect(x: local.x - 1, y: local.y - 1, width: 2, height: 2))
+        }
         model.onCollapse = { [weak self] in self?.releaseKeyboard() }
 
         position()
@@ -54,6 +62,9 @@ final class NotchWindowController {
 
     func targetScreen() -> NSScreen? {
         let screens = NSScreen.screens
+        if model.settings.displayID != 0, let match = screens.first(where: { $0.displayID == model.settings.displayID }) {
+            return match
+        }
         let wanted = model.settings.displayName
         if !wanted.isEmpty, let match = screens.first(where: { $0.localizedName == wanted }) {
             return match
@@ -122,17 +133,37 @@ final class NotchWindowController {
             MainActor.assumeIsolated { self?.model.clickedOutside() }
         }) { monitors.append(m) }
 
+        // The first click inside the open notch takes the keyboard, so Space, Esc and ⌘1…7 work
+        // without stealing focus on a mere hover.
         if let m = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown], handler: { [weak self] event in
-            MainActor.assumeIsolated { self?.model.noteInteraction() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.model.noteInteraction()
+                if self.model.presentation == .expanded, !self.panel.isKeyWindow { self.panel.makeKey() }
+            }
             return event
         }) { monitors.append(m) }
 
-        // Safety net: monitors don't see everything (other apps' drag sessions, Spaces
-        // transitions), so a light poll keeps hover and drag state honest.
+        // Any button press anywhere may start a drag: run the poll while it lasts.
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged], handler: { [weak self] _ in
+            MainActor.assumeIsolated { self?.startPolling() }
+        }) { monitors.append(m) }
+        startPolling()
+    }
+
+    /// Safety net while it matters: monitors miss other apps' drag sessions and Spaces transitions.
+    /// The poll runs while a button is down, while the notch is open or peeking, or while hovered,
+    /// and stops itself when none of that is true (a closed, idle notch costs nothing).
+    private func startPolling() {
+        guard pollTimer == nil else { return }
         let timer = Timer(timeInterval: 1.0 / 12, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.checkFileDrag()
-                self?.updatePointer()
+                guard let self else { return }
+                self.checkFileDrag()
+                self.updatePointer()
+                let busy = NSEvent.pressedMouseButtons != 0 || self.fileDragActive || self.model.presentation != .compact
+                    || self.model.chrome.hovering
+                if !busy { self.stopPolling() }
             }
         }
         timer.tolerance = 0.02
@@ -140,8 +171,14 @@ final class NotchWindowController {
         pollTimer = timer
     }
 
+    private func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
+
     private func updatePointer() {
         guard let panel else { return }
+        if model.presentation != .compact || model.chrome.hovering { startPolling() }
         let mouse = NSEvent.mouseLocation
         let f = panel.frame
         let inPanel = mouse.x >= f.minX && mouse.x <= f.maxX && mouse.y >= f.minY && mouse.y <= f.maxY
@@ -161,19 +198,21 @@ final class NotchWindowController {
     }
 
     private func checkFileDrag() {
-        let pasteboard = NSPasteboard(name: .drag)
+        let pasteboard = dragPasteboard
         let buttonDown = NSEvent.pressedMouseButtons & 1 != 0
         guard buttonDown else {
             if fileDragActive {
                 fileDragActive = false
                 model.fileDrag(near: false)
             }
+            model.isDraggingOut = false
             dragChangeCount = pasteboard.changeCount
             return
         }
         if !fileDragActive, pasteboard.changeCount != dragChangeCount {
             dragChangeCount = pasteboard.changeCount
-            if pasteboard.types?.contains(.fileURL) == true {
+            // A file dragged out of Stash is ours: don't pull the notch towards it.
+            if pasteboard.types?.contains(.fileURL) == true, !model.isDraggingOut {
                 fileDragActive = true
             }
         }
@@ -274,7 +313,7 @@ final class NotchWindowController {
             })
         }
         model.$data
-            .map(\.settings.displayName)
+            .map { "\($0.settings.displayID)|\($0.settings.displayName)" }
             .removeDuplicates()
             .dropFirst()
             .sink { [weak self] _ in
