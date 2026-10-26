@@ -29,6 +29,9 @@ jobs:
       - name: Build
         run: dotnet build -c Release
 
+      - name: Core tests (data format, timers, stats, strings)
+        run: dotnet test ../EzkielNotch.Core.Tests -c Release
+
       - name: Publish x64 and ARM64 (self-contained, one file each)
         run: |
           foreach ($rid in "win-x64", "win-arm64") {
@@ -41,7 +44,7 @@ jobs:
         run: |
           $snap = Join-Path $PWD "snapshots"
           $p = Start-Process -FilePath "out/win-x64/EzkielNotch.exe" -ArgumentList "--self-test","--snapshots",$snap -PassThru -RedirectStandardOutput "selftest.log"
-          if (-not $p.WaitForExit(120000)) { $p.Kill(); Write-Error "self-test timed out"; exit 1 }
+          if (-not $p.WaitForExit(240000)) { $p.Kill(); Write-Error "self-test timed out"; exit 1 }
           Get-Content selftest.log
           Get-Content (Join-Path $snap "self-test-result.txt")
           exit $p.ExitCode

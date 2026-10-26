@@ -7,8 +7,12 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using EzkielNotch.Core;
 using EzkielNotch.Native;
+using EzkielNotch.Platform;
+using EzkielNotch.Rooms;
 using Microsoft.Win32;
+using static EzkielNotch.Core.Lang;
 
 namespace EzkielNotch.Island;
 
@@ -29,50 +33,63 @@ public partial class IslandWindow : Window
     private static readonly Shape LipShape = new(180, 6, 3, 4);
     private static readonly Shape LipHoverShape = new(208, 10, 5, 6);
     private static readonly Shape PeekShape = new(320, 52, 18, 10);
-    private static readonly Shape ExpandedShape = new(440, 252, 22, 13);
 
-    private static readonly (string Name, string Glyph, Color Accent)[] Rooms =
-    [
-        ("Den", "", Color.FromRgb(0xFF, 0x95, 0x00)),
-        ("Hunt", "", Color.FromRgb(0xFF, 0x45, 0x3A)),
-        ("Roar", "", Color.FromRgb(0x30, 0xD1, 0x58)),
-        ("Scratch", "", Color.FromRgb(0xFF, 0xC4, 0x00)),
-        ("Purr", "", Color.FromRgb(0xFF, 0x37, 0x5F)),
-        ("Stash", "", Color.FromRgb(0x5E, 0x5C, 0xE6)),
-        ("Oasis", "", Color.FromRgb(0x0A, 0x84, 0xFF)),
-        ("Settings", "", Color.FromRgb(0x8E, 0x8E, 0x93)),
-    ];
+    /// <summary>Header 34 + tabs 30 + gap 10 + the room's pane + bottom 12, like the Mac's expandedSize.</summary>
+    public static double ExpandedHeight(Room room) => 34 + 30 + 10 + RoomInfo.Of(room).PaneHeight + 12;
+    private static Shape ExpandedShape(Room room) => new(440, ExpandedHeight(room), 22, 13);
 
+    public NotchModel Model { get; }
     public Presentation Presentation { get; private set; } = Presentation.Lip;
     public bool Hovering { get; private set; }
     public bool FullscreenActive { get; private set; }
     public bool HotKeyRegistered { get; private set; }
     /// <summary>Self-test: ignore the real pointer so a resting cursor can't change the outcome.</summary>
     public bool IgnorePointer { get; set; }
+    public Room Selected { get; private set; } = Room.Den;
+    public Pane? CurrentPane => PageHost.Child as Pane;
+    public string? LastToast { get; private set; }
 
     internal ScreenSpot Screen { get; private set; }
     private nint _hwnd;
     private HwndSource? _source;
     private readonly DispatcherTimer _pointer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(50) };
-    private readonly DispatcherTimer _clock = new(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(15) };
+    private readonly DispatcherTimer _second = new(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(1) };
     private readonly DispatcherTimer _fullscreenPoll = new(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(3) };
     private DateTime _insideSince = DateTime.MaxValue, _outsideSince = DateTime.MaxValue;
-    private DispatcherTimer? _peekTimer;
+    private DispatcherTimer? _peekTimer, _toastTimer;
+    private Room? _peekRoom;
     private nint _winEventHook;
     private Win32.WinEventProc? _winEventProc;   // kept alive: the hook calls back into it
-    private int _selected;
+    private nint _previousForeground;
+    private readonly Dictionary<Room, Pane> _panes = [];
+    private readonly HashSet<Room> _stale = [];
     private const int HotKeyId = 0xE21;
 
-    public IslandWindow()
+    public IslandWindow(NotchModel model)
     {
+        Model = model;
         InitializeComponent();
         BuildTabs();
         Apply(LipShape, animate: false);
         _pointer.Tick += (_, _) => PointerTick();
-        _clock.Tick += (_, _) => Clock.Text = DateTime.Now.ToString("HH:mm");
+        _second.Tick += (_, _) => SecondTick();
         _fullscreenPoll.Tick += (_, _) => CheckFullscreen();
-        Clock.Text = DateTime.Now.ToString("HH:mm");
+        Clock.Text = Lang.Time(DateTime.Now);
         Island.MouseRightButtonUp += (_, e) => { ShowMenu(); e.Handled = true; };
+        PeekView.MouseLeftButtonUp += (_, _) => OpenFromPeek();
+        Body.PreviewMouseLeftButtonDown += (_, _) => { if (Presentation == Presentation.Expanded) EngageKeyboard(); };
+        PreviewKeyDown += OnKey;
+        Deactivated += (_, _) => SetNoActivate(true);
+
+        Model.Changed += OnModelChanged;
+        Model.Peek += p =>
+        {
+            if (Model.Settings.Sounds) Sounds.Play(p.Sound);
+            if (Presentation == Presentation.Expanded) ShowToast(new ToastRequest($"{p.Title} · {p.Subtitle}"));
+            else ShowPeek(p.Title, p.Subtitle, urgent: p.Urgent, room: p.Room);
+        };
+        Model.Toast += ShowToast;
+        Model.Sound += name => { if (Model.Settings.Sounds) Sounds.Play(name); };
     }
 
     // MARK: Window setup
@@ -84,7 +101,7 @@ public partial class IslandWindow : Window
         _source = HwndSource.FromHwnd(_hwnd);
         _source.AddHook(WndProc);
 
-        // A tool window that never takes focus: no taskbar button, no Alt+Tab, clicks don't steal focus.
+        // A tool window that doesn't take focus until you click into it: no taskbar button, no Alt+Tab.
         var ex = Win32.GetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE);
         Win32.SetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE, ex | Win32.WS_EX_TOOLWINDOW | Win32.WS_EX_NOACTIVATE);
 
@@ -98,7 +115,7 @@ public partial class IslandWindow : Window
         _winEventHook = Win32.SetWinEventHook(Win32.EVENT_SYSTEM_FOREGROUND, Win32.EVENT_SYSTEM_FOREGROUND, 0, _winEventProc, 0, 0, Win32.WINEVENT_OUTOFCONTEXT);
 
         _pointer.Start();
-        _clock.Start();
+        _second.Start();
         _fullscreenPoll.Start();
         CheckFullscreen();
     }
@@ -131,22 +148,38 @@ public partial class IslandWindow : Window
         Win32.SetWindowPos(_hwnd, Win32.HWND_TOPMOST, x, y, w, h, Win32.SWP_NOACTIVATE | Win32.SWP_SHOWWINDOW);
     }
 
+    private void SecondTick()
+    {
+        Model.Tick();
+        if (DateTime.Now.Second == 0) Clock.Text = Lang.Time(DateTime.Now);
+        if (Presentation == Presentation.Expanded) CurrentPane?.SecondTick();
+    }
+
     // MARK: Presentation
 
     public void Expand()
     {
         _peekTimer?.Stop();
         Presentation = Presentation.Expanded;
-        Apply(ExpandedShape, animate: true, bouncy: true);
+        ShowRoom(Selected);
+        Apply(ExpandedShape(Selected), animate: true, bouncy: true);
         Fade(PeekView, 0, 0.08);
         Fade(ExpandedView, 1, 0.22, delay: 0.08);
         Root.Opacity = 1;
+        Root.IsHitTestVisible = true;
     }
 
     public void Collapse()
     {
         _peekTimer?.Stop();
+        bool wasOpen = Presentation == Presentation.Expanded;
         Presentation = Presentation.Lip;
+        if (wasOpen)
+        {
+            CurrentPane?.Shown(false);
+            HideToast(immediately: true);
+            ReleaseKeyboard();
+        }
         Fade(ExpandedView, 0, 0.1);
         Fade(PeekView, 0, 0.1);
         Apply(Hovering ? LipHoverShape : LipShape, animate: true, bouncy: false);
@@ -158,19 +191,23 @@ public partial class IslandWindow : Window
         if (Presentation == Presentation.Expanded) Collapse(); else Expand();
     }
 
-    /// <summary>A short message under the top edge. While something is fullscreen only urgent ones show.</summary>
-    public void ShowPeek(string title, string subtitle, double seconds = 3.4, bool urgent = false)
+    /// <summary>A short message under the top edge. While something is fullscreen only urgent ones show.
+    /// Clicking it opens its room.</summary>
+    public void ShowPeek(string title, string subtitle, double seconds = 3.4, bool urgent = false, Room? room = null)
     {
-        if (FullscreenActive && !urgent) return;
+        if (FullscreenActive && Model.Settings.HideInFullscreen && !urgent) return;
         if (Presentation == Presentation.Expanded) return;
         PeekTitle.Text = title;
         PeekSubtitle.Text = subtitle;
+        _peekRoom = room;
+        PeekView.Cursor = room is null ? null : Cursors.Hand;
         Presentation = Presentation.Peek;
         Root.Opacity = 1;
+        Root.IsHitTestVisible = true;
         Apply(PeekShape, animate: true, bouncy: true);
         Fade(PeekView, 1, 0.2, delay: 0.1);
         _peekTimer?.Stop();
-        _peekTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(seconds) };
+        _peekTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(urgent ? Math.Max(seconds, 6) : seconds) };
         _peekTimer.Tick += (_, _) =>
         {
             // Hovering keeps it; leaving lets it go.
@@ -179,6 +216,13 @@ public partial class IslandWindow : Window
             if (Presentation == Presentation.Peek) Collapse();
         };
         _peekTimer.Start();
+    }
+
+    private void OpenFromPeek()
+    {
+        if (Presentation != Presentation.Peek) return;
+        if (_peekRoom is { } room) Select(room);
+        Expand();
     }
 
     private void Apply(Shape s, bool animate, bool bouncy = false)
@@ -221,6 +265,95 @@ public partial class IslandWindow : Window
         element.IsHitTestVisible = to > 0;
     }
 
+    // MARK: Toasts
+
+    /// <summary>A capsule over the bottom of the page; 2.5 s, or 5 s when it offers Undo. Only while open.</summary>
+    public void ShowToast(ToastRequest t)
+    {
+        LastToast = t.Text;
+        if (Presentation != Presentation.Expanded) return;
+        ToastText.Text = t.Text;
+        ToastAction.Child = null;
+        if (t.ActionTitle is not null && t.Action is not null)
+        {
+            var action = t.Action;
+            ToastAction.Child = Ui.TextButton(t.ActionTitle, () =>
+            {
+                action();
+                HideToast();
+            }, Accent.Oasis.LightBrush);
+        }
+        else ToastView.Padding = new Thickness(14, 0, 14, 0);
+        if (ToastAction.Child is not null) ToastView.Padding = new Thickness(14, 0, 6, 0);
+        Fade(ToastView, 1, 0.16);
+        _toastTimer?.Stop();
+        _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(t.Action is null ? 2.5 : 5) };
+        _toastTimer.Tick += (_, _) => HideToast();
+        _toastTimer.Start();
+    }
+
+    private void HideToast(bool immediately = false)
+    {
+        _toastTimer?.Stop();
+        if (immediately)
+        {
+            ToastView.BeginAnimation(OpacityProperty, null);
+            ToastView.Opacity = 0;
+            ToastView.IsHitTestVisible = false;
+        }
+        else Fade(ToastView, 0, 0.2);
+    }
+
+    // MARK: Keyboard
+
+    /// <summary>Clicking into the open island lets it take the keyboard (to type a task or a note);
+    /// closing gives it back to the app you were in.</summary>
+    public void EngageKeyboard()
+    {
+        if (_hwnd == 0 || IsActive) return;
+        var fg = Win32.GetForegroundWindow();
+        if (fg != _hwnd) _previousForeground = fg;
+        SetNoActivate(false);
+        Activate();
+        Win32.SetForegroundWindow(_hwnd);
+    }
+
+    private void ReleaseKeyboard()
+    {
+        bool had = IsActive;
+        Keyboard.ClearFocus();
+        SetNoActivate(true);
+        if (had && _previousForeground != 0 && Win32.IsWindow(_previousForeground)) Win32.SetForegroundWindow(_previousForeground);
+        _previousForeground = 0;
+    }
+
+    private void SetNoActivate(bool on)
+    {
+        if (_hwnd == 0) return;
+        var ex = Win32.GetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE);
+        var next = on ? ex | Win32.WS_EX_NOACTIVATE : ex & ~(nint)Win32.WS_EX_NOACTIVATE;
+        if (next != ex) Win32.SetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE, next);
+    }
+
+    /// <summary>A text field has the keyboard: leaving the island with the pointer shouldn't close it.</summary>
+    private bool Typing => IsActive && Keyboard.FocusedElement is TextBox;
+
+    private void OnKey(object sender, KeyEventArgs e)
+    {
+        if (Presentation != Presentation.Expanded) return;
+        if (e.Key == Key.Escape)
+        {
+            if (Keyboard.FocusedElement is TextBox && CurrentPane is ScratchPane) Keyboard.ClearFocus();
+            else Collapse();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Space && Keyboard.FocusedElement is not TextBox && Selected == Room.Den)
+        {
+            Model.FocusStartPause();
+            e.Handled = true;
+        }
+    }
+
     // MARK: Pointer
 
     /// <summary>Is a point (window DIPs) on the island? Transparent pixels pass clicks through on their own;
@@ -237,7 +370,7 @@ public partial class IslandWindow : Window
         var r = Island.ShapeRect;
         return Presentation switch
         {
-            Presentation.Lip => !FullscreenActive && p.Y >= -2 && p.Y <= r.Height + 8 && p.X >= r.Left - 24 && p.X <= r.Right + 24,
+            Presentation.Lip => !(FullscreenActive && Model.Settings.HideInFullscreen) && p.Y >= -2 && p.Y <= r.Height + 8 && p.X >= r.Left - 24 && p.X <= r.Right + 24,
             Presentation.Peek => p.Y <= r.Height + 4 && p.X >= r.Left - 6 && p.X <= r.Right + 6,
             _ => p.Y <= r.Height + 14 && p.X >= r.Left - 12 && p.X <= r.Right + 12,
         };
@@ -247,10 +380,13 @@ public partial class IslandWindow : Window
     {
         if (IgnorePointer || _hwnd == 0 || !Win32.GetCursorPos(out var c) || !Win32.GetWindowRect(_hwnd, out var w)) return;
         var p = new Point((c.X - w.Left) / Screen.Scale, (c.Y - w.Top) / Screen.Scale);
-        PointerMoved(InHotZone(p));
+        bool inside = InHotZone(p);
+        PointerMoved(inside);
 
+        // A click on the lip opens it even with hover-to-open off.
+        if (Presentation == Presentation.Lip && inside && (Win32.GetAsyncKeyState(0x01) & 0x8000) != 0) Expand();
         // A click anywhere else closes the open island (clicks there go to other apps, so we look).
-        if (Presentation == Presentation.Expanded && !InHotZone(p) && (Win32.GetAsyncKeyState(0x01) & 0x8000) != 0) Collapse();
+        if (Presentation == Presentation.Expanded && !inside && (Win32.GetAsyncKeyState(0x01) & 0x8000) != 0) Collapse();
     }
 
     /// <summary>Hover state machine (also driven by the self-test).</summary>
@@ -267,7 +403,8 @@ public partial class IslandWindow : Window
                 if (Presentation == Presentation.Lip) Apply(LipHoverShape, animate: true, bouncy: true);
             }
             // Open after a short, deliberate rest, so passing by on the way to a tab doesn't open it.
-            if (Presentation != Presentation.Expanded && now - _insideSince > TimeSpan.FromMilliseconds(250)) Expand();
+            var delay = TimeSpan.FromSeconds(Math.Max(0.05, Model.Settings.HoverDelay));
+            if (Model.Settings.ExpandOnHover && Presentation != Presentation.Expanded && now - _insideSince > delay) Expand();
         }
         else
         {
@@ -278,7 +415,9 @@ public partial class IslandWindow : Window
                 Hovering = false;
                 if (Presentation == Presentation.Lip) Apply(LipShape, animate: true);
             }
-            if (Presentation == Presentation.Expanded && now - _outsideSince > TimeSpan.FromMilliseconds(500)) Collapse();
+            // While you type, the island waits (an idle field still lets go after 20 s outside).
+            var grace = Typing ? TimeSpan.FromSeconds(20) : TimeSpan.FromMilliseconds(500);
+            if (Presentation == Presentation.Expanded && now - _outsideSince > grace) Collapse();
         }
     }
 
@@ -303,48 +442,125 @@ public partial class IslandWindow : Window
     /// <summary>Over a fullscreen game, video or slides the lip steps away entirely.</summary>
     private void UpdateHiddenState()
     {
-        bool hide = FullscreenActive && Presentation == Presentation.Lip;
+        bool hide = FullscreenActive && Model.Settings.HideInFullscreen && Presentation == Presentation.Lip;
         var a = new DoubleAnimation(hide ? 0 : 1, TimeSpan.FromMilliseconds(180));
         Root.BeginAnimation(OpacityProperty, a);
         Root.IsHitTestVisible = !hide;
     }
 
-    // MARK: Rooms (placeholders until Phase 1)
+    // MARK: Rooms
 
     private void BuildTabs()
     {
-        for (int i = 0; i < Rooms.Length; i++)
+        Tabs.Children.Clear();
+        foreach (var info in RoomInfo.All)
         {
-            int index = i;
-            var (name, glyph, accent) = Rooms[i];
+            var room = info.Room;
             var icon = new TextBlock
             {
-                Text = glyph,
+                Text = info.Glyph,
                 FontFamily = (FontFamily)FindResource("Icons"),
                 FontSize = 14,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             };
-            var pill = new Border { CornerRadius = new CornerRadius(14), Child = icon, Margin = new Thickness(1, 0, 1, 0), Cursor = Cursors.Hand, ToolTip = name };
-            pill.MouseLeftButtonUp += (_, _) => Select(index);
+            var pill = new Border
+            {
+                CornerRadius = new CornerRadius(14),
+                Child = icon,
+                Margin = new Thickness(1, 0, 1, 0),
+                Cursor = Cursors.Hand,
+                ToolTip = $"{info.Name} · {L(info.Subtitle)}",
+                Background = Brushes.Transparent,
+            };
+            pill.MouseLeftButtonUp += (_, _) => Select(room);
             Tabs.Children.Add(pill);
         }
-        Select(0);
+        Select(Selected);
     }
 
-    public void Select(int index)
+    private Pane PaneFor(Room room)
     {
-        _selected = index;
-        TabTitle.Text = Rooms[index].Name;
+        if (_panes.TryGetValue(room, out var pane)) return pane;
+        pane = room switch
+        {
+            Room.Den => new DenPane(Model),
+            Room.Hunt => new HuntPane(Model),
+            Room.Scratch => new ScratchPane(Model),
+            Room.Oasis => new OasisPane(Model),
+            Room.Settings => new SettingsPane(Model),
+            _ => new ComingPane(Model, room),
+        };
+        if (pane is ScratchPane scratch) scratch.Copied += () => ShowToast(new ToastRequest(L("Copied")));
+        pane.Refresh();
+        _panes[room] = pane;
+        return pane;
+    }
+
+    private void ShowRoom(Room room)
+    {
+        var pane = PaneFor(room);
+        if (_stale.Remove(room)) pane.Refresh();
+        if (PageHost.Child != pane)
+        {
+            CurrentPane?.Shown(false);
+            PageHost.Child = pane;
+            if (Presentation == Presentation.Expanded && !SpringEase.ReduceMotion)
+            {
+                // Cross-fade + a short slide, like the Mac's tab switch.
+                pane.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180)));
+                var slide = new TranslateTransform(0, 8);
+                pane.RenderTransform = slide;
+                slide.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(8, 0, TimeSpan.FromMilliseconds(260)) { EasingFunction = SpringEase.Smooth });
+            }
+        }
+        pane.Shown(true);
+    }
+
+    public void Select(Room room)
+    {
+        Selected = room;
+        var info = RoomInfo.Of(room);
+        TabTitle.Text = info.Name;
+        TabSubtitle.Text = L(info.Subtitle);
         for (int i = 0; i < Tabs.Children.Count; i++)
         {
             var pill = (Border)Tabs.Children[i];
             var icon = (TextBlock)pill.Child;
-            var accent = Rooms[i].Accent;
-            bool on = i == index;
+            var accent = RoomInfo.All[i].Accent.Deep;
+            bool on = i == (int)room;
             pill.Background = on ? new SolidColorBrush(Color.FromArgb(0x29, accent.R, accent.G, accent.B)) : Brushes.Transparent;
             icon.Foreground = on ? new SolidColorBrush(accent) : (Brush)FindResource("Mist");
         }
+        if (Presentation == Presentation.Expanded)
+        {
+            HideToast(immediately: true);
+            ShowRoom(room);
+            Apply(ExpandedShape(room), animate: true, bouncy: false);
+        }
+    }
+
+    private void OnModelChanged(Room? room)
+    {
+        if (room is null)
+        {
+            // Language switch: every room and the tabs say it again.
+            foreach (var r in _panes.Keys) _stale.Add(r);
+            BuildTabs();
+            Clock.Text = Lang.Time(DateTime.Now);
+            if (Presentation == Presentation.Expanded) ShowRoom(Selected);
+            return;
+        }
+        if (room == Room.Settings)
+        {
+            // Settings feed Den, Oasis and the rest; the Settings room redraws itself.
+            foreach (var r in _panes.Keys) if (r != Room.Settings) _stale.Add(r);
+            if (Presentation == Presentation.Expanded && Selected != Room.Settings) ShowRoom(Selected);
+            return;
+        }
+        if (!_panes.TryGetValue(room.Value, out var pane)) return;
+        if (Presentation == Presentation.Expanded && Selected == room) pane.Refresh();
+        else _stale.Add(room.Value);
     }
 
     private void OnCloseClick(object sender, RoutedEventArgs e) => Collapse();
@@ -352,11 +568,18 @@ public partial class IslandWindow : Window
     private void ShowMenu()
     {
         var menu = new ContextMenu();
-        var open = new MenuItem { Header = Presentation == Presentation.Expanded ? "Close" : "Open  (Ctrl+Alt+N)" };
+        var open = new MenuItem { Header = Presentation == Presentation.Expanded ? L("Close") : L("Open") + "  (Ctrl+Alt+N)" };
         open.Click += (_, _) => Toggle();
-        var quit = new MenuItem { Header = "Quit Ezkiel Notch" };
+        var settings = new MenuItem { Header = L("Settings…") };
+        settings.Click += (_, _) =>
+        {
+            Select(Room.Settings);
+            if (Presentation != Presentation.Expanded) Expand();
+        };
+        var quit = new MenuItem { Header = L("Quit Ezkiel Notch") };
         quit.Click += (_, _) => Application.Current.Shutdown();
         menu.Items.Add(open);
+        menu.Items.Add(settings);
         menu.Items.Add(new Separator());
         menu.Items.Add(quit);
         menu.IsOpen = true;

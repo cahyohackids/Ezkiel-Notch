@@ -1,1 +1,20 @@
-{}
+{
+ "%@ is coming to Windows": "%@ segera hadir di Windows",
+ "%d days ago": "%d hari lalu",
+ "%d h ago": "%d jam lalu",
+ "%d min ago": "%d mnt lalu",
+ "Click the island, then Space to start": "Klik notch, lalu Spasi untuk mulai",
+ "Hover the top of the screen · Ctrl+Alt+N": "Arahkan kursor ke atas layar · Ctrl+Alt+N",
+ "Notes stay on this PC.": "Catatan tersimpan di PC ini saja.",
+ "Open": "Buka",
+ "Pause": "Jeda",
+ "Preview": "Pratinjau",
+ "Space": "Spasi",
+ "Start with Windows": "Mulai bersama Windows",
+ "Tasks": "Tugas",
+ "Untitled note": "Catatan tanpa judul",
+ "Videos, games and slides: the island steps away, only urgent peeks": "Video, game, dan presentasi: notch menyingkir, hanya notif penting",
+ "arrives in a later update.": "hadir di update berikutnya.",
+ "just now": "baru saja",
+ "yesterday": "kemarin"
+}

@@ -46,6 +46,8 @@
                         <Image Source="/Assets/lion.png" Width="20" Height="20" DockPanel.Dock="Left" VerticalAlignment="Center"/>
                         <TextBlock x:Name="TabTitle" Text="Den" Margin="8,0,0,0" FontFamily="{StaticResource Text}" FontSize="13"
                                    FontWeight="SemiBold" Foreground="{StaticResource Ink}" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                        <TextBlock x:Name="TabSubtitle" Text="" Margin="8,1,0,0" FontFamily="{StaticResource Text}" FontSize="12"
+                                   Foreground="{StaticResource Faint}" VerticalAlignment="Center" DockPanel.Dock="Left"/>
                         <Button x:Name="CloseButton" DockPanel.Dock="Right" Width="24" Height="24" Cursor="Hand" ToolTip="Close (Esc)"
                                 Click="OnCloseClick" Focusable="False">
                             <Button.Template>
@@ -68,18 +70,21 @@
 
                     <UniformGrid x:Name="Tabs" Grid.Row="1" Rows="1"/>
 
-                    <Border Grid.Row="2" Margin="0,10,0,0" CornerRadius="14" Background="{StaticResource Surface}">
-                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Orientation="Horizontal">
-                            <Image Source="/Assets/lion.png" Width="56" Height="56" Margin="0,0,14,0"/>
-                            <StackPanel VerticalAlignment="Center" MaxWidth="260">
-                                <TextBlock x:Name="PageTitle" Text="Phase 0 preview" FontFamily="{StaticResource Text}" FontSize="15"
-                                           FontWeight="SemiBold" Foreground="{StaticResource Ink}"/>
-                                <TextBlock x:Name="PageBody" TextWrapping="Wrap" Margin="0,3,0,0" FontFamily="{StaticResource Text}" FontSize="12"
-                                           Foreground="{StaticResource Mist}"
-                                           Text="Shape, motion, hover and click-through. The rooms arrive in Phase 1."/>
+                    <!-- The room's page, at its own height; toasts float over its bottom edge. -->
+                    <Grid Grid.Row="2" Margin="0,10,0,0">
+                        <Border x:Name="PageHost" VerticalAlignment="Top"/>
+                        <Border x:Name="ToastView" VerticalAlignment="Bottom" HorizontalAlignment="Center" Opacity="0" IsHitTestVisible="False"
+                                Height="30" CornerRadius="15" Background="#F22C2C2E" Padding="14,0,6,0" Margin="0,0,0,2">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.5" Color="Black"/>
+                            </Border.Effect>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock x:Name="ToastText" FontFamily="{StaticResource Text}" FontSize="12" Foreground="{StaticResource Ink}"
+                                           VerticalAlignment="Center" Margin="0,0,8,0" TextTrimming="CharacterEllipsis" MaxWidth="300"/>
+                                <Border x:Name="ToastAction"/>
                             </StackPanel>
-                        </StackPanel>
-                    </Border>
+                        </Border>
+                    </Grid>
                 </Grid>
             </Grid>
         </local:IslandSurface>
