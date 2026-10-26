@@ -291,6 +291,7 @@ internal static class SelfTest
                 m.FocusReset();
                 m.UpdateBadges([]);
                 foreach (var agent in m.LiveAgents) m.DismissAgent(agent);
+                if (w.Media.Current?.IsPlaying == true) w.Media.PlayPause();
                 m.Settings.Style = "island";
                 m.SettingsChanged();
             }),
