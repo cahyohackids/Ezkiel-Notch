@@ -66,6 +66,14 @@ public sealed class NotchSettings
     public AppLanguage Language { get; set; } = AppLanguage.Auto;
     /// <summary>Chorus (lyrics) beside Purr. Off until the user taps the lyrics button (LRCLIB is only asked then).</summary>
     public bool ShowLyrics { get; set; }
+    /// <summary>Roar: unread counts from other apps (only the number, never the message).</summary>
+    public bool Roar { get; set; } = true;
+    /// <summary>Roar: peek when an app's unread count goes up.</summary>
+    public bool RoarPeeks { get; set; } = true;
+    /// <summary>Roar: apps the user muted (app ids).</summary>
+    public List<string> RoarMuted { get; set; } = [];
+    /// <summary>Scout: notifications from AI agents and scripts.</summary>
+    public bool Scout { get; set; } = true;
 
     /// <summary>The settings object as read, Mac-only keys included.</summary>
     internal JsonObject Raw { get; set; } = [];
@@ -89,6 +97,10 @@ public sealed class NotchSettings
         s.HideInFullscreen = Json.Bool(o["hideInFullscreen"]) ?? s.HideInFullscreen;
         s.QuietDuringFocus = Json.Bool(o["quietDuringFocus"]) ?? s.QuietDuringFocus;
         s.ShowLyrics = Json.Bool(o["showLyrics"]) ?? s.ShowLyrics;
+        s.Roar = Json.Bool(o["roar"]) ?? s.Roar;
+        s.RoarPeeks = Json.Bool(o["roarPeeks"]) ?? s.RoarPeeks;
+        s.RoarMuted = o["roarMuted"] is JsonArray muted ? [.. muted.Select(Json.String).OfType<string>()] : s.RoarMuted;
+        s.Scout = Json.Bool(o["scout"]) ?? s.Scout;
         s.Language = Json.String(o["language"]) switch
         {
             "en" => AppLanguage.En,
@@ -115,6 +127,10 @@ public sealed class NotchSettings
         o["hideInFullscreen"] = HideInFullscreen;
         o["quietDuringFocus"] = QuietDuringFocus;
         o["showLyrics"] = ShowLyrics;
+        o["roar"] = Roar;
+        o["roarPeeks"] = RoarPeeks;
+        o["roarMuted"] = new JsonArray(RoarMuted.Select(m => (JsonNode?)m).ToArray());
+        o["scout"] = Scout;
         o["language"] = Language switch { AppLanguage.En => "en", AppLanguage.Id => "id", _ => "auto" };
         // Without it the Mac would treat these as pre-1.3.1 settings and migrate them again.
         o["defaultsRevision"] ??= CurrentRevision;
@@ -130,6 +146,8 @@ public sealed class AppData
     public List<ClipItem> Clips { get; set; } = [];
     public List<WaterEntry> Water { get; set; } = [];
     public List<FocusEntry> FocusLog { get; set; } = [];
+    /// <summary>The last Scout events (agents and scripts), newest first.</summary>
+    public List<ScoutEvent> ScoutLog { get; set; } = [];
     /// <summary>The Den timer, so a running session survives a restart.</summary>
     public FocusSnapshot? FocusState { get; set; }
     public NotchSettings Settings { get; set; } = new();
@@ -137,7 +155,7 @@ public sealed class AppData
     /// <summary>Top-level keys this app doesn't use yet (the shelf, Scout's log, update state…), kept as read.</summary>
     private JsonObject _rest = [];
 
-    private static readonly string[] Known = ["tasks", "notes", "clips", "water", "focusLog", "focusState", "settings"];
+    private static readonly string[] Known = ["tasks", "notes", "clips", "water", "focusLog", "scoutLog", "focusState", "settings"];
 
     /// <summary>Parses data.json. Returns null only when the file isn't a JSON object at all.
     /// Like the Mac: one damaged entry costs that entry, never the whole list.</summary>
@@ -155,6 +173,7 @@ public sealed class AppData
             Clips = Json.List(o["clips"], ReadClip),
             Water = Json.List(o["water"], ReadWater),
             FocusLog = Json.List(o["focusLog"], ReadFocus),
+            ScoutLog = Json.List(o["scoutLog"], ScoutEvent.Read),
             FocusState = FocusSnapshot.Read(o["focusState"]),
             Settings = NotchSettings.Read(o["settings"]),
         };
@@ -192,6 +211,7 @@ public sealed class AppData
         {
             ["id"] = Json.Id(f.Id), ["start"] = Json.Date(f.Start), ["minutes"] = f.Minutes,
         }).ToArray());
+        o["scoutLog"] = new JsonArray(ScoutLog.Select(e => (JsonNode)e.Write()).ToArray());
         if (FocusState is { } fs) o["focusState"] = fs.Write(); else o.Remove("focusState");
         o["settings"] = Settings.Write();
         // The Mac writes sorted keys; matching it keeps diffs between the two small.

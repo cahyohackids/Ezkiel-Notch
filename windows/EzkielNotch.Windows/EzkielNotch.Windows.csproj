@@ -26,6 +26,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\EzkielNotch.Core\EzkielNotch.Core.csproj" />
+    <!-- Roar reads Windows' notification database (a copy of it) for unread counts. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
   </ItemGroup>
 
   <ItemGroup>

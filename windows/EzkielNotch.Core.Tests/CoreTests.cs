@@ -443,3 +443,113 @@ public class LyricsTests
         Assert.Equal(LyricsKind.Instrumental, LyricsClient.StateOf(new(null, null, true, 1)).Kind);
     }
 }
+
+public class ScoutTests
+{
+    [Fact]
+    public void ParsesClaudeHooks()
+    {
+        var e = ScoutParser.ClaudeHook("""{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash","cwd":"C:\\Users\\me\\ezkiel-notch","session_id":"s1"}""")!;
+        Assert.Equal(ScoutKind.NeedsYou, e.Kind);
+        Assert.Equal("ezkiel-notch", e.Project);
+        Assert.Equal(ScoutKind.Done, ScoutParser.ClaudeHook("""{"hook_event_name":"Stop"}""")!.Kind);
+        Assert.Null(ScoutParser.ClaudeHook("""{"hook_event_name":"PreToolUse"}"""));
+        Assert.Null(ScoutParser.ClaudeHook("not json"));
+    }
+
+    [Fact]
+    public void ParsesCodexAndLinks()
+    {
+        var c = ScoutParser.CodexNotify("""{"type":"agent-turn-complete","last-assistant-message":"  All tests pass  ","cwd":"/tmp/x"}""")!;
+        Assert.Equal("All tests pass", c.Body);
+        var u = ScoutParser.Url("ezkielnotch://notify?title=Build%20done&body=All+green&kind=done")!;
+        Assert.Equal(("Build done", "All green", ScoutKind.Done), (u.Title, u.Body, u.Kind));
+        Assert.Null(u.AppBundleId);
+        Assert.Null(ScoutParser.Url("https://notify?title=x"));
+    }
+
+    [Fact]
+    public void WireAndLogRoundTripInTheMacFormat()
+    {
+        var e = ScoutEvent.New("claude", ScoutKind.NeedsYou, "Claude needs you", "y", "C:/x", "s", "C:/Windows/System32/cmd.exe", new DateTime(2026, 10, 26, 1, 2, 3, DateTimeKind.Utc));
+        var back = ScoutWire.Decode(ScoutWire.Encode(e))!;
+        Assert.Equal(e, back);
+        var d = new AppData();
+        d.ScoutLog.Add(e);
+        var json = d.ToJson();
+        Assert.Contains("\"kind\": \"needsYou\"", json);
+        Assert.Contains("\"appBundleID\"", json);
+        Assert.Equal(e, AppData.FromJson(json)!.ScoutLog.Single());
+    }
+
+    [Fact]
+    public void ConnectsAndDisconnectsClaudeKeepingOtherHooks()
+    {
+        var cmd = ScoutSetup.ClaudeCommand(@"C:\Users\me\AppData\Local\EzkielNotch\EzkielNotch.exe");
+        Assert.Equal("[ -f 'C:/Users/me/AppData/Local/EzkielNotch/EzkielNotch.exe' ] && 'C:/Users/me/AppData/Local/EzkielNotch/EzkielNotch.exe' --claude-hook; true", cmd);
+        var existing = """{"model":"opus","hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}""";
+        var on = ScoutSetup.ConnectClaude(existing, cmd);
+        Assert.Equal(LinkState.On, ScoutSetup.ClaudeState(on, cmd));
+        Assert.Contains("echo hi", on);
+        Assert.Contains("\"model\": \"opus\"", on);
+        Assert.Equal(LinkState.Stale, ScoutSetup.ClaudeState(on, ScoutSetup.ClaudeCommand(@"D:\Other\EzkielNotch.exe")));
+        var off = ScoutSetup.DisconnectClaude(on);
+        Assert.Equal(LinkState.Off, ScoutSetup.ClaudeState(off, cmd));
+        Assert.Contains("echo hi", off);
+        Assert.DoesNotContain("UserPromptSubmit", off);
+        Assert.Throws<ScoutSetup.SetupException>(() => ScoutSetup.ConnectClaude("{ broken", cmd));
+    }
+
+    [Fact]
+    public void ConnectsCodexWithoutTouchingOtherSettings()
+    {
+        const string exe = @"C:\Apps\EzkielNotch.exe";
+        var text = ScoutSetup.ConnectCodex("model = \"o4\"\n[profiles.x]\nnotify = \"not top level\"\n", exe);
+        Assert.StartsWith("notify = [\"C:/Apps/EzkielNotch.exe\", \"--codex-notify\"]", text);
+        Assert.Equal(LinkState.On, ScoutSetup.CodexState(text, exe));
+        Assert.Contains("notify = \"not top level\"", ScoutSetup.DisconnectCodex(text));
+        Assert.Equal(LinkState.Off, ScoutSetup.CodexState(ScoutSetup.DisconnectCodex(text), exe));
+        Assert.Throws<ScoutSetup.SetupException>(() => ScoutSetup.ConnectCodex("notify = [\"other\"]\n", exe));
+    }
+
+    [Theory]
+    [InlineData("8", 8)]
+    [InlineData("99+", 99)]
+    [InlineData("•", 1)]
+    [InlineData("0", null)]
+    [InlineData("", null)]
+    public void ReadsBadgeLabels(string label, int? count) => Assert.Equal(count, BadgeLabel.Count(label));
+}
+
+[Collection("Lang")]
+public class RoarModelTests
+{
+    [Fact]
+    public void ARisingCountPeeksOnceButNotForTheAppInFront()
+    {
+        Lang.Choice = AppLanguage.En;
+        var peeks = new List<PeekRequest>();
+        var m = new NotchModel(new AppData());
+        m.Peek += peeks.Add;
+        var t = DateTime.UtcNow;
+        m.UpdateBadges([new Badge("WhatsApp", "WhatsApp", 2, "2", t)]);
+        m.UpdateBadges([new Badge("WhatsApp", "WhatsApp", 5, "5", t)]);
+        Assert.Equal(["2 unread"], peeks.Select(p => p.Subtitle));   // the second rise is within 20 s
+        m.ForegroundApp = () => "Teams";
+        m.UpdateBadges([new Badge("Teams", "Teams", 1, "1", t)]);
+        Assert.Single(peeks);
+        Assert.Equal(1, m.UnreadTotal);
+    }
+
+    [Fact]
+    public void ScoutTracksLiveAgentsAndLogsTheRest()
+    {
+        var m = new NotchModel(new AppData());
+        m.ScoutReceived(ScoutEvent.New("claude", ScoutKind.Working, "Claude is working", session: "a"));
+        Assert.Single(m.LiveAgents);
+        Assert.Empty(m.Data.ScoutLog);
+        m.ScoutReceived(ScoutEvent.New("claude", ScoutKind.Done, "Claude finished", session: "a"));
+        Assert.Empty(m.LiveAgents);
+        Assert.Single(m.Data.ScoutLog);
+    }
+}

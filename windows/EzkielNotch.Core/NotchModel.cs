@@ -6,7 +6,7 @@ namespace EzkielNotch.Core;
 public enum Room { Den, Hunt, Roar, Scratch, Purr, Stash, Oasis, Settings }
 
 /// <summary>A short message under the top edge. Sound is a Mac sound name; Windows maps it.</summary>
-public sealed record PeekRequest(string Title, string Subtitle, Room Room, string Sound, bool Urgent);
+public sealed record PeekRequest(string Title, string Subtitle, Room Room, string Sound, bool Urgent, string? App = null, string? Value = null);
 
 /// <summary>A capsule at the bottom of the open island, optionally with an action (Undo).</summary>
 public sealed record ToastRequest(string Text, string? ActionTitle = null, Action? Action = null);
@@ -82,6 +82,7 @@ public sealed class NotchModel
         {
             CheckTasks(now);
             CheckWater(now);
+            ExpireAgents(now);
         }
         if (_dirty)
         {
@@ -329,6 +330,164 @@ public sealed class NotchModel
     // MARK: Settings
 
     /// <summary>After any settings change. A language change redraws every room.</summary>
+    // MARK: Roar
+
+    /// <summary>AI desktop apps: their badges show under Scout, not in the Roar list.</summary>
+    public static bool IsAiApp(string id)
+    {
+        var l = id.ToLowerInvariant();
+        return l.Contains("claude") || l.Contains("chatgpt") || l.Contains("openai") || l.Contains("cursor")
+            || l.Contains("windsurf") || l.Contains("perplexity");
+    }
+
+    /// <summary>The app in front (its id or exe path); set by the window. Its own news never peeks.</summary>
+    public Func<string?> ForegroundApp { get; set; } = () => null;
+    /// <summary>Set by the window: the Roar room is open (the list already shows it).</summary>
+    public Func<bool> LookingAtRoar { get; set; } = () => false;
+
+    public IReadOnlyList<Badge> Badges { get; private set; } = [];
+    private readonly Dictionary<string, DateTime> _lastRoarPeek = [];
+
+    private bool Visible(Badge b) => !Settings.RoarMuted.Contains(b.Id);
+    public IEnumerable<Badge> RoarBadges => Badges.Where(b => Visible(b) && !IsAiApp(b.Id));
+    public IEnumerable<Badge> AiBadges => Badges.Where(b => Visible(b) && IsAiApp(b.Id));
+    public int UnreadTotal => RoarBadges.Sum(b => b.Count);
+    public bool FocusQuiet => Settings.QuietDuringFocus && Focus.IsRunning && Focus.Mode == FocusMode.Focus;
+
+    /// <summary>The watcher's latest list. A count that went up peeks (not for the app in front, not twice in 20 s).</summary>
+    public void UpdateBadges(IReadOnlyList<Badge> badges)
+    {
+        var before = Badges.ToDictionary(b => b.Id, b => b.Count);
+        Badges = badges;
+        var now = Now();
+        foreach (var b in badges)
+        {
+            int was = before.GetValueOrDefault(b.Id);
+            if (b.Count <= was || !Settings.Roar || !Settings.RoarPeeks || !Visible(b)) continue;
+            if (string.Equals(ForegroundApp(), b.Id, StringComparison.OrdinalIgnoreCase) || LookingAtRoar() || FocusQuiet) continue;
+            if (_lastRoarPeek.TryGetValue(b.Id, out var last) && now - last < TimeSpan.FromSeconds(20)) continue;
+            _lastRoarPeek[b.Id] = now;
+            Peek?.Invoke(new PeekRequest(b.Name, was == 0 ? L("%d unread", b.Count) : L("%d new · %d unread", b.Count - was, b.Count),
+                                         Room.Roar, "", Urgent: false, App: b.Id, Value: b.Label));
+        }
+        Changed?.Invoke(Room.Roar);
+    }
+
+    public void Mute(Badge b)
+    {
+        if (Settings.RoarMuted.Contains(b.Id)) return;
+        Settings.RoarMuted.Add(b.Id);
+        Touch(Room.Roar);
+        Toast?.Invoke(new ToastRequest(L("%@ muted", b.Name), L("Undo"), () => Unmute(b.Id)));
+    }
+
+    public void Unmute(string id)
+    {
+        Settings.RoarMuted.RemoveAll(m => m == id);
+        Touch(Room.Roar);
+    }
+
+    // MARK: Scout
+
+    /// <summary>Agents working or waiting right now, by session.</summary>
+    private readonly Dictionary<string, ScoutEvent> _agents = [];
+    public bool ShowingScout { get; set; }
+
+    /// <summary>Live agents, the ones waiting for you first.</summary>
+    public List<ScoutEvent> LiveAgents => _agents.Values
+        .OrderByDescending(e => e.Kind == ScoutKind.NeedsYou).ThenByDescending(e => e.Date).ToList();
+
+    /// <summary>Log rows that aren't also showing as a live agent above them.</summary>
+    public List<ScoutEvent> ScoutHistory
+    {
+        get
+        {
+            var live = _agents.Values.Select(e => e.Id).ToHashSet();
+            return Data.ScoutLog.Where(e => !live.Contains(e.Id)).ToList();
+        }
+    }
+
+    public void ScoutReceived(ScoutEvent e)
+    {
+        if (!Settings.Scout) return;
+        var key = e.Session ?? $"{e.Source}·{e.Cwd}";
+        switch (e.Kind)
+        {
+            case ScoutKind.Working:
+                _agents[key] = e;
+                Changed?.Invoke(Room.Roar);
+                return;
+            case ScoutKind.NeedsYou:
+                // Claude's idle reminder after a turn that already finished (and peeked): nothing new.
+                if (e.Body.Contains("waiting for your input", StringComparison.OrdinalIgnoreCase) && !_agents.ContainsKey(key)) return;
+                _agents[key] = e;
+                break;
+            case ScoutKind.Done:
+                _agents.Remove(key);
+                break;
+            case ScoutKind.Ended:
+                _agents.Remove(key);
+                Changed?.Invoke(Room.Roar);
+                return;
+        }
+        Data.ScoutLog.Insert(0, e);
+        if (Data.ScoutLog.Count > 40) Data.ScoutLog.RemoveRange(40, Data.ScoutLog.Count - 40);
+        Touch(Room.Roar);
+
+        // Looking at the agent already: no peek.
+        if (e.AppBundleId is { } app && string.Equals(ForegroundApp(), app, StringComparison.OrdinalIgnoreCase)) return;
+        if (LookingAtRoar() && ShowingScout) return;
+        if (FocusQuiet && e.Kind != ScoutKind.NeedsYou) return;
+        var detail = string.Join(" · ", new[] { e.Project, e.Body.Length == 0 ? null : L(e.Body) }.Where(x => x is not null));
+        Peek?.Invoke(new PeekRequest(L(e.Title), detail, Room.Roar, e.Kind == ScoutKind.NeedsYou ? "Tink" : "",
+                                     Urgent: e.Kind == ScoutKind.NeedsYou, App: e.AppBundleId));
+    }
+
+    /// <summary>An agent that never reported back (a closed terminal, a crash) doesn't stay live:
+    /// "needs you" for 30 minutes, "working" for 45.</summary>
+    private void ExpireAgents(DateTime now)
+    {
+        var stale = _agents.Where(p => now - p.Value.Date > TimeSpan.FromMinutes(p.Value.Kind == ScoutKind.NeedsYou ? 30 : 45)).Select(p => p.Key).ToList();
+        if (stale.Count == 0) return;
+        foreach (var k in stale) _agents.Remove(k);
+        Changed?.Invoke(Room.Roar);
+    }
+
+    /// <summary>You went to the agent's terminal: its "needs you" has been seen, so it's back to working.</summary>
+    public void AgentAppActivated(string? app)
+    {
+        if (app is null) return;
+        var seen = _agents.Where(p => p.Value.Kind == ScoutKind.NeedsYou && string.Equals(p.Value.AppBundleId, app, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (seen.Count == 0) return;
+        foreach (var (k, e) in seen)
+            _agents[k] = e with { Kind = ScoutKind.Working, Title = e.Source == "codex" ? "Codex is working" : "Claude is working", Body = "" };
+        Changed?.Invoke(Room.Roar);
+    }
+
+    public void DismissAgent(ScoutEvent e)
+    {
+        foreach (var k in _agents.Where(p => p.Value.Id == e.Id).Select(p => p.Key).ToList()) _agents.Remove(k);
+        Changed?.Invoke(Room.Roar);
+    }
+
+    public void ClearScoutLog()
+    {
+        var before = Data.ScoutLog.ToList();
+        if (before.Count == 0) return;
+        Data.ScoutLog.Clear();
+        Touch(Room.Roar);
+        Toast?.Invoke(new ToastRequest(L("Scout cleared"), L("Undo"), () =>
+        {
+            Data.ScoutLog = before;
+            Touch(Room.Roar);
+        }));
+    }
+
+    /// <summary>A short message in the open island (for the UI's own actions, like copying).</summary>
+    public void RaiseToast(string text) => Toast?.Invoke(new ToastRequest(text));
+
+    // MARK: Settings
+
     public void SettingsChanged(bool everything = false)
     {
         Lang.Choice = Settings.Language;

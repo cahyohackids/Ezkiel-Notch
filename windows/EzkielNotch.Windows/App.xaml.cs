@@ -17,6 +17,15 @@ public partial class App : Application
         base.OnStartup(e);
         bool selfTest = e.Args.Contains("--self-test");
 
+        // Scout senders (a Claude Code hook, Codex, a script, an ezkielnotch:// link) pass their event to the
+        // running app and quit without showing anything.
+        string? pendingUrl = null;
+        if (!selfTest && Platform.ScoutPipe.RunSender(e.Args, out pendingUrl))
+        {
+            Shutdown();
+            return;
+        }
+
         // One island per user session (the self-test runs beside a normal copy).
         if (!selfTest)
         {
@@ -37,7 +46,7 @@ public partial class App : Application
 
         var store = new DataStore(path);
         _model = new NotchModel(store.Load(), store);
-        var window = new IslandWindow(_model);
+        var window = new IslandWindow(_model) { SelfTesting = selfTest };
         window.Show();
 
         if (selfTest)
@@ -45,6 +54,15 @@ public partial class App : Application
             SelfTest.Run(window, e.Args);
             return;
         }
+        Platform.ScoutPipe.Listen(window.Dispatcher, _model.ScoutReceived);
+        if (d < 0)
+        {
+            Platform.ScoutPipe.RegisterUrlScheme();
+            // A hook that points at an older copy of the app gets fixed quietly.
+            foreach (var agent in new[] { Platform.AgentLinks.Agent.ClaudeCode, Platform.AgentLinks.Agent.Codex })
+                if (Platform.AgentLinks.State(agent) == LinkState.Stale) Platform.AgentLinks.Set(agent, true);
+        }
+        if (pendingUrl is not null && ScoutParser.Url(pendingUrl) is { } linked) _model.ScoutReceived(linked);
         window.Dispatcher.BeginInvoke(() =>
         {
             switch (store.LastRecovery)

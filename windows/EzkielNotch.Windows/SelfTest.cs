@@ -136,7 +136,31 @@ internal static class SelfTest
                 m.Settings.ShowLyrics = false;
                 w.Select(Room.Roar);
             }),
-            ("roar ok", () => RoomChecks(w, Room.Roar)),
+            ("roar ok", () =>
+            {
+                var t = DateTime.UtcNow;
+                m.UpdateBadges([
+                    new Badge("5319275A.WhatsAppDesktop_cv1g1gvanyjgm!App", "WhatsApp", 3, "3", t.AddMinutes(-2)),
+                    new Badge("MSTeams_8wekyb3d8bbwe!MSTeams", "Microsoft Teams", 12, "12", t.AddMinutes(-40)),
+                    new Badge("Microsoft.OutlookForWindows_8wekyb3d8bbwe!Microsoft.OutlookforWindows", "Outlook", 1, "1", t.AddHours(-3)),
+                ]);
+                RoomChecks(w, Room.Roar);
+                Check(m.UnreadTotal == 16, "Roar adds up the unread counts");
+            }),
+            ("scout", () =>
+            {
+                m.ScoutReceived(ScoutEvent.New("claude", ScoutKind.Done, "Claude finished", "Your turn", @"C:\Users\ezkiel\ezkiel-notch", "a"));
+                m.ScoutReceived(ScoutEvent.New("claude", ScoutKind.NeedsYou, "Claude needs you", "Claude needs your permission to use Bash", @"C:\Users\ezkiel\store", "b"));
+                m.ScoutReceived(ScoutEvent.New("codex", ScoutKind.Done, "Codex finished", "All tests pass", @"C:\Users\ezkiel\api", "c"));
+                m.ShowingScout = true;
+                w.CurrentPane!.Refresh();
+            }),
+            ("scout ok", () =>
+            {
+                RoomChecks(w, Room.Roar);
+                Check(m.LiveAgents.Count == 1 && m.Data.ScoutLog.Count == 3, "Scout keeps the waiting agent live and logs the rest");
+                m.ShowingScout = false;
+            }),
             ("indonesian", () =>
             {
                 m.Settings.Language = AppLanguage.Id;

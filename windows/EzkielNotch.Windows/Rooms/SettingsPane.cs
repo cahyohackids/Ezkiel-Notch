@@ -54,6 +54,17 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
                 Changed();
             }))]));
 
+        list.Children.Add(Section("Roar & Scout"));
+        list.Children.Add(Toggle("Roar", L("Unread counts from WhatsApp, Teams, Outlook and any app that notifies you. Only the number, no permission."),
+                                 s.Roar, v => s.Roar = v, Accent.Roar));
+        if (s.Roar) list.Children.Add(Toggle(L("Peek on new messages"), L("Not while that app is in front"), s.RoarPeeks, v => s.RoarPeeks = v, Accent.Roar));
+        if (s.RoarMuted.Count > 0)
+            list.Children.Add(Option(L("Muted"), [.. s.RoarMuted.ToList().Select(id =>
+                Ui.Chip($"{AppIcons.Name(id)}  ✕", false, Accent.Roar, () => { Model.Unmute(id); Refresh(); }))]));
+        list.Children.Add(Toggle("Scout", L("AI agents and scripts: a peek when they finish or need you"), s.Scout, v => s.Scout = v, Accent.Scout));
+        if (s.Scout)
+            foreach (var agent in new[] { AgentLinks.Agent.ClaudeCode, AgentLinks.Agent.Codex }) list.Children.Add(AgentRow(agent));
+
         list.Children.Add(Section(L("About")));
         list.Children.Add(About());
 
@@ -116,6 +127,37 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
         Background = Ui.Surface,
         Margin = new Thickness(0, 0, 0, 3),
     };
+
+    private Border AgentRow(AgentLinks.Agent agent)
+    {
+        var state = AgentLinks.State(agent);
+        bool installed = AgentLinks.Installed(agent);
+        var g = Columns(Star, Auto);
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+        text.Children.Add(Ui.Label(AgentLinks.Title(agent), Ui.Body, weight: FontWeights.Medium));
+        text.Children.Add(Ui.Label(state switch
+        {
+            LinkState.On => L("Connected · reports to Scout"),
+            LinkState.Stale => L("Connected to an older copy · reconnect"),
+            _ => installed ? L("Adds a small hook to %@ (a backup is kept)", AgentLinks.FileOf(agent)) : L("%@ isn't set up on this PC", AgentLinks.Title(agent)),
+        }, Ui.Caption, Ui.Mist));
+        g.Children.Add(At(text, 0));
+        void Set(bool on)
+        {
+            var problem = AgentLinks.Set(agent, on);
+            Model.RaiseToast(problem ?? (on ? L("%@ connected · new sessions report to Scout", AgentLinks.Title(agent)) : L("%@ disconnected", AgentLinks.Title(agent))));
+            Refresh();
+        }
+        var button = state switch
+        {
+            LinkState.On => Ui.TextButton(L("Disconnect"), () => Set(false)),
+            LinkState.Stale => Ui.Pill(L("Reconnect"), () => Set(true), Accent.Scout, prominent: true),
+            _ => Ui.Pill(L("Connect"), () => Set(true), Accent.Scout, prominent: installed),
+        };
+        button.VerticalAlignment = VerticalAlignment.Center;
+        g.Children.Add(At(button, 1));
+        return Row(g);
+    }
 
     private Border About()
     {

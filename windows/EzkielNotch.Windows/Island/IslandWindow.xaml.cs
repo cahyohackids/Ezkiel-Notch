@@ -42,12 +42,15 @@ public partial class IslandWindow : Window
     public NotchModel Model { get; }
     public MediaWatcher Media { get; }
     public LyricsClient Lyrics { get; }
+    public RoarWatcher Roar { get; }
     public Presentation Presentation { get; private set; } = Presentation.Lip;
     public bool Hovering { get; private set; }
     public bool FullscreenActive { get; private set; }
     public bool HotKeyRegistered { get; private set; }
     /// <summary>Self-test: ignore the real pointer so a resting cursor can't change the outcome.</summary>
     public bool IgnorePointer { get; set; }
+    /// <summary>Self-test: no real Roar, Scout or media sources (they'd change what the test sees).</summary>
+    public bool SelfTesting { get; init; }
     public Room Selected { get; private set; } = Room.Den;
     public Pane? CurrentPane => PageHost.Child as Pane;
     public string? LastToast { get; private set; }
@@ -74,6 +77,10 @@ public partial class IslandWindow : Window
         Model = model;
         Media = new MediaWatcher(Dispatcher);
         Lyrics = new LyricsClient(version: typeof(IslandWindow).Assembly.GetName().Version?.ToString(3) ?? "0");
+        Roar = new RoarWatcher(Dispatcher);
+        Roar.Updated += Model.UpdateBadges;
+        Model.ForegroundApp = AppIdentity.Foreground;
+        Model.LookingAtRoar = () => Presentation == Presentation.Expanded && Selected == Room.Roar;
         InitializeComponent();
         BuildTabs();
         Apply(LipShape, animate: false);
@@ -90,12 +97,12 @@ public partial class IslandWindow : Window
         Model.Changed += OnModelChanged;
         Model.Peek += p =>
         {
-            if (Model.Settings.Sounds) Sounds.Play(p.Sound);
+            if (Model.Settings.Sounds && p.Sound.Length > 0) Sounds.Play(p.Sound);
             if (Presentation == Presentation.Expanded) ShowToast(new ToastRequest($"{p.Title} · {p.Subtitle}"));
-            else ShowPeek(p.Title, p.Subtitle, urgent: p.Urgent, room: p.Room);
+            else ShowPeek(p.Title, p.Subtitle, urgent: p.Urgent, room: p.Room, app: p.App);
         };
         Model.Toast += ShowToast;
-        Model.Sound += name => { if (Model.Settings.Sounds) Sounds.Play(name); };
+        Model.Sound += name => { if (Model.Settings.Sounds && name.Length > 0) Sounds.Play(name); };
 
         // A new song while the island is closed: a short peek (not in the first seconds after launch).
         var launched = DateTime.UtcNow;
@@ -125,10 +132,15 @@ public partial class IslandWindow : Window
         SystemEvents.DisplaySettingsChanged += (_, _) => Dispatcher.BeginInvoke(Place);
         DpiChanged += (_, _) => Dispatcher.BeginInvoke(Place);
 
-        _winEventProc = (_, _, _, _, _, _, _) => Dispatcher.BeginInvoke(CheckFullscreen);
+        _winEventProc = (_, _, _, _, _, _, _) => Dispatcher.BeginInvoke(() =>
+        {
+            CheckFullscreen();
+            Model.AgentAppActivated(AppIdentity.Foreground());
+        });
         _winEventHook = Win32.SetWinEventHook(Win32.EVENT_SYSTEM_FOREGROUND, Win32.EVENT_SYSTEM_FOREGROUND, 0, _winEventProc, 0, 0, Win32.WINEVENT_OUTOFCONTEXT);
 
         Media.Start();
+        Roar.SetEnabled(Model.Settings.Roar && !SelfTesting);
         _pointer.Start();
         _second.Start();
         _fullscreenPoll.Start();
@@ -216,12 +228,14 @@ public partial class IslandWindow : Window
 
     /// <summary>A short message under the top edge. While something is fullscreen only urgent ones show.
     /// Clicking it opens its room.</summary>
-    public void ShowPeek(string title, string subtitle, double seconds = 3.4, bool urgent = false, Room? room = null)
+    public void ShowPeek(string title, string subtitle, double seconds = 3.4, bool urgent = false, Room? room = null, string? app = null)
     {
         if (FullscreenActive && Model.Settings.HideInFullscreen && !urgent) return;
         if (Presentation == Presentation.Expanded) return;
         PeekTitle.Text = title;
         PeekSubtitle.Text = subtitle;
+        // An app's own news shows that app's icon; everything else, Ezkiel.
+        PeekIcon.Source = app is not null && AppIcons.Icon(app) is { } icon ? icon : Rooms.PurrPane.Lion;
         _peekRoom = room;
         PeekView.Cursor = room is null ? null : Cursors.Hand;
         Presentation = Presentation.Peek;
@@ -527,8 +541,10 @@ public partial class IslandWindow : Window
             Room.Oasis => new OasisPane(Model),
             Room.Settings => new SettingsPane(Model),
             Room.Purr => new PurrPane(Model, Media, Lyrics),
+            Room.Roar => new RoarPane(Model),
             _ => new ComingPane(Model, room),
         };
+        if (pane is RoarPane roar) roar.OpenSettings += () => Select(Room.Settings);
         if (pane is PurrPane purr)
             purr.HeightChanged += () => { if (Presentation == Presentation.Expanded && Selected == Room.Purr) Apply(ExpandedShape(Room.Purr), animate: true); };
         if (pane is ScratchPane scratch) scratch.Copied += () => ShowToast(new ToastRequest(L("Copied")));
@@ -593,6 +609,7 @@ public partial class IslandWindow : Window
         }
         if (room == Room.Settings)
         {
+            Roar.SetEnabled(Model.Settings.Roar && !SelfTesting);
             // Settings feed Den, Oasis and the rest; the Settings room redraws itself.
             foreach (var r in _panes.Keys) if (r != Room.Settings) _stale.Add(r);
             if (Presentation == Presentation.Expanded && Selected != Room.Settings) ShowRoom(Selected);

@@ -26,7 +26,7 @@
                 <!-- Peek: one line under the top edge, like a Whisker on the Mac. -->
                 <Grid x:Name="PeekView" Opacity="0" Margin="16,0">
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
-                        <Image Source="/Assets/lion.png" Width="26" Height="26" Margin="0,0,10,0"/>
+                        <Image x:Name="PeekIcon" Source="/Assets/lion.png" Width="26" Height="26" Margin="0,0,10,0"/>
                         <TextBlock x:Name="PeekTitle" Text="Ezkiel Notch" FontFamily="{StaticResource Text}" FontSize="13"
                                    FontWeight="SemiBold" Foreground="{StaticResource Ink}" VerticalAlignment="Center"/>
                         <TextBlock x:Name="PeekSubtitle" Text="" FontFamily="{StaticResource Text}" FontSize="12"

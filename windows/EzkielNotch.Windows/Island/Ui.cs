@@ -14,6 +14,7 @@ public readonly record struct Accent(Color Light, Color Deep)
     public static readonly Accent Rest = new(Hex(0x9EF3EE), Hex(0x00C7BE));
     public static readonly Accent Hunt = new(Hex(0xFF9A8A), Hex(0xFF453A));
     public static readonly Accent Roar = new(Hex(0x9BF0B4), Hex(0x30D158));
+    public static readonly Accent Scout = new(Hex(0x9EF3EE), Hex(0x00C7BE));
     public static readonly Accent Scratch = new(Hex(0xFFE680), Hex(0xFFC400));
     public static readonly Accent Purr = new(Hex(0xFF8FB0), Hex(0xFF375F));
     public static readonly Accent Stash = new(Hex(0x9C9AFF), Hex(0x5E5CE6));
@@ -36,7 +37,7 @@ public sealed record RoomInfo(Room Room, string Glyph, Accent Accent, double Pan
     [
         new(Room.Den, "\uE916", Accent.Den, 160, "Focus timer"),
         new(Room.Hunt, "\uE9D5", Accent.Hunt, 188, "Tasks"),
-        new(Room.Roar, "\uEA8F", Accent.Roar, 122, "Unread and agents"),
+        new(Room.Roar, "\uEA8F", Accent.Roar, 176, "Unread and agents"),
         new(Room.Scratch, "\uE70B", Accent.Scratch, 180, "Notes and clips"),
         new(Room.Purr, "\uE8D6", Accent.Purr, 122, "Now playing"),
         new(Room.Stash, "\uE8B7", Accent.Stash, 122, "File shelf"),
