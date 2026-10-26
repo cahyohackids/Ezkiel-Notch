@@ -95,6 +95,22 @@ public enum MusicSource: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Global shortcut that opens and closes the notch.
+public enum HotkeyChoice: String, Codable, CaseIterable, Identifiable {
+    /// ⌃⌥N. Default: nothing common uses it (⌥⌘I is the browsers' Web Inspector, ⌃⌥Space switches input sources).
+    case controlOptionN
+    case controlOptionSpace
+    case optionCommandI
+    public var id: String { rawValue }
+    public var label: String {
+        switch self {
+        case .controlOptionN: return "⌃⌥N"
+        case .controlOptionSpace: return "⌃⌥Space"
+        case .optionCommandI: return "⌥⌘I"
+        }
+    }
+}
+
 public struct NotchSettings: Codable, Equatable {
     public var expandOnHover: Bool = true
     public var hoverDelay: Double = 0.12
@@ -121,6 +137,17 @@ public struct NotchSettings: Codable, Equatable {
     public var systemOverlays: Bool = true
     /// Wi-Fi and headphones peeks.
     public var connectionPeeks: Bool = true
+    /// Pounce: peek when a new screenshot appears.
+    public var pounceScreenshots: Bool = false
+    /// Pounce: peek when a download finishes in ~/Downloads.
+    public var pounceDownloads: Bool = false
+    /// Rally: show today's next meetings in Hunt and peek 5 minutes before.
+    public var rally: Bool = false
+    /// Rally: "in 5m" countdown in the closed notch.
+    public var rallyCountdown: Bool = true
+    public var hotkey: HotkeyChoice = .controlOptionN
+    /// CGDirectDisplayID of the chosen display; 0 = automatic. `displayName` is the older fallback.
+    public var displayID: UInt32 = 0
 
     public init() {}
 
@@ -149,6 +176,12 @@ public struct NotchSettings: Codable, Equatable {
         closedLyrics = (try? c.decode(Bool.self, forKey: .closedLyrics)) ?? d.closedLyrics
         systemOverlays = (try? c.decode(Bool.self, forKey: .systemOverlays)) ?? d.systemOverlays
         connectionPeeks = (try? c.decode(Bool.self, forKey: .connectionPeeks)) ?? d.connectionPeeks
+        pounceScreenshots = (try? c.decode(Bool.self, forKey: .pounceScreenshots)) ?? d.pounceScreenshots
+        pounceDownloads = (try? c.decode(Bool.self, forKey: .pounceDownloads)) ?? d.pounceDownloads
+        rally = (try? c.decode(Bool.self, forKey: .rally)) ?? d.rally
+        rallyCountdown = (try? c.decode(Bool.self, forKey: .rallyCountdown)) ?? d.rallyCountdown
+        hotkey = (try? c.decode(HotkeyChoice.self, forKey: .hotkey)) ?? d.hotkey
+        displayID = (try? c.decode(UInt32.self, forKey: .displayID)) ?? d.displayID
     }
 
     public static let defaults = NotchSettings()
@@ -162,8 +195,10 @@ public struct AppData: Codable, Equatable {
     public var shelf: [ShelfRecord] = []
     public var water: [WaterEntry] = []
     public var settings: NotchSettings = NotchSettings()
+    public var focusLog: [FocusEntry] = []
+    /// The Den timer, so a running session survives a restart.
+    public var focusState: FocusSnapshot?
     public var onboarded: Bool = false
-    public var migratedIslandDesk: Bool = false
 
     public init() {}
 
@@ -175,7 +210,8 @@ public struct AppData: Codable, Equatable {
         shelf = (try? c.decode([ShelfRecord].self, forKey: .shelf)) ?? []
         water = (try? c.decode([WaterEntry].self, forKey: .water)) ?? []
         settings = (try? c.decode(NotchSettings.self, forKey: .settings)) ?? NotchSettings()
+        focusLog = (try? c.decode([FocusEntry].self, forKey: .focusLog)) ?? []
+        focusState = try? c.decode(FocusSnapshot.self, forKey: .focusState)
         onboarded = (try? c.decode(Bool.self, forKey: .onboarded)) ?? false
-        migratedIslandDesk = (try? c.decode(Bool.self, forKey: .migratedIslandDesk)) ?? false
     }
 }

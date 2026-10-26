@@ -1,31 +1,44 @@
 import AppKit
 import SwiftUI
 
-/// Ezkiel, the ezkielyna.store lion, drawn as vectors so it stays crisp at 16 pt
-/// and can breathe, blink, nap and cheer. The animation clock only runs while
-/// `animated` is true (TimelineView pauses otherwise), so an idle lion costs nothing.
+/// Ezkiel, the ezkielyna.store lion, drawn as vectors so it stays crisp at 16 pt.
+/// Idle, it is a still drawing that blinks every few seconds (two cheap redraws). A timeline
+/// only runs while the mood actually moves: happy (a short hop) or asleep (slow breathing).
 struct LionMascot: View {
     var size: CGFloat
     var mood: LionMood = .awake
     var animated: Bool = true
+    /// Detail level fixed by placement, so a hover that grows the lion never swaps the drawing.
+    var detailed: Bool? = nil
+    @State private var blinking = false
 
     var body: some View {
+        let detail = detailed ?? (size >= 26)
         Group {
-            if animated {
-                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: false)) { timeline in
-                    canvas(t: timeline.date.timeIntervalSinceReferenceDate)
+            if animated && (mood == .happy || mood == .sleeping) {
+                TimelineView(.animation(minimumInterval: mood == .happy ? 1.0 / 30 : 1.0 / 12)) { timeline in
+                    canvas(t: timeline.date.timeIntervalSinceReferenceDate, blink: false, detailed: detail)
                 }
             } else {
-                canvas(t: 0)
+                canvas(t: 0, blink: blinking, detailed: detail)
             }
         }
         .frame(width: size, height: size)
         .accessibilityLabel("Ezkiel the lion")
+        .task(id: animated) {
+            guard animated else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(Double.random(in: 3.5...6.0) * 1_000_000_000))
+                blinking = true
+                try? await Task.sleep(nanoseconds: 140_000_000)
+                blinking = false
+            }
+        }
     }
 
-    private func canvas(t: Double) -> some View {
+    private func canvas(t: Double, blink: Bool, detailed: Bool) -> some View {
         Canvas { context, canvasSize in
-            LionPainter.draw(in: &context, size: canvasSize, t: t, mood: mood, detailed: size >= 26)
+            LionPainter.draw(in: &context, size: canvasSize, t: t, mood: mood, detailed: detailed, blink: blink)
         }
     }
 }
@@ -38,7 +51,7 @@ enum LionPainter {
     static let muzzle = Color(hex: 0xFFF0D4)
     static let ink = Color(hex: 0x1A1420)
 
-    static func draw(in ctx: inout GraphicsContext, size: CGSize, t: Double, mood: LionMood, detailed: Bool) {
+    static func draw(in ctx: inout GraphicsContext, size: CGSize, t: Double, mood: LionMood, detailed: Bool, blink: Bool = false) {
         let s = min(size.width, size.height) / 100
         ctx.translateBy(x: (size.width - 100 * s) / 2, y: (size.height - 100 * s) / 2)
         ctx.scaleBy(x: s, y: s)
@@ -108,10 +121,9 @@ enum LionPainter {
                 head.stroke(arc, with: .color(ink), style: StrokeStyle(lineWidth: detailed ? 2.6 : 3.2, lineCap: .round))
             }
         } else {
-            let cycle = t.truncatingRemainder(dividingBy: 4.6)
-            let blinking = cycle > 4.45 || (Int(t / 4.6) % 3 == 0 && cycle > 4.1 && cycle < 4.22)
+            let blinking = blink
             let openness = blinking ? 0.12 : (focused ? 0.72 : 1)
-            let look = sin(t * 0.37) * (detailed ? 1.2 : 0.6)
+            let look = 0.0
             for x in eyeX {
                 let h = eh * openness
                 head.fill(Path(ellipseIn: CGRect(x: x - ew / 2 + look, y: eyeY - h / 2, width: ew, height: h)), with: .color(ink))
@@ -175,7 +187,7 @@ enum LionPainter {
             let phase = (t * 0.4).truncatingRemainder(dividingBy: 1)
             var z = ctx
             z.opacity = sin(phase * .pi)
-            z.draw(Text("z").font(.system(size: 16, weight: .bold)).foregroundColor(Theme.cream),
+            z.draw(Text("z").font(.system(size: 16, weight: .bold)).foregroundColor(Theme.ink),
                    at: CGPoint(x: 82 + phase * 8, y: 26 - phase * 18))
         }
     }
@@ -202,16 +214,63 @@ enum LionPainter {
     }
 }
 
-/// App icon artwork: the lion on a flat navy squircle.
+/// App icon artwork: the lion on a squircle with a soft radial glow and a top highlight (Big Sur style).
 struct LionIconArtwork: View {
     var size: CGFloat
     var body: some View {
         let inset = size * 0.1
+        let side = size - inset * 2
+        let squircle = RoundedRectangle(cornerRadius: side * 0.225, style: .continuous)
         ZStack {
-            RoundedRectangle(cornerRadius: (size - inset * 2) * 0.225, style: .continuous)
-                .fill(Theme.navy2)
-                .padding(inset)
-            LionMascot(size: size * 0.7, mood: .awake, animated: false)
+            squircle
+                .fill(RadialGradient(colors: [Color(hex: 0x2A2F4A), Color(hex: 0x141A2E), Color(hex: 0x0B0F1C)],
+                                     center: UnitPoint(x: 0.5, y: 0.42), startRadius: 0, endRadius: side * 0.72))
+                .overlay(squircle.fill(LinearGradient(colors: [.white.opacity(0.14), .white.opacity(0)],
+                                                      startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.45))))
+                .overlay(squircle.strokeBorder(Color.white.opacity(0.1), lineWidth: max(1, size * 0.004)))
+                .frame(width: side, height: side)
+            LionMascot(size: size * 0.68, mood: .awake, animated: false, detailed: true)
+                .shadow(color: .black.opacity(0.35), radius: size * 0.02, y: size * 0.012)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+/// Menu-bar lion: a monochrome template silhouette (mane ring, face cut out, eyes and nose),
+/// so macOS tints it like its own menu-bar icons.
+struct LionTemplateGlyph: View {
+    var size: CGFloat
+    var body: some View {
+        Canvas { ctx, canvasSize in
+            let s = min(canvasSize.width, canvasSize.height) / 100
+            ctx.scaleBy(x: s, y: s)
+            var mane = ctx
+            mane.translateBy(x: 50, y: 52)
+            var ring = Path()
+            let count = 10
+            let step = 2 * Double.pi / Double(count)
+            func point(_ r: Double, _ a: Double) -> CGPoint { CGPoint(x: r * cos(a), y: r * sin(a)) }
+            for i in 0...count {
+                let a = Double(i) * step - .pi / 2
+                if i == 0 { ring.move(to: point(40, a)); continue }
+                ring.addCurve(to: point(40, a), control1: point(52, a - step * 0.8), control2: point(52, a - step * 0.2))
+            }
+            ring.closeSubpath()
+            mane.fill(ring, with: .color(.black))
+            // Face cut out of the mane.
+            var face = ctx
+            face.blendMode = .destinationOut
+            face.fill(Path(ellipseIn: CGRect(x: 25, y: 29, width: 50, height: 50)), with: .color(.black))
+            // Eyes and nose.
+            for x in [40.0, 60.0] {
+                ctx.fill(Path(ellipseIn: CGRect(x: x - 4.5, y: 45, width: 9, height: 11)), with: .color(.black))
+            }
+            var nose = Path()
+            nose.move(to: CGPoint(x: 44, y: 61))
+            nose.addLine(to: CGPoint(x: 56, y: 61))
+            nose.addLine(to: CGPoint(x: 50, y: 68))
+            nose.closeSubpath()
+            ctx.fill(nose, with: .color(.black))
         }
         .frame(width: size, height: size)
     }

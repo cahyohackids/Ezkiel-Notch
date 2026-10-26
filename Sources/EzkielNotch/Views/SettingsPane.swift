@@ -4,160 +4,213 @@ import SwiftUI
 
 struct SettingsPane: View {
     @ObservedObject var model: AppModel
-    @State private var section: Page = .general
-
-    enum Page: String, CaseIterable, Identifiable {
-        case general = "General", launch = "Quick launch", about = "About"
-        var id: String { rawValue }
-    }
+    @ObservedObject var calendar: CalendarService
+    @State private var confirmQuit = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                ForEach(Page.allCases) { s in
-                    Chip(title: s.rawValue, selected: section == s) {
-                        withAnimation(Theme.snappy) { section = s }
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            HStack(spacing: 5) {
+                ForEach(SettingsSection.allCases) { s in
+                    Chip(title: s.title, selected: model.settingsSection == s, accent: .gold) {
+                        withAnimation(Theme.snappy) { model.settingsSection = s }
                     }
                 }
-                Spacer()
-                Button {
-                    NSApp.terminate(nil)
-                } label: {
-                    Label("Quit", systemImage: "power")
-                        .font(Theme.font(11, .semibold))
-                        .foregroundStyle(Theme.berry)
-                        .padding(.horizontal, 10)
-                        .frame(height: 26)
-                        .background(Capsule().fill(Theme.berry.opacity(0.13)))
-                }
-                .buttonStyle(PressableStyle())
-                .help("Quit Ezkiel Notch")
+                Spacer(minLength: 0)
             }
 
-            Group {
-                switch section {
-                case .general: general
-                case .launch: quickLaunch
-                case .about: about
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 6) {
+                    switch model.settingsSection {
+                    case .general: general
+                    case .whiskers: whiskers
+                    case .features: features
+                    case .about: about
+                    }
                 }
+                .padding(.vertical, 4)
+                .id(model.settingsSection)
+                .transition(.opacity)
             }
-            .transition(.opacity.combined(with: .offset(y: 6)))
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .scrollEdgeFade(8)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear { model.refreshLoginItemState() }
     }
 
+    // MARK: General
+
+    @ViewBuilder
     private var general: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 6) {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
-                    ToggleRow(title: "Open on hover", subtitle: "Click always works too", icon: "cursorarrow.motionlines",
-                              isOn: $model.settings.expandOnHover)
-                    ToggleRow(title: "Launch at login", subtitle: model.loginItemError ?? "Start with your Mac", icon: "power",
-                              isOn: Binding(get: { model.settings.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
-                    ToggleRow(title: "Ezkiel the lion", subtitle: "Mascot in the closed notch", icon: "pawprint.fill",
-                              isOn: $model.settings.showMascot)
-                    ToggleRow(title: "Lion naps when idle", subtitle: "Wakes up when you return", icon: "moon.zzz.fill",
-                              isOn: $model.settings.mascotSleeps)
-                    ToggleRow(title: "Minimal closed notch", subtitle: "Hide wings until something is live", icon: "rectangle.compress.vertical",
-                              isOn: $model.settings.minimalClosed)
-                    ToggleRow(title: "Water reminders", subtitle: "Every \(model.settings.waterIntervalMinutes) min, in the notch", icon: "drop.fill",
-                              isOn: $model.settings.waterReminders)
-                    ToggleRow(title: "Sounds", subtitle: "Chimes for timers and reminders", icon: "speaker.wave.2.fill",
-                              isOn: $model.settings.sounds)
-                    ToggleRow(title: "Haptics", subtitle: "Trackpad tap when opening", icon: "hand.tap.fill",
-                              isOn: $model.settings.haptics)
-                    ToggleRow(title: "Synced lyrics", subtitle: "From LRCLIB, only while on", icon: "quote.bubble.fill",
-                              isOn: Binding(get: { model.settings.showLyrics }, set: { if $0 != model.settings.showLyrics { model.toggleLyrics() } }))
-                    ToggleRow(title: "Lyrics under the notch", subtitle: "Sing along while it's closed", icon: "text.line.first.and.arrowtriangle.forward",
-                              isOn: $model.settings.closedLyrics)
-                    ToggleRow(title: "Volume & keyboard", subtitle: "Volume, Caps Lock, language", icon: "speaker.wave.2.circle.fill",
-                              isOn: $model.settings.systemOverlays)
-                    ToggleRow(title: "Wi-Fi & headphones", subtitle: "Peek when they connect", icon: "wifi",
-                              isOn: $model.settings.connectionPeeks)
-                }
-                optionRow("Music", icon: "music.note") {
-                    ForEach(MusicSource.allCases) { source in
-                        Chip(title: source.label, selected: model.settings.musicSource == source) {
-                            model.setMusicSource(source)
-                        }
-                    }
-                }
-                optionRow("Hover delay", icon: "timer") {
-                    ForEach([0.05, 0.12, 0.25, 0.45], id: \.self) { d in
-                        Chip(title: d < 0.1 ? "Instant" : "\(Int(d * 1000)) ms", selected: abs(model.settings.hoverDelay - d) < 0.01) {
-                            model.settings.hoverDelay = d
-                        }
-                    }
-                }
-                optionRow("Remind every", icon: "bell") {
-                    ForEach([30, 45, 60, 90], id: \.self) { m in
-                        Chip(title: "\(m)m", selected: model.settings.waterIntervalMinutes == m) {
-                            model.settings.waterIntervalMinutes = m
-                        }
-                    }
-                }
-                optionRow("Display", icon: "display") {
-                    Chip(title: "Automatic", selected: model.settings.displayName.isEmpty) {
-                        model.settings.displayName = ""
-                    }
-                    ForEach(NSScreen.screens.map(\.localizedName), id: \.self) { name in
-                        Chip(title: name, selected: model.settings.displayName == name) {
-                            model.settings.displayName = name
-                        }
-                    }
+        ToggleRow(title: "Open on hover", subtitle: "Click always works too", icon: "cursorarrow.motionlines",
+                  isOn: $model.settings.expandOnHover)
+        OptionRow(title: "Hover delay", icon: "timer") {
+            ForEach([0.05, 0.12, 0.25, 0.45], id: \.self) { d in
+                Chip(title: d < 0.1 ? "Instant" : "\(Int(d * 1000)) ms", selected: abs(model.settings.hoverDelay - d) < 0.01) {
+                    model.settings.hoverDelay = d
                 }
             }
-            .padding(.bottom, 4)
+        }
+        OptionRow(title: "Shortcut", icon: "command") {
+            ForEach(HotkeyChoice.allCases) { choice in
+                Chip(title: choice.label, selected: model.settings.hotkey == choice) { model.settings.hotkey = choice }
+            }
+        }
+        ToggleRow(title: "Launch at login", subtitle: model.loginItemError ?? "Start with your Mac", icon: "arrow.right.circle",
+                  isOn: Binding(get: { model.settings.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
+        ToggleRow(title: "Ezkiel the lion", subtitle: "In the closed notch", icon: "pawprint", isOn: $model.settings.showMascot)
+        ToggleRow(title: "Lion naps when idle", subtitle: "Wakes up when you're back", icon: "moon.zzz", isOn: $model.settings.mascotSleeps)
+        ToggleRow(title: "Minimal closed notch", subtitle: "Hide the wings until something is live", icon: "rectangle.compress.vertical",
+                  isOn: $model.settings.minimalClosed)
+        ToggleRow(title: "Sounds", subtitle: "Chimes for timers and reminders", icon: "speaker.wave.2", isOn: $model.settings.sounds)
+        ToggleRow(title: "Haptics", subtitle: "A tap on the trackpad when opening", icon: "hand.tap", isOn: $model.settings.haptics)
+        OptionRow(title: "Display", icon: "display") {
+            Chip(title: "Automatic", selected: model.settings.displayID == 0 && model.settings.displayName.isEmpty) {
+                model.settings.displayID = 0
+                model.settings.displayName = ""
+            }
+            ForEach(NSScreen.screens, id: \.displayID) { screen in
+                Chip(title: screen.localizedName, selected: model.settings.displayID == screen.displayID) {
+                    model.settings.displayID = screen.displayID
+                    model.settings.displayName = screen.localizedName
+                }
+            }
         }
     }
 
-    private func optionRow<Content: View>(_ title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
+    // MARK: Whiskers (small notifications)
+
+    @ViewBuilder
+    private var whiskers: some View {
+        ToggleRow(title: "Volume & keyboard", subtitle: "Volume, Caps Lock and keyboard language", icon: "speaker.wave.2.bubble",
+                  accent: .whiskers, isOn: $model.settings.systemOverlays)
+        ToggleRow(title: "Wi-Fi & headphones", subtitle: "When they connect or drop", icon: "wifi", accent: .whiskers,
+                  isOn: $model.settings.connectionPeeks)
+        ToggleRow(title: "Pounce on screenshots", subtitle: "New screenshots appear with Copy · Stash · Show. macOS asks for Desktop access once.",
+                  icon: "camera.viewfinder", accent: .stash, isOn: $model.settings.pounceScreenshots)
+        ToggleRow(title: "Pounce on downloads", subtitle: "Finished downloads in ~/Downloads appear the same way. macOS asks for Downloads access once.",
+                  icon: "arrow.down.circle", accent: .stash, isOn: $model.settings.pounceDownloads)
+    }
+
+    // MARK: Features
+
+    @ViewBuilder
+    private var features: some View {
+        ToggleRow(title: "Rally", subtitle: rallySubtitle, icon: "calendar", accent: .rally, isOn: $model.settings.rally)
+        if model.settings.rally {
+            ToggleRow(title: "Meeting countdown", subtitle: "\"in 5m\" in the closed notch", icon: "timer", accent: .rally,
+                      isOn: $model.settings.rallyCountdown)
+        }
+        OptionRow(title: "Purr source", icon: "waveform") {
+            ForEach(MusicSource.allCases) { source in
+                Chip(title: source.label, selected: model.settings.musicSource == source, accent: .purr) { model.setMusicSource(source) }
+            }
+        }
+        ToggleRow(title: "Chorus", subtitle: "Synced lyrics from LRCLIB, only asked while on", icon: "quote.bubble", accent: .purr,
+                  isOn: Binding(get: { model.settings.showLyrics }, set: { if $0 != model.settings.showLyrics { model.toggleLyrics() } }))
+        ToggleRow(title: "Chorus under the notch", subtitle: "Sing along while it's closed", icon: "text.line.first.and.arrowtriangle.forward",
+                  accent: .purr, isOn: $model.settings.closedLyrics)
+        OptionRow(title: "Den break", icon: "cup.and.saucer") {
+            ForEach([5, 10, 15], id: \.self) { m in
+                Chip(title: "\(m) min", selected: model.settings.breakMinutes == m, accent: .rest) { model.settings.breakMinutes = m }
+            }
+        }
+        ToggleRow(title: "Oasis reminders", subtitle: "Every \(model.settings.waterIntervalMinutes) min in your active hours", icon: "drop",
+                  accent: .oasis, isOn: $model.settings.waterReminders)
+        OptionRow(title: "Remind every", icon: "bell") {
+            ForEach([30, 45, 60, 90], id: \.self) { m in
+                Chip(title: "\(m)m", selected: model.settings.waterIntervalMinutes == m, accent: .oasis) { model.settings.waterIntervalMinutes = m }
+            }
+        }
+        OptionRow(title: "Active hours", icon: "sun.max") {
+            ForEach([(7, 21), (8, 22), (9, 23)], id: \.0) { start, end in
+                Chip(title: "\(start)–\(end)", selected: model.settings.activeHourStart == start && model.settings.activeHourEnd == end,
+                     accent: .oasis) {
+                    model.settings.activeHourStart = start
+                    model.settings.activeHourEnd = end
+                }
+            }
+        }
+    }
+
+    private var rallySubtitle: String {
+        guard model.settings.rally else { return "Next meeting in Hunt, a peek with Join 5 min before" }
+        switch calendar.access {
+        case .denied: return "Calendar access is off · Privacy & Security → Calendars"
+        case .unknown: return "Waiting for Calendar access…"
+        case .granted: return calendar.upcoming.isEmpty ? "No more meetings today" : "\(calendar.upcoming.count) coming up today"
+        }
+    }
+
+    // MARK: About
+
+    @ViewBuilder
+    private var about: some View {
+        HStack(spacing: Theme.Space.m) {
+            LionMascot(size: 56, mood: .happy, animated: false, detailed: true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Ezkiel Notch").font(Theme.font(Theme.Size.title, .semibold)).foregroundStyle(Theme.ink)
+                Text("Version \(AppModel.version) · open source").font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist)
+                Text("Everything stays on this Mac. Chorus asks LRCLIB for lyrics only while it's on.")
+                    .font(Theme.font(Theme.Size.caption)).foregroundStyle(Theme.mist).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .cardSurface()
+
         HStack(spacing: 6) {
-            Image(systemName: icon).font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.mist)
-                .frame(width: 18)
-            Text(title).font(Theme.font(11.5, .medium)).foregroundStyle(Theme.ink)
-                .frame(width: 88, alignment: .leading)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 5) { content() }
-            }
-        }
-        .padding(.horizontal, 9)
-        .frame(height: 36)
-        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Theme.surface))
-    }
-
-    private var quickLaunch: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
             ForEach(QuickLaunch.allCases) { item in
                 LaunchTile(item: item) { model.open(item) }
             }
         }
-    }
 
-    private var about: some View {
-        HStack(spacing: 18) {
-            LionMascot(size: 92, mood: .happy)
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Ezkiel Notch")
-                    .font(Theme.font(18, .semibold))
-                    .foregroundStyle(Theme.ink)
-                Text("Version \(AppModel.version) · made for ezkielyna.store")
-                    .font(Theme.font(11))
-                    .foregroundStyle(Theme.mist)
-                Text("Everything stays on this Mac. No account, no tracking. Music uses Apple Events only when Spotify or Music is open. With lyrics on, the song's title, artist and length go to LRCLIB to find them.")
-                    .font(Theme.font(11))
-                    .foregroundStyle(Theme.ink.opacity(0.8))
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 8) {
-                    PillButton(title: "ezkielyna.store", icon: "storefront.fill", prominent: true) { model.open(.store) }
-                    PillButton(title: "Data folder", icon: "folder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([DataStore.defaultURL()])
-                    }
-                }
+        HStack(spacing: 6) {
+            PillButton(title: "ezkielyna.store/notch", icon: "safari") {
+                NSWorkspace.shared.open(URL(string: "https://ezkielyna.store/notch")!)
             }
+            PillButton(title: "Data folder", icon: "folder") {
+                NSWorkspace.shared.activateFileViewerSelecting([DataStore.defaultURL()])
+            }
+            Spacer(minLength: 0)
+            Button {
+                if confirmQuit { NSApp.terminate(nil) }
+                withAnimation(Theme.snappy) { confirmQuit = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { withAnimation(Theme.snappy) { confirmQuit = false } }
+            } label: {
+                Label(confirmQuit ? "Click to quit" : "Quit", systemImage: "power")
+                    .font(Theme.font(Theme.Size.secondary, .semibold))
+                    .foregroundStyle(confirmQuit ? .white : Accent.hunt.light)
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(Capsule().fill(confirmQuit ? AnyShapeStyle(Accent.hunt.linear) : AnyShapeStyle(Accent.hunt.deep.opacity(0.14))))
+            }
+            .buttonStyle(PressableStyle())
+            .help("Quit Ezkiel Notch")
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Label on the left, chips scrolling sideways on the right.
+private struct OptionRow<Content: View>: View {
+    var title: String
+    var icon: String
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon).font(.system(size: 12, weight: .medium)).symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Theme.mist).frame(width: 18)
+            Text(title).font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink)
+                .frame(width: 92, alignment: .leading)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 5) { content() }.padding(.trailing, 8)
+            }
+            .mask(LinearGradient(stops: [.init(color: .black, location: 0.9), .init(color: .clear, location: 1)],
+                                 startPoint: .leading, endPoint: .trailing))
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 36)
+        .cardSurface()
     }
 }
 
@@ -168,24 +221,27 @@ private struct LaunchTile: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
+            VStack(spacing: 4) {
                 Image(systemName: item.icon)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(item.tint)
-                    .frame(width: 34, height: 34)
-                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(item.tint.opacity(0.14)))
-                    .scaleEffect(hovering ? 1.08 : 1)
-                Text(item.title)
-                    .font(Theme.font(12, .semibold))
-                    .foregroundStyle(Theme.ink)
-                Spacer(minLength: 0)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(item.accent.linear)
+                    .frame(width: 30, height: 30)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(item.accent.deep.opacity(0.16)))
+                Text(item.title).font(Theme.font(Theme.Size.caption, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
             }
-            .padding(10)
-            .frame(height: 54)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(hovering ? 0.1 : 0.055)))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(hovering ? item.tint.opacity(0.4) : .clear, lineWidth: 1))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .cardSurface(hover: hovering)
         }
         .buttonStyle(PressableStyle(scale: 0.95))
+        .help(item.title)
         .onHover { h in withAnimation(Theme.snappy) { hovering = h } }
+    }
+}
+
+extension NSScreen {
+    /// Stable per-display ID (two identical monitors have the same name, never the same ID).
+    var displayID: UInt32 {
+        (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
     }
 }

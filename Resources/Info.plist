@@ -11,14 +11,18 @@
     <key>CFBundleDisplayName</key><string>Ezkiel Notch</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleSignature</key><string>EZKN</string>
-    <key>CFBundleShortVersionString</key><string>1.1.0</string>
-    <key>CFBundleVersion</key><string>2</string>
+    <key>CFBundleShortVersionString</key><string>1.2.0</string>
+    <key>CFBundleVersion</key><string>3</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHumanReadableCopyright</key><string>Ezkielyna Store · ezkielyna.store</string>
+    <key>NSCalendarsUsageDescription</key><string>Rally shows your next meeting in the notch and reminds you 5 minutes before, with a Join button for video links.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key><string>Rally shows your next meeting in the notch and reminds you 5 minutes before, with a Join button for video links.</string>
+    <key>NSDesktopFolderUsageDescription</key><string>Pounce shows new screenshots in the notch so you can copy, stash or drag them right away.</string>
+    <key>NSDownloadsFolderUsageDescription</key><string>Pounce shows finished downloads in the notch so you can stash or drag them right away.</string>
     <key>NSAppleEventsUsageDescription</key><string>Ezkiel Notch shows what is playing in Spotify or Apple Music and controls playback when you use the Music controls.</string>
 </dict>
 </plist>

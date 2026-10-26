@@ -22,6 +22,8 @@ final class SystemMonitor {
     var onEvent: ((Event) -> Void)?
 
     private var outputDevice = AudioObjectID(kAudioObjectUnknown)
+    /// Listeners on the current output device, removed when the default output changes.
+    private var volumeListeners: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
     private var outputInfo: (name: String, kind: OutputKind)?
     private var lastVolume: (level: Double, muted: Bool)?
     private var quietUntil = Date.distantPast
@@ -41,14 +43,7 @@ final class SystemMonitor {
         }
         outputChanged(initial: true)
 
-        // Caps Lock: read the modifier state a few times a second (no key events involved).
         capsOn = NSEvent.modifierFlags.contains(.capsLock)
-        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pollCapsLock() }
-        }
-        timer.tolerance = 0.1
-        RunLoop.main.add(timer, forMode: .common)
-        capsTimer = timer
 
         // Keyboard language.
         inputName = Self.currentInputSourceName()
@@ -77,6 +72,22 @@ final class SystemMonitor {
 
     private var quiet: Bool { Date() < quietUntil }
 
+    /// Caps Lock is read from the modifier state a few times a second (no key events involved),
+    /// so it only runs while the overlays are switched on.
+    func setCapsLockWatching(_ on: Bool) {
+        guard on != (capsTimer != nil) else { return }
+        capsTimer?.invalidate()
+        capsTimer = nil
+        guard on else { return }
+        capsOn = NSEvent.modifierFlags.contains(.capsLock)
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pollCapsLock() }
+        }
+        timer.tolerance = 0.1
+        RunLoop.main.add(timer, forMode: .common)
+        capsTimer = timer
+    }
+
     // MARK: - Audio
 
     private func outputChanged(initial: Bool) {
@@ -86,15 +97,24 @@ final class SystemMonitor {
         guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &id) == noErr,
               id != kAudioObjectUnknown, id != outputDevice else { return }
 
+        // Drop the old device's listeners so switching back and forth never stacks them.
+        for (address, block) in volumeListeners {
+            var a = address
+            AudioObjectRemovePropertyListenerBlock(outputDevice, &a, .main, block)
+        }
+        volumeListeners.removeAll()
         outputDevice = id
         for selector in [kAudioHardwareServiceDeviceProperty_VirtualMainVolume, kAudioDevicePropertyMute] {
             var a = Self.address(selector, scope: kAudioDevicePropertyScopeOutput)
             guard AudioObjectHasProperty(id, &a) else { continue }
-            AudioObjectAddPropertyListenerBlock(id, &a, .main) { [weak self] _, _ in
+            let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
                 MainActor.assumeIsolated {
                     guard let self, self.outputDevice == id else { return }
                     self.volumeChanged()
                 }
+            }
+            if AudioObjectAddPropertyListenerBlock(id, &a, .main, block) == noErr {
+                volumeListeners.append((a, block))
             }
         }
         lastVolume = Self.volume(of: id)

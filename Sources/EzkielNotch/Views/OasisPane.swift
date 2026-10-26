@@ -2,7 +2,8 @@ import AppKit
 import NotchCore
 import SwiftUI
 
-struct WaterPane: View {
+/// Oasis: water through the day, the last week, the goal and gentle reminders.
+struct OasisPane: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
@@ -12,49 +13,45 @@ struct WaterPane: View {
         let week = WaterLog.lastDays(7, entries: model.data.water)
         let streak = WaterLog.streak(model.data.water, goal: goal)
 
-        HStack(spacing: 16) {
-            // Animated water drop that fills up
-            TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
+        HStack(alignment: .top, spacing: Theme.Space.l) {
+            // The wave only moves while there is something between empty and full.
+            TimelineView(.animation(minimumInterval: 1.0 / 24, paused: progress <= 0 || progress >= 1)) { tl in
                 WaterDrop(level: progress, t: tl.date.timeIntervalSinceReferenceDate)
             }
-            .frame(width: 84, height: 108)
+            .frame(width: 70, height: 92)
+            .padding(.top, 4)
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
                     Text("\(today) ml")
-                        .font(Theme.font(15, .semibold))
-                        .monospacedDigit()
+                        .font(Theme.number(Theme.Size.title))
                         .foregroundStyle(Theme.ink)
                         .contentTransition(.numericText())
+                        .animation(Theme.snappy, value: today)
                     Text(progress >= 1 ? "goal reached" : "of \(goal)")
-                        .font(Theme.font(11))
-                        .foregroundStyle(Theme.mist)
-                    Spacer()
+                        .font(Theme.font(Theme.Size.secondary))
+                        .foregroundStyle(progress >= 1 ? Accent.oasis.light : Theme.mist)
+                    Spacer(minLength: 0)
                     if streak > 0 {
-                        Text("\(streak)-day streak")
-                            .font(Theme.font(10.5))
-                            .foregroundStyle(Theme.mist)
+                        Text("\(streak)-day streak").font(Theme.font(Theme.Size.caption, .medium)).foregroundStyle(Theme.mist)
                     }
                 }
 
                 HStack(spacing: 5) {
                     ForEach([200, 350, 500], id: \.self) { ml in
-                        PillButton(title: "+\(ml)", prominent: ml == 350, tint: Theme.water) {
-                            model.addWater(ml)
-                        }
+                        PillButton(title: "+\(ml)", prominent: ml == 350, accent: .oasis) { model.addWater(ml) }
                     }
-                    IconButton(icon: "arrow.uturn.backward", size: 28, tint: Theme.mist, help: "Undo last drink") {
+                    IconButton(icon: "arrow.uturn.backward", label: "Undo last drink", size: 28, tint: Theme.mist) {
                         model.undoWater()
                     }
                 }
 
                 WeekChart(week: week, goal: goal)
-                    .frame(height: 44)
+                    .frame(height: 34)
 
                 HStack(spacing: 4) {
-                    Text("Goal").font(Theme.font(10.5)).foregroundStyle(Theme.mist)
                     ForEach([1500, 2000, 2500, 3000], id: \.self) { g in
-                        Chip(title: "\(g / 1000).\(g % 1000 / 100)L", selected: goal == g, tint: Theme.water) {
+                        Chip(title: "\(g / 1000).\(g % 1000 / 100)L", selected: goal == g, accent: .oasis) {
                             model.settings.waterGoal = g
                         }
                     }
@@ -62,19 +59,21 @@ struct WaterPane: View {
                     Button {
                         withAnimation(Theme.snappy) { model.settings.waterReminders.toggle() }
                     } label: {
-                        Label(model.settings.waterReminders ? "Every \(model.settings.waterIntervalMinutes)m" : "Reminder off",
+                        Label(model.settings.waterReminders ? "\(model.settings.waterIntervalMinutes)m" : "Off",
                               systemImage: model.settings.waterReminders ? "bell.fill" : "bell.slash")
-                            .font(Theme.font(10.5))
-                            .foregroundStyle(model.settings.waterReminders ? Theme.ink : Theme.mist)
+                            .font(Theme.font(Theme.Size.caption, .medium))
+                            .foregroundStyle(model.settings.waterReminders ? Accent.oasis.light : Theme.mist)
+                            .padding(.horizontal, 8)
+                            .frame(height: 24)
+                            .background(Capsule().fill(Color.white.opacity(0.06)))
                     }
                     .buttonStyle(PressableStyle())
-                    .help("Gentle in-notch reminder between \(model.settings.activeHourStart):00 and \(model.settings.activeHourEnd):00")
+                    .help("Reminders between \(model.settings.activeHourStart):00 and \(model.settings.activeHourEnd):00")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 2)
-        .frame(maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
 
@@ -84,21 +83,18 @@ private struct WaterDrop: View {
     var t: Double
 
     var body: some View {
-        GeometryReader { geo in
-            let rect = CGRect(origin: .zero, size: geo.size)
-            ZStack {
-                DropShape().fill(Color.white.opacity(0.07))
-                Wave(level: level, phase: t * 2.2, amplitude: level > 0 && level < 1 ? 3.5 : 0)
-                    .fill(Theme.water)
-                    .clipShape(DropShape())
-                    .animation(.spring(response: 0.8, dampingFraction: 0.7), value: level)
-                Wave(level: level, phase: t * 2.2 + 1.6, amplitude: level > 0 && level < 1 ? 2.5 : 0)
-                    .fill(Color.white.opacity(0.15))
-                    .clipShape(DropShape())
-                    .animation(.spring(response: 0.8, dampingFraction: 0.7), value: level)
-            }
-            .frame(width: rect.width, height: rect.height)
+        let moving = level > 0 && level < 1
+        ZStack {
+            DropShape().fill(Color.white.opacity(0.07))
+            Wave(level: level, amplitude: moving ? 3 : 0, phase: t * 2.2)
+                .fill(Accent.oasis.linear)
+                .clipShape(DropShape())
+            Wave(level: level, amplitude: moving ? 2 : 0, phase: t * 2.2 + 1.6)
+                .fill(Color.white.opacity(0.14))
+                .clipShape(DropShape())
+            DropShape().stroke(Accent.oasis.light.opacity(0.35), lineWidth: 1)
         }
+        .animation(.spring(response: 0.8, dampingFraction: 0.75), value: level)
     }
 }
 
@@ -107,7 +103,7 @@ private struct DropShape: Shape {
         var p = Path()
         let w = r.width, h = r.height
         let radius = min(w / 2, h * 0.42)
-        let cy = h - radius // bottom of the round part touches the frame
+        let cy = h - radius
         p.move(to: CGPoint(x: w / 2, y: 0))
         p.addCurve(to: CGPoint(x: w / 2 + radius, y: cy),
                    control1: CGPoint(x: w * 0.62, y: cy * 0.32), control2: CGPoint(x: w / 2 + radius, y: cy * 0.62))
@@ -119,14 +115,18 @@ private struct DropShape: Shape {
     }
 }
 
+/// Level and amplitude both animate, so crossing empty or full never pops.
 private struct Wave: Shape {
     var level: Double
-    var phase: Double
     var amplitude: Double
+    var phase: Double
 
-    var animatableData: Double {
-        get { level }
-        set { level = newValue }
+    var animatableData: AnimatablePair<Double, Double> {
+        get { AnimatablePair(level, amplitude) }
+        set {
+            level = newValue.first
+            amplitude = newValue.second
+        }
     }
 
     func path(in r: CGRect) -> Path {
@@ -134,7 +134,7 @@ private struct Wave: Shape {
         var p = Path()
         p.move(to: CGPoint(x: 0, y: r.height))
         p.addLine(to: CGPoint(x: 0, y: y0))
-        let steps = 24
+        let steps = 20
         for i in 0...steps {
             let x = r.width * Double(i) / Double(steps)
             let y = y0 + sin(Double(i) / Double(steps) * 2 * .pi * 1.3 + phase) * amplitude
@@ -154,32 +154,32 @@ private struct WeekChart: View {
     var body: some View {
         let maxValue = Double(max(goal, week.map(\.ml).max() ?? 0, 1))
         GeometryReader { geo in
-            let barArea = geo.size.height - 14
+            let barArea = geo.size.height - 12
             ZStack(alignment: .bottomLeading) {
-                // Goal line
                 Path { p in
                     let y = barArea * (1 - Double(goal) / maxValue)
                     p.move(to: CGPoint(x: 0, y: y))
                     p.addLine(to: CGPoint(x: geo.size.width, y: y))
                 }
-                .stroke(Color.white.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+                .stroke(Color.white.opacity(0.2), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
 
                 HStack(alignment: .bottom, spacing: 0) {
                     ForEach(Array(week.enumerated()), id: \.offset) { index, entry in
                         let isToday = index == week.count - 1
-                        VStack(spacing: 3) {
+                        VStack(spacing: 2) {
                             Capsule()
-                                .fill(Theme.water)
-                                .opacity(entry.ml > 0 ? (isToday ? 1 : 0.55) : 0.15)
-                                .frame(width: 8, height: max(4, appeared ? barArea * Double(entry.ml) / maxValue : 4))
-                                .animation(.spring(response: 0.7, dampingFraction: 0.6).delay(Double(index) * 0.04), value: appeared)
-                                .animation(.spring(response: 0.6, dampingFraction: 0.65), value: entry.ml)
+                                .fill(entry.ml > 0 ? AnyShapeStyle(Accent.oasis.linear) : AnyShapeStyle(Color.white.opacity(0.1)))
+                                .opacity(isToday || entry.ml == 0 ? 1 : 0.6)
+                                .frame(width: 7, height: max(3, appeared ? barArea * Double(entry.ml) / maxValue : 3))
+                                .animation(.spring(response: 0.6, dampingFraction: 0.75).delay(Double(index) * 0.03), value: appeared)
+                                .animation(Theme.smooth, value: entry.ml)
                             Text(entry.day.formatted(.dateTime.weekday(.narrow)))
-                                .font(Theme.font(9, isToday ? .semibold : .regular))
-                                .foregroundStyle(isToday ? Theme.ink : Theme.mist)
-                                .frame(height: 11)
+                                .font(Theme.font(8, isToday ? .semibold : .regular))
+                                .foregroundStyle(isToday ? Theme.ink : Theme.faint)
+                                .frame(height: 10)
                         }
                         .frame(maxWidth: .infinity)
+                        .help("\(entry.ml) ml")
                     }
                 }
             }

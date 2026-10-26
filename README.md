@@ -1,55 +1,50 @@
 # Ezkiel Notch 🦁
 
-**A living notch for your Mac, made for [ezkielyna.store](https://ezkielyna.store).**
-Ezkiel the lion lives in your MacBook's notch: hover (or click) and it opens into a small workspace with Focus, Tasks, Notes, Capture, Music, Shelf, Water and Settings. Native SwiftUI + AppKit, macOS 13+, universal (Apple Silicon + Intel).
+**A living notch for your Mac, made for [ezkielyna.store](https://ezkielyna.store/notch).**
+Ezkiel the lion lives in your MacBook's notch. Hover (or click) and it opens into a small workspace where every feature has its own name and colour: **Den, Hunt, Scratch, Purr, Stash, Oasis**, plus small **Whiskers** notifications beside the camera. Native SwiftUI + AppKit, macOS 13+, universal (Apple Silicon + Intel). Free and open source (Apache-2.0).
 
 <p align="center">
-  <img src="docs/screenshots/03-tab-Focus.png" width="49%" alt="Focus">
-  <img src="docs/screenshots/07-tab-Music.png" width="49%" alt="Music">
-  <img src="docs/screenshots/09-tab-Water.png" width="49%" alt="Water">
-  <img src="docs/screenshots/08-tab-Shelf.png" width="49%" alt="Shelf">
-  <img src="docs/screenshots/04-tab-Tasks.png" width="49%" alt="Tasks">
-  <img src="docs/screenshots/10-tab-Settings.png" width="49%" alt="Settings">
+  <img src="docs/screenshots/03-tab-Den.png" width="49%" alt="Den">
+  <img src="docs/screenshots/26-purr-chorus.png" width="49%" alt="Purr with Chorus">
+  <img src="docs/screenshots/24-hunt-with-rally.png" width="49%" alt="Hunt with Rally">
+  <img src="docs/screenshots/07-tab-Stash.png" width="49%" alt="Stash">
+  <img src="docs/screenshots/08-tab-Oasis.png" width="49%" alt="Oasis">
+  <img src="docs/screenshots/05-tab-Scratch.png" width="49%" alt="Scratch">
 </p>
 
-*Screenshots are taken automatically by CI on a macOS runner (`--self-test --snapshots`).*
-
-> Ezkiel Notch is the successor of IslandDesk 2.1. Opening it quits any running IslandDesk and imports its tasks, notes, clips, shelf and water log automatically.
+*Screenshots come from the app itself (`--self-test --snapshots <dir> --fake-notch --data <demo.json>`), with demo data.*
 
 ## Download
 
-Grab the latest **DMG** or **ZIP** from [Releases](https://github.com/cahyohackids/Ezkiel-Notch/releases) (or from the *Actions* tab → latest run → artifact `EzkielNotch-macOS`).
+Get the latest **DMG** or **ZIP** from [ezkielyna.store/notch](https://ezkielyna.store/notch) or [Releases](https://github.com/cahyohackids/Ezkiel-Notch/releases).
 
 1. Open the DMG and drag **Ezkiel Notch** to **Applications**.
-2. The app is ad-hoc signed (not notarized). On first launch: right-click the app → **Open**, or run
+2. The app is ad-hoc signed (not notarised). On first launch: right-click the app → **Open**, or run
    `xattr -cr "/Applications/Ezkiel Notch.app"` once.
-3. Music controls ask for permission to control Spotify / Music (System Settings → Privacy & Security → Automation).
+3. macOS asks once for each permission a feature needs: Automation (Purr controls Spotify/Music), Calendar (Rally), Desktop/Downloads (Pounce). Each feature is off until you switch it on, except Purr.
 
 ## Bahasa Indonesia — cara pakai singkat
 
-- **Arahkan kursor ke notch** → terbuka dengan animasi spring. **Klik** juga bisa. Gerakkan kursor menjauh → notch menutup lagi.
-- **⌥⌘I** membuka/menutup notch dari aplikasi mana pun (hotkey global, tanpa izin Accessibility).
-- **Pin** (ikon paku) membuat notch tetap terbuka. **Esc** atau tombol ⌃ menutupnya. Klik di luar notch juga menutupnya.
-- **Seret file ke notch** → otomatis membuka Shelf; seret file keluar dari Shelf ke chat/email/folder.
-- **Klik kanan notch** untuk menu cepat (buka, pin, mode minimal, Quit). Ikon singa di menu bar juga punya menu yang sama.
-- **Lirik sinkron**: buka tab Music → tombol 💬. Notch terbelah dua, baris lirik menyala sesuai lagu; klik baris untuk lompat. Saat notch tertutup, baris yang sedang dinyanyikan muncul di bawah notch.
-- **Overlay**: volume (dengan bar emas), Caps Lock dan ganti bahasa keyboard muncul di notch. Wi-Fi putus/nyambung dan AirPods/headphone yang tersambung juga muncul sebagai peek. Semua bisa dimatikan di Settings.
-- Semua data (tugas, catatan, klip, shelf, air minum) disimpan lokal di `~/Library/Application Support/EzkielNotch/data.json`.
+- **Arahkan kursor ke notch** → terbuka. **Klik** juga bisa. Gerakkan kursor menjauh → notch menutup lagi.
+- **⌃⌥N** membuka/menutup notch dari aplikasi mana pun (bisa diganti di Settings). Klik notch sekali, lalu **Space** memulai Den, **Esc** menutup, **⌘1…⌘7** pindah tab.
+- **Den** = timer fokus + statistik & streak. **Hunt** = tugas + **Rally** (rapat berikutnya, tombol Join). **Scratch** = catatan + **Catch** (klip). **Purr** = musik + **Chorus** (lirik sinkron). **Stash** = rak file + **AirDrop** + **Pounce** (screenshot & unduhan baru). **Oasis** = minum air.
+- **Whiskers**: volume, Caps Lock, bahasa keyboard, Wi-Fi, AirPods, dan baterai muncul sebentar di samping kamera.
+- Hapus sesuatu tanpa sengaja? Tekan **Undo** di pesan yang muncul.
+- Semua data disimpan lokal di `~/Library/Application Support/EzkielNotch/data.json`.
 
 ## What's inside
 
-| Tab | What it does |
+| Feature | What it does |
 |---|---|
-| **Focus** | 15/25/45/60-minute blocks, break mode, pause/resume. Deadline-based, so it stays right across sleep. Countdown shows in the closed notch. Chime + peek when done. |
-| **Tasks** | Add with Return, optional reminder (15m, 1h, 3h, tomorrow 9:00). Ezkiel peeks out of the notch when a task is due. |
-| **Notes** | Multiple notes with titles, autosaved. |
-| **Capture** | Reads the clipboard **only** when you press Capture. Up to 30 clips; copy back with one click. |
-| **Music** | Spotify and Apple Music: artwork, title, artist, live progress bar with seeking, previous/play/next. Track changes peek in the closed notch with an equalizer. **Synced lyrics** (LRCLIB): the notch splits in two, each line lights up as it's sung, click a line to jump; the closed notch sings along underneath. |
-| **Shelf** | Drop files on the notch, drag them out anywhere, Quick Look thumbnails, double-click to open, right-click to reveal/copy path. References only; originals stay in place. |
-| **Water** | +200/+350/+500 ml, animated water drop, 7-day chart with goal line, streaks, gentle in-notch reminders during your active hours. |
-| **Settings** | Hover behaviour and delay, launch at login, lion mascot & naps, minimal closed notch, sounds, haptics, music source, display picker, quick launch (Ezkielyna, Claude, Finder, Terminal, Downloads, System Settings). |
+| **Den** | Focus timer: 15/25/45/60-minute blocks, breaks, pause. Wall-clock based and saved, so it survives sleep and restarts. Today's minutes, the streak and the last 7 days. Countdown in the closed notch. |
+| **Hunt** | Tasks with reminders (15m, 1h, 3h, tomorrow 9:00). **Rally** puts today's next meeting on top and peeks 5 minutes before with **Join** for Zoom, Meet, Teams and Webex links; "in 5m" counts down in the closed notch. |
+| **Scratch** | Notes with titles, saved as you type. **Catch** keeps up to 30 clips you capture from the clipboard (only when you press Capture). |
+| **Purr** | Spotify and Apple Music: artwork with a glow in its own colour, seeking, previous/play/next. **Chorus** shows synced lyrics from LRCLIB: lines light up as they're sung, click one to jump; the closed notch sings along. |
+| **Stash** | Drop files on the notch, drag them out anywhere, **AirDrop** or share them. **Pounce** shows new screenshots and finished downloads with Copy · Stash · Show. |
+| **Oasis** | +200/+350/+500 ml, a water drop that fills up, 7-day chart, goal, streak and reminders in your active hours. |
+| **Whiskers** | Volume, Caps Lock and keyboard-language overlays (no Accessibility permission; it never sees what you type), Wi-Fi and headphones, battery. |
 
-Plus: **volume, Caps Lock and keyboard-language overlays** (no Accessibility permission; it never sees what you type), **Wi-Fi and headphones peeks** (AirPods and wired), liquid motion (the notch pours open, wobbles like a water drop and settles, tabs drop in one by one), peeks that put the icon and value beside the camera with one line underneath, battery peeks (plugged in / on battery / low battery), a sleepy lion that naps when you are away and cheers when you come back, and `⌘1…⌘8` to switch tabs while typing.
+The open notch is 440pt wide and only as tall as the open feature. Idle, it uses about 0.1% CPU (the lion only animates when its mood changes).
 
 ## Why it no longer "ignores clicks"
 
@@ -57,7 +52,7 @@ IslandDesk 2.1 resized its window every animation frame and to a different heigh
 
 - The panel has a **fixed frame**; only the SwiftUI notch shape animates, so hit-testing never moves under the cursor.
 - The hosting view **accepts the first click** and claims clicks only inside the visible notch; everywhere else the panel ignores the mouse, so the menu bar and windows below keep working.
-- The notch never auto-closes while a menu is tracking, the file picker is open, a mouse button is held (dragging a file out) or you are typing.
+- The notch never auto-closes while a menu is tracking, a mouse button is held (dragging a file out) or you are typing (for up to 20 seconds after the pointer leaves).
 - No pop-up pickers inside the notch: every choice is an inline chip.
 - Apple Events run on a background queue and only target players that are already running.
 
@@ -81,11 +76,11 @@ Sources/NotchCore/        Pure models: data, focus clock, water log, JSON store 
 Sources/EzkielNotch/
   App/                    Entry point, AppDelegate, global hotkey, icon renderer, self-test
   Window/                 Fixed-frame NSPanel, click-through hosting view, hover/drag controller
-  Model/                  AppModel (single source of truth), types, IslandDesk import
+  Model/                  AppModel (single source of truth), NotchChrome, types
   Design/                 Ezkielyna palette, notch shape, buttons, chips, rings, transitions
   Mascot/                 Ezkiel the lion (vector, animated)
-  System/                 Music (Apple Events), battery (IOKit)
+  System/                 Music (Apple Events), lyrics, battery, system events, Pounce, Rally (EventKit), thumbnails
   Views/                  Compact, peek, expanded and every tab
 ```
 
-Design follows the MacBook notch (top-attached silhouette with concave ears, spring motion, live activities, peek cards), built natively for macOS with the Ezkielyna palette: navy `#0B1020`, lion gold `#FFCF87`, orange `#F09A4A`, ember `#D0652E`, teal `#86E3C6`, cream `#F3E6C9`.
+Design follows the MacBook notch and the Dynamic Island (a pure-black, top-attached body with concave ears, spring motion, live activities, peek cards), built natively for macOS. Each feature has its own Apple-style two-stop accent: Den amber, Hunt coral, Rally purple, Scratch yellow, Purr pink (or the artwork's colour), Stash indigo, Oasis blue; the app's own accent is lion gold `#FFCF87`.

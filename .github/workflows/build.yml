@@ -40,7 +40,7 @@ jobs:
 
       - name: Self-test (drives the real panel)
         run: |
-          "dist/Ezkiel Notch.app/Contents/MacOS/EzkielNotch" --self-test --snapshots "$PWD/snapshots" &
+          "dist/Ezkiel Notch.app/Contents/MacOS/EzkielNotch" --self-test --snapshots "$PWD/snapshots" --fake-notch --data "$PWD/demo-data.json" &
           PID=$!
           for i in $(seq 1 150); do
             if ! kill -0 $PID 2>/dev/null; then break; fi

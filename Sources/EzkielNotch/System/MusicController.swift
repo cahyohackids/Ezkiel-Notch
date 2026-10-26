@@ -1,5 +1,7 @@
 import AppKit
+import CoreImage
 import NotchCore
+import SwiftUI
 
 enum MusicPlayer: String {
     case spotify = "com.spotify.client"
@@ -7,6 +9,8 @@ enum MusicPlayer: String {
 
     var name: String { self == .spotify ? "Spotify" : "Music" }
     var bundleID: String { rawValue }
+    /// The one colour each player is shown in (pane, peek, closed-notch equalizer).
+    var tint: Color { self == .spotify ? Theme.spotify : Theme.appleMusic }
 }
 
 struct NowPlaying: Equatable {
@@ -38,6 +42,8 @@ final class MusicController: ObservableObject {
 
     @Published private(set) var nowPlaying: NowPlaying?
     @Published private(set) var artwork: NSImage?
+    /// Average colour of the artwork, for the Purr glow and controls. Nil until art loads.
+    @Published private(set) var artworkAccent: Accent?
     @Published private(set) var status: Status = .noPlayer
 
     var source: MusicSource = .auto
@@ -75,10 +81,12 @@ final class MusicController: ObservableObject {
 
     private func reschedule() {
         timer?.invalidate()
-        let t = Timer(timeInterval: fastPolling ? 1.0 : 4.0, repeats: true) { [weak self] _ in
+        // Spotify and Music post a distributed notification on every change; the timer only
+        // corrects drift (seeks from the player itself) and catches players that don't post.
+        let t = Timer(timeInterval: fastPolling ? 1.0 : 10.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
-        t.tolerance = fastPolling ? 0.2 : 1.0
+        t.tolerance = fastPolling ? 0.2 : 2.0
         RunLoop.main.add(t, forMode: .common)
         timer = t
     }
@@ -145,13 +153,17 @@ final class MusicController: ObservableObject {
         }
         let previousKey = nowPlaying?.trackKey
         if status != newStatus { status = newStatus }
-        if nowPlaying != np { nowPlaying = np }
+        if Self.differs(nowPlaying, np) { nowPlaying = np }
         if let np { lastPlayer = np.player }
         if let np, np.trackKey != artworkKey {
             artworkKey = np.trackKey
+            // Never show the previous song's art under the new title.
+            artwork = nil
+            artworkAccent = nil
             loadArtwork(for: np)
         } else if np == nil, artwork != nil {
             artwork = nil
+            artworkAccent = nil
             artworkKey = nil
         }
         if let previousKey, let np, previousKey != np.trackKey {
@@ -159,26 +171,51 @@ final class MusicController: ObservableObject {
         }
     }
 
+    /// A read only counts as a change when something visible changed. Position keeps
+    /// ticking by interpolation, so a read that agrees with it within 1.5 s is ignored.
+    private static func differs(_ old: NowPlaying?, _ new: NowPlaying?) -> Bool {
+        guard let old, let new else { return (old == nil) != (new == nil) }
+        if old.trackKey != new.trackKey || old.isPlaying != new.isPlaying || abs(old.duration - new.duration) > 0.5 {
+            return true
+        }
+        return abs(old.position(at: new.fetchedAt) - new.position) > 1.5
+    }
+
+    private func setArtwork(_ image: NSImage?, key: String) {
+        guard artworkKey == key else { return }
+        artwork = image
+        artworkAccent = image.flatMap(Self.averageColor).map(Accent.from)
+    }
+
+    private static let ciContext = CIContext(options: [.workingColorSpace: NSNull()])
+
+    /// CIAreaAverage over the whole image: one pixel, the mean colour.
+    private static func averageColor(_ image: NSImage) -> NSColor? {
+        guard let tiff = image.tiffRepresentation, let ci = CIImage(data: tiff),
+              let filter = CIFilter(name: "CIAreaAverage",
+                                    parameters: [kCIInputImageKey: ci, kCIInputExtentKey: CIVector(cgRect: ci.extent)]),
+              let output = filter.outputImage else { return nil }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        ciContext.render(output, toBitmap: &pixel, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                         format: .RGBA8, colorSpace: nil)
+        return NSColor(srgbRed: CGFloat(pixel[0]) / 255, green: CGFloat(pixel[1]) / 255, blue: CGFloat(pixel[2]) / 255, alpha: 1)
+    }
+
     private func loadArtwork(for np: NowPlaying) {
         let key = np.trackKey
         if np.player == .spotify, let s = np.artworkURL, let url = URL(string: s) {
             URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
                 let image = data.flatMap(NSImage.init(data:))
-                DispatchQueue.main.async {
-                    guard let self, self.artworkKey == key else { return }
-                    self.artwork = image
-                }
+                DispatchQueue.main.async { self?.setArtwork(image, key: key) }
             }.resume()
         } else if np.player == .appleMusic {
             queue.async { [weak self] in
                 let image = MusicScripts.appleMusicArtwork()
-                DispatchQueue.main.async {
-                    guard let self, self.artworkKey == key else { return }
-                    self.artwork = image
-                }
+                DispatchQueue.main.async { self?.setArtwork(image, key: key) }
             }
         } else {
             artwork = nil
+            artworkAccent = nil
         }
     }
 

@@ -35,13 +35,13 @@ enum IconRenderer {
         return true
     }
 
-    /// Small lion for the menu bar.
+    /// Menu-bar lion: a template image, tinted by macOS like its own menu-bar icons.
     static func statusImage(points: CGFloat = 18) -> NSImage {
-        let renderer = ImageRenderer(content: LionMascot(size: points, mood: .awake, animated: false))
+        let renderer = ImageRenderer(content: LionTemplateGlyph(size: points))
         renderer.scale = 2
         let image = renderer.nsImage ?? NSImage(systemSymbolName: "pawprint.fill", accessibilityDescription: nil) ?? NSImage()
         image.size = NSSize(width: points, height: points)
-        image.isTemplate = false
+        image.isTemplate = true
         return image
     }
 

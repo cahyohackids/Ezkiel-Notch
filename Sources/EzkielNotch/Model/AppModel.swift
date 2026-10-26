@@ -5,48 +5,103 @@ import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// State that changes on every hover and every wobble frame. Kept apart from `AppModel`
+/// so only the notch shell and the header observe it; the panes don't re-render.
+@MainActor
+final class NotchChrome: ObservableObject {
+    /// How far the notch's bottom edge bows (+ down, − up); springs back to 0.
+    @Published var ripple: CGFloat = 0
+    @Published var hovering = false
+    @Published var toast: Toast?
+}
+
+/// One Stash card with everything the view needs, resolved once (no file I/O while rendering).
+struct StashItem: Identifiable, Equatable {
+    let id: UUID
+    let url: URL
+    let name: String
+    let detail: String
+    let exists: Bool
+    let icon: NSImage
+
+    static func == (lhs: StashItem, rhs: StashItem) -> Bool {
+        lhs.id == rhs.id && lhs.url == rhs.url && lhs.detail == rhs.detail && lhs.exists == rhs.exists
+    }
+}
+
+enum ScratchMode: String, CaseIterable, Identifiable {
+    case notes, catch_
+    var id: String { rawValue }
+    var title: String { self == .notes ? "Notes" : "Catch" }
+}
+
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case general, whiskers, features, about
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .general: return "General"
+        case .whiskers: return "Whiskers"
+        case .features: return "Features"
+        case .about: return "About"
+        }
+    }
+}
+
 /// Single source of truth for the notch. Every visual change goes through here,
 /// wrapped in one spring, so the shape and the content always move together.
 @MainActor
 final class AppModel: ObservableObject {
-    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.0"
 
     // Presentation
     @Published private(set) var presentation: Presentation = .compact
-    @Published private(set) var tab: NotchTab = .focus
+    @Published private(set) var tab: NotchTab = .den
     @Published private(set) var tabForward = true
     @Published var pinned = false {
-        didSet { if !pinned && oldValue && !pointerInside { scheduleAutoCollapse() } }
+        didSet {
+            if !pinned, oldValue, !pointerInside, presentation == .expanded, !collapsing { scheduleAutoCollapse() }
+        }
     }
-    @Published private(set) var hovering = false
     @Published var dropTargeted = false
     @Published private(set) var fileDragNear = false
     @Published private(set) var peek: Peek?
-    @Published private(set) var toast: String?
     @Published var geometry = NotchGeometry()
     @Published private(set) var lionMood: LionMood = .awake
-    /// How far the notch's bottom edge bows (+ down like a hanging drop, − pulled up).
-    /// Kicked on every open/close/peek and springs back with a wobble, like water.
-    @Published private(set) var ripple: CGFloat = 0
+    @Published var settingsSection: SettingsSection = .general
+    @Published var scratchMode: ScratchMode = .notes
 
     // Data
     @Published var data: AppData {
-        didSet { if data != oldValue { scheduleSave() } }
+        didSet {
+            scheduleSave()
+            if data.settings != oldValue.settings { applySettings(old: oldValue.settings) }
+        }
     }
-    @Published private(set) var focus: FocusClock
+    @Published private(set) var focus: FocusClock {
+        didSet { if focus != oldValue { data.focusState = focus.snapshot } }
+    }
     @Published var selectedNoteID: UUID?
+    /// A note that was just created: the editor focuses its title once.
+    @Published var noteToFocus: UUID?
     @Published var loginItemError: String?
+    @Published private(set) var stashItems: [StashItem] = []
 
+    let chrome = NotchChrome()
     let music = MusicController()
     let battery = BatteryMonitor()
     let lyrics = LyricsService()
+    let calendar = CalendarService()
     private let system = SystemMonitor()
+    private let pounce = PounceWatcher()
     private var subscriptions = Set<AnyCancellable>()
 
     /// Reasons the notch must stay open (menu open, file picker, ...).
     private var blockers = Set<String>()
     private var pointerInside = false
+    private var pointerLeftAt = Date.distantPast
     private var suppressHoverUntilExit = false
+    private var collapsing = false
     private var hoverWork: DispatchWorkItem?
     private var collapseWork: DispatchWorkItem?
     private var peekWork: DispatchWorkItem?
@@ -54,36 +109,39 @@ final class AppModel: ObservableObject {
     private var saveWork: DispatchWorkItem?
     private var happyWork: DispatchWorkItem?
     private var rippleWork: DispatchWorkItem?
+    /// A volume/keyboard overlay that arrived while a card was showing; shown after it.
+    private var queuedHUD: (peek: Peek, at: Date)?
     private var ticker: Timer?
     private var tickCount = 0
     private var lastInteraction = Date()
     private var lastWaterReminder: Date?
-    private var lastBatteryWarning = 100
+    private var notifiedMeetings = Set<String>()
     private let store: DataStore
 
     /// Self-test: ignore the real pointer so a cursor resting near the notch can't change the outcome.
     var ignoresPointer = false
-
     /// Provided by the window controller: is a text field currently being edited?
     var isEditingText: () -> Bool = { false }
     /// Provided by the window controller: give keyboard focus back after collapsing.
     var onCollapse: () -> Void = {}
+    /// Provided by the app delegate: register the chosen global shortcut.
+    var onHotkeyChange: (HotkeyChoice) -> Void = { _ in }
 
     init(store: DataStore = DataStore(url: DataStore.defaultURL())) {
         self.store = store
         var loaded = store.load()
-        if !loaded.migratedIslandDesk {
-            IslandDeskMigration.importLegacyData(into: &loaded)
-            loaded.migratedIslandDesk = true
-        }
         if loaded.notes.isEmpty && !loaded.onboarded {
             loaded.notes = [NoteItem(title: "Welcome to Ezkiel Notch",
-                                     body: "Your notes stay on this Mac.\n\nHover the notch to open it, try the Focus timer, add a task, or drop files on the Shelf. ⌥⌘I opens the notch from anywhere.")]
+                                     body: "Your notes stay on this Mac.\n\nHover the notch to open it. Den keeps your focus, Hunt your tasks, Stash your files. ⌃⌥N opens the notch from anywhere.")]
         }
         loaded.onboarded = true
         loaded.water = WaterLog.pruned(loaded.water, keepingDays: 35)
+        loaded.focusLog = FocusStats.pruned(loaded.focusLog)
+        var clock = loaded.focusState.map(FocusClock.init(snapshot:)) ?? FocusClock(minutes: loaded.settings.focusMinutes)
+        // A session that ended while the app was closed counts once it's noticed (tick below).
+        if case .ready = clock.phase, clock.mode == .focus { clock.setMinutes(loaded.settings.focusMinutes, mode: .focus) }
         data = loaded
-        focus = FocusClock(minutes: loaded.settings.focusMinutes)
+        focus = clock
         selectedNoteID = loaded.notes.first?.id
         store.save(loaded)
 
@@ -93,8 +151,12 @@ final class AppModel: ObservableObject {
         battery.start()
         system.onEvent = { [weak self] event in self?.systemEvent(event) }
         system.start()
+        pounce.onScreenshot = { [weak self] url in self?.pounced(url, screenshot: true) }
+        pounce.onDownload = { [weak self] url in self?.pounced(url, screenshot: false) }
+        applySettings(old: nil)
+        rebuildStash()
 
-        // Lyrics follow the song; the notch re-lays out when the closed sing-along line appears.
+        // Lyrics follow the song.
         music.$nowPlaying
             .map { $0?.trackKey }
             .removeDuplicates()
@@ -102,14 +164,17 @@ final class AppModel: ObservableObject {
                 DispatchQueue.main.async { self?.refreshLyrics() }
             }
             .store(in: &subscriptions)
-        lyrics.objectWillChange
-            .sink { [weak self] in self?.objectWillChange.send() }
+        // The open notch's height depends on whether Purr shows lyrics.
+        lyrics.$state
+            .map { if case .synced = $0 { return true } else { return false } }
+            .removeDuplicates()
+            .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &subscriptions)
 
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
-        timer.tolerance = 0.2
+        timer.tolerance = 0.25
         RunLoop.main.add(timer, forMode: .common)
         ticker = timer
         music.start()
@@ -118,6 +183,20 @@ final class AppModel: ObservableObject {
     var settings: NotchSettings {
         get { data.settings }
         set { data.settings = newValue }
+    }
+
+    /// Watchers and services follow their switches.
+    private func applySettings(old: NotchSettings?) {
+        let s = data.settings
+        system.setCapsLockWatching(s.systemOverlays)
+        pounce.setScreenshots(s.pounceScreenshots)
+        pounce.setDownloads(s.pounceDownloads)
+        calendar.setEnabled(s.rally)
+        if old?.hotkey != s.hotkey { onHotkeyChange(s.hotkey) }
+        if old?.musicSource != s.musicSource {
+            music.source = s.musicSource
+            if old != nil { music.refresh() }
+        }
     }
 
     // MARK: - Geometry
@@ -130,20 +209,32 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The meeting Rally counts down to in the closed notch (within 15 minutes).
+    var meetingSoon: CalendarService.Meeting? {
+        guard settings.rally, settings.rallyCountdown else { return nil }
+        let now = Date()
+        return calendar.upcoming.first { $0.start > now && $0.start.timeIntervalSince(now) <= 900 }
+    }
+
     /// True when the closed notch has something live to show in its wings.
     var hasLiveActivity: Bool {
-        focus.isRunning || (music.nowPlaying?.isPlaying ?? false) || battery.state?.isCharging == true
+        focus.isRunning || (music.nowPlaying?.isPlaying ?? false) || battery.state?.isCharging == true || meetingSoon != nil
     }
 
     var showsWings: Bool {
         if !settings.minimalClosed { return true }
-        return hovering || hasLiveActivity || showsClosedLyrics
+        return chrome.hovering || hasLiveActivity || showsClosedLyrics
     }
 
-    /// The closed notch grows a line underneath and sings along.
+    /// The closed notch grows a line underneath and sings along (Chorus).
     var showsClosedLyrics: Bool {
         settings.showLyrics && settings.closedLyrics && (music.nowPlaying?.isPlaying ?? false) && lyrics.syncedLines != nil
     }
+
+    /// Purr is taller while Chorus has lyrics to show.
+    var purrShowsLyrics: Bool { settings.showLyrics && music.nowPlaying != nil }
+
+    var paneHeight: CGFloat { NotchMetrics.paneHeight(tab, lyrics: tab == .purr && purrShowsLyrics) }
 
     var bodySize: CGSize {
         let bar = NotchMetrics.barHeight(geometry)
@@ -155,20 +246,28 @@ final class AppModel: ObservableObject {
                 w = max(w, 340)
                 h += NotchMetrics.lyricBand
             }
-            if hovering {
-                w += 14
-                h += 4
+            if chrome.hovering {
+                w += 12
+                h += 3
             }
             return CGSize(width: w, height: h)
         case .peek:
-            // Icon and value sit in the wings beside the camera; one short line goes underneath.
-            if peek?.isHUD == true {
-                return CGSize(width: max(geometry.notchWidth + 104, 260), height: bar + (peek?.level != nil ? 18 : 24))
-            }
-            return CGSize(width: max(geometry.notchWidth + 128, 300), height: bar + 26)
+            return peekSize(peek)
         case .expanded:
-            return NotchMetrics.expandedSize(geometry)
+            return NotchMetrics.expandedSize(geometry, pane: paneHeight)
         }
+    }
+
+    func peekSize(_ p: Peek?) -> CGSize {
+        let bar = NotchMetrics.barHeight(geometry)
+        guard let p else { return CGSize(width: geometry.notchWidth, height: bar) }
+        if p.isHUD {
+            return CGSize(width: max(geometry.notchWidth + 104, 260), height: bar + (p.level != nil ? 18 : 24))
+        }
+        if p.isRich {
+            return CGSize(width: max(geometry.notchWidth + 150, 340), height: bar + 56)
+        }
+        return CGSize(width: max(geometry.notchWidth + 128, 300), height: bar + 26)
     }
 
     var panelSize: CGSize { NotchMetrics.panelSize(geometry) }
@@ -204,11 +303,12 @@ final class AppModel: ObservableObject {
         noteInteraction()
         guard presentation != .expanded else { return }
         peekWork?.cancel()
-        withAnimation(Theme.liquid) {
+        if tab == .stash { rebuildStash() }
+        withAnimation(Theme.bouncy) {
             presentation = .expanded
-            hovering = false
+            chrome.hovering = false
         }
-        splash(16)
+        splash(10)
         peek = nil
         if settings.haptics {
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
@@ -220,19 +320,23 @@ final class AppModel: ObservableObject {
     /// don't re-open from hover until the pointer has left once.
     func collapse(explicit: Bool = true) {
         hoverWork?.cancel()
-        cancelCollapse()
+        collapsing = true
         if explicit {
             pinned = false
             suppressHoverUntilExit = pointerInside
         }
+        collapsing = false
+        cancelCollapse()
         guard presentation != .compact else { return }
-        withAnimation(Theme.spring) {
+        withAnimation(Theme.smooth) {
             presentation = .compact
-            hovering = explicit ? false : pointerInside
+            // Keep the hover look while the pointer is still on the notch.
+            chrome.hovering = pointerInside
             fileDragNear = false
         }
-        splash(-5)
+        splash(-4)
         peek = nil
+        clearToast()
         onCollapse()
         updateMusicPolling()
     }
@@ -245,7 +349,9 @@ final class AppModel: ObservableObject {
         guard newTab != tab else { return }
         tabForward = newTab.index > tab.index
         noteInteraction()
-        withAnimation(Theme.jelly) { tab = newTab }
+        // The height changes with the tab, so one spring drives both.
+        withAnimation(Theme.smooth) { tab = newTab }
+        if newTab == .stash { rebuildStash() }
         updateMusicPolling()
     }
 
@@ -274,35 +380,38 @@ final class AppModel: ObservableObject {
         if inside {
             cancelCollapse()
             wakeLion()
-            if presentation != .expanded {
-                withAnimation(Theme.snappy) { hovering = true }
-                splash(4)
+            if presentation == .compact {
+                withAnimation(Theme.snappy) { chrome.hovering = true }
+                splash(3)
             }
             guard settings.expandOnHover, !suppressHoverUntilExit, presentation != .expanded else { return }
             let work = DispatchWorkItem { [weak self] in
                 guard let self, self.pointerInside, !self.suppressHoverUntilExit else { return }
-                self.expand()
+                self.expand(self.presentation == .peek ? self.peek?.tab : nil)
             }
             hoverWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + max(0.05, settings.hoverDelay), execute: work)
         } else {
+            pointerLeftAt = Date()
             suppressHoverUntilExit = false
-            if hovering { withAnimation(Theme.snappy) { hovering = false } }
+            if chrome.hovering { withAnimation(Theme.snappy) { chrome.hovering = false } }
             scheduleAutoCollapse()
+            // A peek that waited for the pointer to leave goes now.
+            if presentation == .peek { schedulePeekDismiss(after: 1.2) }
         }
     }
 
     /// A click outside the notch (in another app) closes it unless pinned.
     func clickedOutside() {
-        guard presentation == .expanded, !pinned, blockers.isEmpty else { return }
+        guard !ignoresPointer, presentation == .expanded, !pinned, blockers.isEmpty else { return }
         collapse(explicit: false)
     }
 
     func fileDrag(near: Bool) {
         guard near != fileDragNear else { return }
-        withAnimation(Theme.spring) { fileDragNear = near }
+        withAnimation(Theme.smooth) { fileDragNear = near }
         if near {
-            expand(.shelf)
+            expand(.stash)
         } else if !pointerInside {
             scheduleAutoCollapse()
         }
@@ -318,8 +427,10 @@ final class AppModel: ObservableObject {
 
     private func autoCollapseIfAllowed() {
         guard presentation == .expanded, !pointerInside, !pinned, !fileDragNear else { return }
-        // Never close under a held mouse button (dragging a shelf file out, resizing, selecting text).
-        if NSEvent.pressedMouseButtons != 0 || !blockers.isEmpty || isEditingText() {
+        // Never close under a held mouse button (dragging a Stash file out, selecting text).
+        // A focused text field holds the notch open, but not forever once the pointer has left.
+        let editingHold = isEditingText() && Date().timeIntervalSince(pointerLeftAt) < 20
+        if NSEvent.pressedMouseButtons != 0 || !blockers.isEmpty || editingHold {
             scheduleAutoCollapse(after: 0.6)
             return
         }
@@ -333,12 +444,17 @@ final class AppModel: ObservableObject {
 
     // MARK: - Peeks and toasts
 
-    func showPeek(_ p: Peek) {
-        var p = p
+    func showPeek(_ incoming: Peek) {
+        var p = incoming
         if settings.sounds, let sound = p.sound { NSSound(named: sound)?.play() }
         if !p.isHUD { makeLionHappy() }
         if presentation == .expanded {
-            showToast(p.subtitle.isEmpty ? p.title : "\(p.title) · \(p.subtitle)")
+            if !p.isHUD { showToast(p.subtitle.isEmpty ? p.title : "\(p.title) · \(p.subtitle)") }
+            return
+        }
+        // An overlay never pushes a card away; it waits until the card is gone.
+        if p.isHUD, presentation == .peek, let current = peek, !current.isHUD {
+            queuedHUD = (p, Date())
             return
         }
         peekWork?.cancel()
@@ -347,48 +463,69 @@ final class AppModel: ObservableObject {
             p.id = current.id
             withAnimation(Theme.snappy) { peek = p }
         } else {
-            withAnimation(Theme.liquid) {
+            withAnimation(Theme.bouncy) {
                 peek = p
                 presentation = .peek
-                hovering = false
+                chrome.hovering = pointerInside
             }
-            splash(p.isHUD ? 5 : 9)
+            splash(p.isHUD ? 4 : 7)
         }
-        let id = p.id
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, self.presentation == .peek, self.peek?.id == id else { return }
-            if self.pointerInside { return } // hovering keeps it; hover-open takes over
-            withAnimation(Theme.spring) { self.presentation = .compact }
-            self.splash(-4)
-            self.peek = nil
-        }
-        peekWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + (p.isHUD ? 1.6 : 3.4), execute: work)
+        schedulePeekDismiss(after: p.isHUD ? 1.6 : (p.isRich ? 6 : 3.4))
     }
 
-    /// Water-drop wobble of the bottom edge: bow out fast, then spring back with a few ripples.
-    func splash(_ amount: CGFloat) {
-        rippleWork?.cancel()
-        withAnimation(.easeOut(duration: 0.14)) { ripple = amount }
+    private func schedulePeekDismiss(after delay: TimeInterval) {
+        guard let id = peek?.id else { return }
+        peekWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            withAnimation(Theme.wobble) { self?.ripple = 0 }
+            guard let self, self.presentation == .peek, self.peek?.id == id else { return }
+            // Hovering keeps it; leaving the notch reschedules (pointerMoved).
+            if self.pointerInside { return }
+            self.dismissPeek()
         }
-        rippleWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14, execute: work)
+        peekWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    func dismissPeek() {
+        guard presentation == .peek else { return }
+        withAnimation(Theme.smooth) { presentation = .compact }
+        splash(-3)
+        peek = nil
+        if let queued = queuedHUD, Date().timeIntervalSince(queued.at) < 1.5 {
+            queuedHUD = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.showPeek(queued.peek) }
+        }
+        queuedHUD = nil
     }
 
     func openPeek() {
         expand(peek?.tab)
     }
 
-    func showToast(_ text: String) {
+    func showToast(_ text: String, action: String? = nil, perform: (() -> Void)? = nil) {
         toastWork?.cancel()
-        withAnimation(Theme.soft) { toast = text }
-        let work = DispatchWorkItem { [weak self] in
-            withAnimation(Theme.soft) { self?.toast = nil }
-        }
+        withAnimation(Theme.snappy) { chrome.toast = Toast(text: text, actionTitle: action, action: perform) }
+        let work = DispatchWorkItem { [weak self] in self?.clearToast() }
         toastWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + (action == nil ? 2.5 : 5), execute: work)
+    }
+
+    func clearToast() {
+        toastWork?.cancel()
+        guard chrome.toast != nil else { return }
+        withAnimation(Theme.soft) { chrome.toast = nil }
+    }
+
+    /// Water-drop settle of the bottom edge: bow out fast, then spring back with one bounce.
+    func splash(_ amount: CGFloat) {
+        guard !Theme.reduceMotion else { return }
+        rippleWork?.cancel()
+        withAnimation(.easeOut(duration: 0.12)) { chrome.ripple = amount }
+        let work = DispatchWorkItem { [weak self] in
+            withAnimation(Theme.wobble) { self?.chrome.ripple = 0 }
+        }
+        rippleWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
     }
 
     // MARK: - Lion
@@ -415,7 +552,7 @@ final class AppModel: ObservableObject {
         withAnimation(Theme.bouncy) { lionMood = .happy }
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.lionMood == .happy else { return }
-            withAnimation(Theme.spring) { self.lionMood = .awake }
+            withAnimation(Theme.smooth) { self.lionMood = .awake }
         }
         happyWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6, execute: work)
@@ -431,13 +568,18 @@ final class AppModel: ObservableObject {
         guard tickCount % 5 == 0 else { return }
         checkTasks(now)
         checkWater(now)
+        checkMeetings(now)
+        if tickCount % 60 == 0 { calendar.refresh(now: now) }
         if settings.mascotSleeps, lionMood == .awake, presentation == .compact,
            !hasLiveActivity, now.timeIntervalSince(lastInteraction) > 120 {
-            withAnimation(Theme.spring) { lionMood = .sleeping }
+            withAnimation(Theme.smooth) { lionMood = .sleeping }
         }
     }
 
-    // MARK: - Focus
+    // MARK: - Den (focus)
+
+    var focusToday: Int { FocusStats.minutes(data.focusLog, on: Date()) }
+    var focusStreak: Int { FocusStats.streak(data.focusLog) }
 
     func focusStartPause() {
         noteInteraction()
@@ -445,16 +587,22 @@ final class AppModel: ObservableObject {
     }
 
     func focusReset() {
-        withAnimation(Theme.spring) { focus.reset() }
+        withAnimation(Theme.smooth) { focus.reset() }
     }
 
+    /// While a session runs, a new length applies to the next one (it never resets the current).
     func setFocusMinutes(_ minutes: Int) {
         settings.focusMinutes = minutes
-        withAnimation(Theme.spring) { focus.setMinutes(minutes, mode: .focus) }
+        if focus.isRunning || focus.isPaused {
+            showToast("Next focus: \(minutes) min")
+        } else {
+            withAnimation(Theme.smooth) { focus.setMinutes(minutes, mode: .focus) }
+        }
     }
 
     func toggleBreak() {
-        withAnimation(Theme.spring) {
+        guard !focus.isRunning, !focus.isPaused else { return }
+        withAnimation(Theme.smooth) {
             if focus.mode == .focus {
                 focus.setMinutes(settings.breakMinutes, mode: .rest)
             } else {
@@ -464,33 +612,36 @@ final class AppModel: ObservableObject {
     }
 
     private func completeFocus() {
-        let finished = withAnimation(Theme.spring) {
+        let minutes = Int((focus.duration / 60).rounded())
+        let finished = withAnimation(Theme.smooth) {
             focus.complete(focusMinutes: settings.focusMinutes, breakMinutes: settings.breakMinutes)
         }
         if finished == .focus {
+            data.focusLog.append(FocusEntry(start: Date().addingTimeInterval(-Double(minutes) * 60), minutes: minutes))
+            let streak = focusStreak
             showPeek(Peek(icon: "cup.and.saucer.fill", title: "Focus complete",
-                          subtitle: "Take a \(settings.breakMinutes)-minute break", tint: Theme.teal,
-                          tab: .focus, mood: .happy, sound: "Glass", showsLion: true))
+                          subtitle: streak > 1 ? "\(streak)-day streak · take \(settings.breakMinutes) min" : "Take a \(settings.breakMinutes)-minute break",
+                          tint: Accent.den.deep, tab: .den, mood: .happy, sound: "Glass", showsLion: true))
         } else {
             showPeek(Peek(icon: "bolt.fill", title: "Break complete",
-                          subtitle: "Ready to focus again", tint: Theme.gold,
-                          tab: .focus, mood: .happy, sound: "Glass", showsLion: true))
+                          subtitle: "Ready to focus again", tint: Accent.den.deep,
+                          tab: .den, mood: .happy, sound: "Glass", showsLion: true))
         }
     }
 
-    // MARK: - Tasks
+    // MARK: - Hunt (tasks)
 
     func addTask(_ title: String, due: Date?) {
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
-        withAnimation(Theme.spring) {
+        withAnimation(Theme.smooth) {
             data.tasks.insert(TaskItem(title: clean, due: due), at: 0)
         }
     }
 
     func toggleTask(_ id: UUID) {
         guard let i = data.tasks.firstIndex(where: { $0.id == id }) else { return }
-        withAnimation(Theme.spring) { data.tasks[i].done.toggle() }
+        withAnimation(Theme.smooth) { data.tasks[i].done.toggle() }
         if data.tasks[i].done {
             if settings.sounds { NSSound(named: "Tink")?.play() }
             makeLionHappy()
@@ -498,11 +649,23 @@ final class AppModel: ObservableObject {
     }
 
     func deleteTask(_ id: UUID) {
-        withAnimation(Theme.spring) { data.tasks.removeAll { $0.id == id } }
+        guard let i = data.tasks.firstIndex(where: { $0.id == id }) else { return }
+        let removed = data.tasks[i]
+        withAnimation(Theme.smooth) { _ = data.tasks.remove(at: i) }
+        showToast("Task deleted", action: "Undo") { [weak self] in
+            guard let self else { return }
+            withAnimation(Theme.smooth) { self.data.tasks.insert(removed, at: min(i, self.data.tasks.count)) }
+        }
     }
 
     func clearDoneTasks() {
-        withAnimation(Theme.spring) { data.tasks.removeAll(where: \.done) }
+        let before = data.tasks
+        let count = before.filter(\.done).count
+        guard count > 0 else { return }
+        withAnimation(Theme.smooth) { data.tasks.removeAll(where: \.done) }
+        showToast("Cleared \(count) done", action: "Undo") { [weak self] in
+            withAnimation(Theme.smooth) { self?.data.tasks = before }
+        }
     }
 
     private func checkTasks(_ now: Date) {
@@ -510,49 +673,76 @@ final class AppModel: ObservableObject {
             let t = data.tasks[i]
             guard !t.done, !t.reminded, let due = t.due, due <= now else { continue }
             data.tasks[i].reminded = true
-            showPeek(Peek(icon: "checklist", title: "Task due", subtitle: t.title, tint: Theme.orange,
-                          tab: .tasks, mood: .happy, sound: "Ping", showsLion: true))
+            showPeek(Peek(icon: "checklist", title: "Task due", subtitle: t.title, tint: Accent.hunt.deep,
+                          tab: .hunt, mood: .happy, sound: "Ping", showsLion: true))
             break
         }
     }
 
-    // MARK: - Notes
+    // MARK: - Rally (calendar)
+
+    private func checkMeetings(_ now: Date) {
+        guard settings.rally else { return }
+        for m in calendar.upcoming where !notifiedMeetings.contains(m.id) {
+            let lead = m.start.timeIntervalSince(now)
+            guard lead > 0, lead <= 300 else { continue }
+            notifiedMeetings.insert(m.id)
+            let time = m.start.formatted(date: .omitted, time: .shortened)
+            showPeek(Peek(icon: "calendar", title: m.title, subtitle: "Starts \(time) · in \(Int((lead / 60).rounded(.up))) min",
+                          tint: Accent.rally.deep, tab: .hunt, mood: .awake, sound: "Glass", link: m.link))
+            break
+        }
+    }
+
+    func join(_ url: URL) {
+        NSWorkspace.shared.open(url)
+        dismissPeek()
+    }
+
+    // MARK: - Scratch (notes + Catch)
 
     func addNote() {
         let note = NoteItem(title: "", body: "")
-        withAnimation(Theme.spring) {
+        withAnimation(Theme.smooth) {
+            scratchMode = .notes
             data.notes.insert(note, at: 0)
             selectedNoteID = note.id
         }
+        noteToFocus = note.id
     }
 
     func deleteNote(_ id: UUID) {
-        withAnimation(Theme.spring) {
-            data.notes.removeAll { $0.id == id }
+        guard let i = data.notes.firstIndex(where: { $0.id == id }) else { return }
+        let removed = data.notes[i]
+        withAnimation(Theme.smooth) {
+            data.notes.remove(at: i)
             selectedNoteID = data.notes.first?.id
+        }
+        showToast("Note deleted", action: "Undo") { [weak self] in
+            guard let self else { return }
+            withAnimation(Theme.smooth) {
+                self.data.notes.insert(removed, at: min(i, self.data.notes.count))
+                self.selectedNoteID = removed.id
+            }
         }
     }
 
-    func noteBinding(_ id: UUID, _ keyPath: WritableKeyPath<NoteItem, String>) -> Binding<String> {
-        Binding(
-            get: { [weak self] in self?.data.notes.first(where: { $0.id == id })?[keyPath: keyPath] ?? "" },
-            set: { [weak self] value in
-                guard let self, let i = self.data.notes.firstIndex(where: { $0.id == id }) else { return }
-                self.data.notes[i][keyPath: keyPath] = value
-                self.data.notes[i].updated = Date()
-            }
-        )
+    /// Called by the editor after typing pauses (it keeps its own buffer while you type).
+    func updateNote(_ id: UUID, title: String, body: String) {
+        guard let i = data.notes.firstIndex(where: { $0.id == id }),
+              data.notes[i].title != title || data.notes[i].body != body else { return }
+        data.notes[i].title = title
+        data.notes[i].body = body
+        data.notes[i].updated = Date()
     }
-
-    // MARK: - Capture
 
     func captureClipboard() {
         guard let text = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !text.isEmpty else {
-            showToast("Clipboard has no text to capture")
+            showToast("Clipboard has no text")
             return
         }
-        withAnimation(Theme.spring) {
+        withAnimation(Theme.smooth) {
             data.clips.removeAll { $0.text == text }
             data.clips.insert(ClipItem(text: text), at: 0)
             if data.clips.count > 30 { data.clips = Array(data.clips.prefix(30)) }
@@ -563,14 +753,22 @@ final class AppModel: ObservableObject {
     func copyClip(_ clip: ClipItem) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(clip.text, forType: .string)
-        showToast("Copied to clipboard")
+        showToast("Copied")
     }
 
     func removeClip(_ id: UUID) {
-        withAnimation(Theme.spring) { data.clips.removeAll { $0.id == id } }
+        guard let i = data.clips.firstIndex(where: { $0.id == id }) else { return }
+        let removed = data.clips[i]
+        withAnimation(Theme.smooth) { _ = data.clips.remove(at: i) }
+        showToast("Clip removed", action: "Undo") { [weak self] in
+            guard let self else { return }
+            withAnimation(Theme.smooth) { self.data.clips.insert(removed, at: min(i, self.data.clips.count)) }
+        }
     }
 
-    // MARK: - Shelf
+    // MARK: - Stash (shelf, Pounce, AirDrop)
+
+    static let stashLimit = 60
 
     func url(for record: ShelfRecord) -> URL {
         if let bookmark = record.bookmark {
@@ -583,28 +781,57 @@ final class AppModel: ObservableObject {
         return URL(fileURLWithPath: record.path)
     }
 
+    /// Resolve bookmarks, sizes and icons once, not on every render.
+    func rebuildStash() {
+        let items = data.shelf.map { record -> StashItem in
+            let url = url(for: record)
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey, .isPackageKey])
+            let exists = FileManager.default.fileExists(atPath: url.path)
+            let detail: String
+            if !exists {
+                detail = "Missing"
+            } else if values?.isPackage == true {
+                detail = url.pathExtension == "app" ? "App" : "Package"
+            } else if values?.isDirectory == true {
+                detail = "Folder"
+            } else if let size = values?.fileSize {
+                detail = ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
+            } else {
+                detail = ""
+            }
+            return StashItem(id: record.id, url: url, name: url.lastPathComponent, detail: detail, exists: exists,
+                             icon: NSWorkspace.shared.icon(forFile: url.path))
+        }
+        if items != stashItems { stashItems = items }
+    }
+
     func addToShelf(_ urls: [URL]) {
         var added = 0
-        withAnimation(.spring(response: 0.55, dampingFraction: 0.6)) {
-            for url in urls where url.isFileURL {
-                let standard = url.standardizedFileURL
-                guard !data.shelf.contains(where: { self.url(for: $0).standardizedFileURL == standard }) else { continue }
+        var dropped = 0
+        withAnimation(Theme.bouncy) {
+            let known = Set(data.shelf.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+            for url in urls where url.isFileURL && !known.contains(url.standardizedFileURL.path) {
                 let bookmark = try? url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
                 data.shelf.insert(ShelfRecord(path: url.path, bookmark: bookmark), at: 0)
                 added += 1
             }
-            if data.shelf.count > 40 { data.shelf = Array(data.shelf.prefix(40)) }
+            if data.shelf.count > Self.stashLimit {
+                dropped = data.shelf.count - Self.stashLimit
+                data.shelf = Array(data.shelf.prefix(Self.stashLimit))
+            }
         }
+        rebuildStash()
         if added > 0 {
             if settings.sounds { NSSound(named: "Pop")?.play() }
             makeLionHappy()
         }
+        if dropped > 0 { showToast("Stash keeps \(Self.stashLimit) items · oldest removed") }
     }
 
     func receiveDrop(_ providers: [NSItemProvider]) -> Bool {
         let files = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
         guard !files.isEmpty else { return false }
-        expand(.shelf)
+        expand(.stash)
         for provider in files {
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { [weak self] value, _ in
                 var url: URL?
@@ -618,11 +845,13 @@ final class AppModel: ObservableObject {
         return true
     }
 
+    /// The open panel would sit under the open notch, so the notch tucks away while it's up.
     func chooseShelfFiles() {
         block("openPanel")
+        collapse(explicit: false)
         let picker = NSOpenPanel()
-        picker.title = "Add files to Ezkiel Notch Shelf"
-        picker.prompt = "Add to Shelf"
+        picker.title = "Add files to Stash"
+        picker.prompt = "Add to Stash"
         picker.allowsMultipleSelection = true
         picker.canChooseDirectories = true
         picker.canChooseFiles = true
@@ -630,43 +859,122 @@ final class AppModel: ObservableObject {
         picker.begin { [weak self] response in
             DispatchQueue.main.async {
                 guard let self else { return }
-                if response == .OK { self.addToShelf(picker.urls) }
                 self.unblock("openPanel")
+                if response == .OK {
+                    self.addToShelf(picker.urls)
+                    self.expand(.stash)
+                }
             }
         }
     }
 
     func removeFromShelf(_ id: UUID) {
-        withAnimation(Theme.spring) { data.shelf.removeAll { $0.id == id } }
+        guard let i = data.shelf.firstIndex(where: { $0.id == id }) else { return }
+        let removed = data.shelf[i]
+        withAnimation(Theme.smooth) { _ = data.shelf.remove(at: i) }
+        rebuildStash()
+        showToast("Removed from Stash", action: "Undo") { [weak self] in
+            guard let self else { return }
+            withAnimation(Theme.smooth) { self.data.shelf.insert(removed, at: min(i, self.data.shelf.count)) }
+            self.rebuildStash()
+        }
     }
 
     func clearShelf() {
-        withAnimation(Theme.spring) { data.shelf.removeAll() }
+        let before = data.shelf
+        guard !before.isEmpty else { return }
+        withAnimation(Theme.smooth) { data.shelf.removeAll() }
+        rebuildStash()
+        showToast("Stash cleared", action: "Undo") { [weak self] in
+            guard let self else { return }
+            withAnimation(Theme.smooth) { self.data.shelf = before }
+            self.rebuildStash()
+        }
     }
 
-    // MARK: - Water
+    /// True while a file is dragged out of Stash, so our own drag doesn't light up the notch.
+    var isDraggingOut = false
+
+    static var airDrop: NSSharingService? { NSSharingService(named: .sendViaAirDrop) }
+
+    func airDrop(_ urls: [URL]) {
+        let files = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard let service = Self.airDrop, !files.isEmpty, service.canPerform(withItems: files) else {
+            showToast("AirDrop isn't available right now")
+            return
+        }
+        block("sharing")
+        service.perform(withItems: files)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.unblock("sharing") }
+    }
+
+    /// Provided by the window controller: the view and the rect under the pointer, to anchor pickers.
+    var pointerAnchor: () -> (NSView, NSRect)? = { nil }
+
+    func share(_ urls: [URL]) {
+        guard !urls.isEmpty, let (view, rect) = pointerAnchor() else { return }
+        block("sharing")
+        NSSharingServicePicker(items: urls).show(relativeTo: rect, of: view, preferredEdge: .minY)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.unblock("sharing") }
+    }
+
+    // Pounce: new screenshots and downloads.
+
+    private func pounced(_ url: URL, screenshot: Bool) {
+        guard screenshot ? settings.pounceScreenshots : settings.pounceDownloads else { return }
+        showPeek(Peek(icon: screenshot ? "camera.viewfinder" : "arrow.down.circle.fill",
+                      title: screenshot ? "Screenshot" : "Downloaded",
+                      subtitle: url.lastPathComponent, tint: Accent.stash.deep, tab: .stash, mood: .happy,
+                      file: url))
+    }
+
+    func copyFile(_ url: URL) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        var items: [NSPasteboardWriting] = [url as NSURL]
+        if let image = NSImage(contentsOf: url), UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true {
+            items.append(image)
+        }
+        pb.writeObjects(items)
+        dismissPeek()
+    }
+
+    func stashFile(_ url: URL) {
+        addToShelf([url])
+        dismissPeek()
+    }
+
+    func reveal(_ url: URL) {
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+        dismissPeek()
+    }
+
+    // MARK: - Oasis (water)
 
     var waterToday: Int { WaterLog.total(data.water, on: Date()) }
     var waterProgress: Double { min(1, Double(waterToday) / Double(max(1, settings.waterGoal))) }
 
     func addWater(_ ml: Int) {
         let before = waterToday
-        withAnimation(.spring(response: 0.6, dampingFraction: 0.62)) {
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
             data.water.append(WaterEntry(ml: ml))
         }
         lastWaterReminder = nil
         if settings.sounds { NSSound(named: "Bottle")?.play() }
         makeLionHappy()
         if before < settings.waterGoal && waterToday >= settings.waterGoal {
-            showToast("Goal reached! \(waterToday) ml today")
-        } else {
-            showToast("Logged \(ml) ml · \(waterToday) ml today")
+            showToast("Goal reached · \(waterToday) ml today")
         }
     }
 
     func undoWater() {
-        guard let i = data.water.lastIndex(where: { Calendar.current.isDateInToday($0.date) }) else { return }
-        withAnimation(Theme.spring) { _ = data.water.remove(at: i) }
+        guard let i = data.water.lastIndex(where: { Calendar.current.isDateInToday($0.date) }) else {
+            showToast("Nothing to undo today")
+            return
+        }
+        let ml = data.water[i].ml
+        withAnimation(Theme.smooth) { _ = data.water.remove(at: i) }
+        showToast("Removed \(ml) ml · \(waterToday) ml today")
     }
 
     private func checkWater(_ now: Date) {
@@ -679,36 +987,31 @@ final class AppModel: ObservableObject {
         else { return }
         lastWaterReminder = now
         showPeek(Peek(icon: "drop.fill", title: "Time for a sip",
-                      subtitle: "\(waterToday) of \(settings.waterGoal) ml today", tint: Color(hex: 0x7FD3FF),
-                      tab: .water, mood: .happy, sound: "Purr", showsLion: true))
+                      subtitle: "\(waterToday) of \(settings.waterGoal) ml today", tint: Accent.oasis.deep,
+                      tab: .oasis, mood: .happy, sound: "Purr", showsLion: true))
     }
 
     private let appLaunch = Date()
 
-    // MARK: - Music
+    // MARK: - Purr (music + Chorus)
 
     private func trackChanged(_ np: NowPlaying?) {
         guard let np, np.isPlaying, presentation == .compact else { return }
         showPeek(Peek(icon: "music.note", title: np.title, subtitle: np.artist,
-                      tint: np.player == .spotify ? Color(hex: 0x1ED760) : Theme.berry,
-                      tab: .music, mood: .happy, artwork: true))
+                      tint: np.player.tint, tab: .purr, mood: .happy, artwork: true))
     }
 
     func updateMusicPolling() {
-        music.fastPolling = presentation == .expanded && tab == .music
+        music.fastPolling = presentation == .expanded && tab == .purr
     }
 
     func setMusicSource(_ source: MusicSource) {
         settings.musicSource = source
-        music.source = source
-        music.refresh()
     }
-
-    // MARK: - Lyrics
 
     func toggleLyrics() {
         noteInteraction()
-        withAnimation(Theme.liquid) { settings.showLyrics.toggle() }
+        withAnimation(Theme.smooth) { settings.showLyrics.toggle() }
         refreshLyrics()
     }
 
@@ -716,7 +1019,7 @@ final class AppModel: ObservableObject {
         lyrics.load(for: settings.showLyrics ? music.nowPlaying : nil)
     }
 
-    // MARK: - System overlays and connection peeks
+    // MARK: - Whiskers (system overlays and connection peeks)
 
     private func systemEvent(_ event: SystemMonitor.Event) {
         switch event {
@@ -730,37 +1033,37 @@ final class AppModel: ObservableObject {
             default: icon = "speaker.wave.3.fill"
             }
             showPeek(Peek(icon: icon, title: muted ? "Muted" : "Volume", subtitle: "",
-                          tint: muted ? Theme.mist : Theme.gold, hudKey: "volume", level: muted ? 0 : level,
+                          tint: muted ? Accent.neutral.deep : Accent.whiskers.light, hudKey: "volume", level: muted ? 0 : level,
                           value: muted ? "Muted" : "\(Int((level * 100).rounded()))%"))
         case .capsLock(let on):
             guard settings.systemOverlays else { return }
             showPeek(Peek(icon: on ? "capslock.fill" : "capslock", title: on ? "Caps Lock on" : "Caps Lock off", subtitle: "",
-                          tint: on ? Theme.teal : Theme.mist, hudKey: "keyboard"))
+                          tint: on ? Theme.teal : Accent.neutral.deep, hudKey: "keyboard"))
         case .inputSource(let name):
             guard settings.systemOverlays else { return }
-            showPeek(Peek(icon: "globe", title: name, subtitle: "Keyboard", tint: Theme.sky, hudKey: "keyboard"))
+            showPeek(Peek(icon: "globe", title: name, subtitle: "Keyboard", tint: Accent.whiskers.light, hudKey: "keyboard"))
         case .network(let online, let wifi):
             guard settings.connectionPeeks else { return }
             if online {
                 showPeek(Peek(icon: wifi ? "wifi" : "network", title: wifi ? "Wi-Fi connected" : "Back online",
                               subtitle: "You're online again", tint: Theme.teal, mood: .happy))
             } else {
-                showPeek(Peek(icon: "wifi.slash", title: "Connection lost", subtitle: "Check your Wi-Fi or network",
+                showPeek(Peek(icon: "wifi.slash", title: "Connection lost", subtitle: "Check your network",
                               tint: Theme.berry, mood: .awake, sound: "Funk"))
             }
         case .output(let name, let kind, let previous):
             guard settings.connectionPeeks else { return }
             if kind == .bluetooth || kind == .wired {
-                showPeek(Peek(icon: Self.headphonesIcon(name, kind), title: name, subtitle: "Connected · sound plays here",
+                showPeek(Peek(icon: Self.headphonesIcon(name), title: name, subtitle: "Connected",
                               tint: Theme.teal, mood: .happy))
             } else if let previous, previous.kind == .bluetooth || previous.kind == .wired {
-                showPeek(Peek(icon: Self.headphonesIcon(previous.name, previous.kind), title: "\(previous.name) disconnected",
-                              subtitle: "Sound plays on \(name)", tint: Theme.mist, mood: .awake))
+                showPeek(Peek(icon: Self.headphonesIcon(previous.name), title: "\(previous.name) disconnected",
+                              subtitle: "Now on \(name)", tint: Accent.neutral.deep, mood: .awake))
             }
         }
     }
 
-    private static func headphonesIcon(_ name: String, _: SystemMonitor.OutputKind) -> String {
+    private static func headphonesIcon(_ name: String) -> String {
         let n = name.lowercased()
         if n.contains("airpods max") { return "airpodsmax" }
         if n.contains("airpods pro") { return "airpodspro" }
@@ -779,15 +1082,24 @@ final class AppModel: ObservableObject {
                               subtitle: "Charger connected", tint: Theme.teal, mood: .happy,
                               progress: fraction, value: "\(new.percent)%"))
             } else {
-                showPeek(Peek(icon: "battery.75", title: "On battery", subtitle: "Charger unplugged",
+                showPeek(Peek(icon: Self.batteryIcon(new.percent), title: "On battery", subtitle: "Charger unplugged",
                               tint: Theme.gold, mood: .awake, progress: fraction, value: "\(new.percent)%"))
             }
-            lastBatteryWarning = 100
-        } else if !new.onAC, new.percent <= 20, new.percent < lastBatteryWarning,
-                  [20, 10, 5].contains(new.percent) {
-            lastBatteryWarning = new.percent
-            showPeek(Peek(icon: "battery.25", title: "Battery low", subtitle: "Plug in soon",
+        } else if let old, !new.onAC,
+                  let threshold = [20, 10, 5].first(where: { old.percent > $0 && new.percent <= $0 }) {
+            // Fires when the level crosses a threshold, even if it skips the exact number.
+            showPeek(Peek(icon: Self.batteryIcon(new.percent), title: "Battery low", subtitle: threshold <= 10 ? "Plug in now" : "Plug in soon",
                           tint: Theme.berry, mood: .awake, sound: "Funk", progress: fraction, value: "\(new.percent)%"))
+        }
+    }
+
+    private static func batteryIcon(_ percent: Int) -> String {
+        switch percent {
+        case ..<13: return "battery.0"
+        case ..<38: return "battery.25"
+        case ..<63: return "battery.50"
+        case ..<88: return "battery.75"
+        default: return "battery.100"
         }
     }
 
@@ -801,12 +1113,13 @@ final class AppModel: ObservableObject {
         } catch {
             settings.launchAtLogin = SMAppService.mainApp.status == .enabled
             loginItemError = "Move Ezkiel Notch to Applications first"
-            showToast("Login item: move the app to Applications first")
+            showToast("Move the app to Applications first")
         }
     }
 
     func refreshLoginItemState() {
-        settings.launchAtLogin = SMAppService.mainApp.status == .enabled
+        let on = SMAppService.mainApp.status == .enabled
+        if settings.launchAtLogin != on { settings.launchAtLogin = on }
     }
 
     func open(_ target: QuickLaunch) {
@@ -817,13 +1130,11 @@ final class AppModel: ObservableObject {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString("Help me plan my day. Ask what matters most, then suggest a realistic schedule with breaks.", forType: .string)
             NSWorkspace.shared.open(URL(string: "https://claude.ai/new")!)
-            showToast("Starter prompt copied · paste it in Claude")
+            showToast("Prompt copied · paste it in Claude")
         case .finder: NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory()))
         case .terminal: NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"))
         case .downloads:
-            if let url = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
-                NSWorkspace.shared.open(url)
-            }
+            if let url = PounceWatcher.downloadsURL { NSWorkspace.shared.open(url) }
         case .systemSettings: NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:")!)
         }
     }
@@ -843,6 +1154,22 @@ final class AppModel: ObservableObject {
     func saveNow() {
         saveWork?.cancel()
         store.save(data, synchronously: true)
+    }
+
+    // MARK: - Self-test hooks
+
+    func simulateMeetings(_ meetings: [CalendarService.Meeting]) {
+        // The test shows its own Rally peek; the ticker shouldn't add a second one as a toast.
+        notifiedMeetings.formUnion(meetings.map(\.id))
+        calendar.simulate(meetings)
+    }
+
+    /// Feed a pointer change even though the real pointer is ignored.
+    func simulatePointer(inside: Bool) {
+        let ignoring = ignoresPointer
+        ignoresPointer = false
+        pointerMoved(inside: inside)
+        ignoresPointer = ignoring
     }
 }
 
@@ -869,14 +1196,14 @@ enum QuickLaunch: String, CaseIterable, Identifiable {
         case .systemSettings: return "gearshape.fill"
         }
     }
-    var tint: Color {
+    var accent: Accent {
         switch self {
-        case .store: return Theme.gold
-        case .claude: return Theme.orange
-        case .finder: return Theme.sky
-        case .terminal: return Theme.teal
-        case .downloads: return Color(hex: 0x7FD3FF)
-        case .systemSettings: return Theme.mist
+        case .store: return .gold
+        case .claude: return .den
+        case .finder: return .oasis
+        case .terminal: return Accent(light: Color(hex: 0x9BF0C9), deep: Color(hex: 0x30D158))
+        case .downloads: return .stash
+        case .systemSettings: return .neutral
         }
     }
 }

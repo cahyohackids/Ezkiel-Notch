@@ -16,7 +16,7 @@ final class LyricsService: ObservableObject {
     }
 
     @Published private(set) var state: State = .idle
-    @Published private(set) var trackKey: String?
+    private(set) var trackKey: String?
 
     private var cache: [String: State] = [:]
     private var cacheOrder: [String] = []
@@ -96,8 +96,9 @@ final class LyricsService: ObservableObject {
                 } else if exact && (status == 404 || status == 200) {
                     self.fetch(np, exact: false)
                 } else {
-                    // Network trouble: don't cache, so the next play tries again.
+                    // Network trouble: don't cache, and forget the key so the next play of this song tries again.
                     self.state = .failed
+                    self.trackKey = nil
                 }
             }
         }

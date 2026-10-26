@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ExpandedView: View {
     @ObservedObject var model: AppModel
+    @ObservedObject var chrome: NotchChrome
     @ObservedObject var music: MusicController
     @Namespace private var tabSpace
     @State private var appeared = false
@@ -13,18 +14,29 @@ struct ExpandedView: View {
             header
                 .frame(height: NotchMetrics.barHeight(model.geometry))
             tabStrip
-                .padding(.top, 4)
-            ZStack {
+                .frame(height: NotchMetrics.tabStripHeight)
+                .padding(.top, NotchMetrics.tabStripTop)
+            ZStack(alignment: .top) {
                 page
                     .id(model.tab)
                     .transition(.tabSlide(forward: model.tabForward))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(.top, 10)
+            .frame(maxWidth: .infinity)
+            .frame(height: model.paneHeight, alignment: .top)
+            .padding(.top, NotchMetrics.pageTop)
             .clipped()
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 14)
-        .padding(.bottom, 12)
+        .padding(.horizontal, NotchMetrics.pageInset)
+        .padding(.bottom, NotchMetrics.pageBottom)
+        .overlay(alignment: .bottom) {
+            if let toast = chrome.toast {
+                ToastBar(toast: toast) { model.clearToast() }
+                    .padding(.bottom, 10)
+                    .transition(.opacity.combined(with: .offset(y: 8)))
+                    .id(toast.id)
+            }
+        }
         .onAppear { appeared = true }
     }
 
@@ -33,18 +45,16 @@ struct ExpandedView: View {
     private var header: some View {
         HStack(spacing: 0) {
             HStack(spacing: 7) {
-                LionMascot(size: 20, mood: model.displayedMood)
-                // A toast takes the title's place for a moment.
-                Text(model.toast ?? model.tab.title)
-                    .font(Theme.font(12, .semibold))
-                    .foregroundStyle(model.toast != nil ? Theme.gold : Theme.ink)
+                LionMascot(size: 20, mood: model.displayedMood, detailed: false)
+                Text(model.tab.title)
+                    .font(Theme.font(Theme.Size.body, .semibold))
+                    .foregroundStyle(Theme.ink)
                     .lineLimit(1)
-                    .id(model.toast ?? model.tab.title)
-                    .transition(.opacity.combined(with: .offset(y: 4)))
+                    .id(model.tab)
+                    .transition(.opacity)
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity)
-            .animation(Theme.soft, value: model.toast)
 
             Color.clear.frame(width: model.geometry.hasNotch ? model.geometry.notchWidth + 8 : 12)
 
@@ -52,17 +62,17 @@ struct ExpandedView: View {
                 Spacer(minLength: 0)
                 TimelineView(.everyMinute) { tl in
                     Text(tl.date, format: .dateTime.hour().minute())
-                        .font(Theme.font(11, .medium))
-                        .monospacedDigit()
+                        .font(Theme.number(Theme.Size.secondary, .medium))
                         .foregroundStyle(Theme.mist)
                         .padding(.trailing, 4)
                 }
-                IconButton(icon: model.pinned ? "pin.fill" : "pin", size: 22,
-                           tint: model.pinned ? Theme.gold : Theme.mist,
-                           help: model.pinned ? "Unpin · close when you move away" : "Keep the notch open") {
+                IconButton(icon: model.pinned ? "pin.fill" : "pin",
+                           label: model.pinned ? "Unpin · close when you move away" : "Keep the notch open",
+                           size: 24, tint: model.pinned ? Theme.gold : Theme.mist) {
                     withAnimation(Theme.snappy) { model.pinned.toggle() }
                 }
-                IconButton(icon: "chevron.up", size: 22, tint: Theme.mist, help: "Collapse (Esc) · ⌥⌘I toggles") {
+                IconButton(icon: "chevron.up", label: "Collapse (Esc) · \(model.settings.hotkey.label) toggles",
+                           size: 24, tint: Theme.mist) {
                     model.collapse()
                 }
             }
@@ -70,28 +80,28 @@ struct ExpandedView: View {
         }
     }
 
-    // MARK: Tabs (icons only; the header names the open tab)
+    // MARK: Tabs (icons; the header names the open tab)
 
     private var tabStrip: some View {
         HStack(spacing: 2) {
             ForEach(NotchTab.allCases) { tab in
-                TabButton(tab: tab, selected: model.tab == tab, namespace: tabSpace,
-                          badge: badge(for: tab)) {
+                TabButton(tab: tab, selected: model.tab == tab, namespace: tabSpace, badge: badge(for: tab)) {
                     model.select(tab)
                 }
                 // Tabs drop in one after another as the notch opens.
                 .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : -8)
-                .animation(Theme.liquid.delay(0.05 + Double(tab.index) * 0.025), value: appeared)
+                .offset(y: appeared ? 0 : -6)
+                .animation(Theme.bouncy.delay(0.04 + Double(tab.index) * 0.022), value: appeared)
             }
         }
     }
 
     private func badge(for tab: NotchTab) -> Bool {
         switch tab {
-        case .focus: return model.focus.isRunning
-        case .music: return music.nowPlaying?.isPlaying ?? false
-        case .tasks: return model.data.tasks.contains { !$0.done && ($0.due.map { $0 <= Date() } ?? false) }
+        case .den: return model.focus.isRunning
+        case .purr: return music.nowPlaying?.isPlaying ?? false
+        case .hunt:
+            return model.data.tasks.contains { !$0.done && ($0.due.map { $0 <= Date() } ?? false) } || model.meetingSoon != nil
         default: return false
         }
     }
@@ -101,14 +111,13 @@ struct ExpandedView: View {
     @ViewBuilder
     private var page: some View {
         switch model.tab {
-        case .focus: FocusPane(model: model)
-        case .tasks: TasksPane(model: model)
-        case .notes: NotesPane(model: model)
-        case .capture: CapturePane(model: model)
-        case .music: MusicPane(model: model, music: music)
-        case .shelf: ShelfPane(model: model)
-        case .water: WaterPane(model: model)
-        case .settings: SettingsPane(model: model)
+        case .den: DenPane(model: model)
+        case .hunt: HuntPane(model: model, calendar: model.calendar)
+        case .scratch: ScratchPane(model: model)
+        case .purr: PurrPane(model: model, music: music)
+        case .stash: StashPane(model: model)
+        case .oasis: OasisPane(model: model)
+        case .settings: SettingsPane(model: model, calendar: model.calendar)
         }
     }
 }
@@ -123,28 +132,37 @@ private struct TabButton: View {
 
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: tab.icon)
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 28)
-                if badge {
-                    Circle().fill(Theme.gold).frame(width: 4, height: 4).offset(x: -14, y: 6)
+            Image(systemName: selected ? tab.selectedIcon : tab.icon)
+                .font(.system(size: 13.5, weight: selected ? .semibold : .medium))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(selected ? AnyShapeStyle(tab.accent.linear) : AnyShapeStyle(hovering ? Theme.ink : Theme.mist))
+                .symbolBounce(value: selected)
+                // The badge rides on the glyph, so it follows it at any tab width.
+                .overlay(alignment: .topTrailing) {
+                    if badge {
+                        Circle().fill(tab.accent.deep)
+                            .frame(width: 5, height: 5)
+                            .overlay(Circle().stroke(Color.black, lineWidth: 1.5))
+                            .offset(x: 4, y: -2)
+                            .transition(.scale.combined(with: .opacity))
+                    }
                 }
-            }
-            .foregroundStyle(selected ? Theme.gold : (hovering ? Theme.ink : Theme.mist))
-            .background {
-                if selected {
-                    Capsule().fill(Color.white.opacity(0.1))
-                        .matchedGeometryEffect(id: "tab", in: namespace)
-                } else if hovering {
-                    Capsule().fill(Color.white.opacity(0.05))
+                .frame(maxWidth: .infinity)
+                .frame(height: NotchMetrics.tabStripHeight)
+                .background {
+                    if selected {
+                        Capsule().fill(tab.accent.deep.opacity(0.16))
+                            .overlay(Capsule().strokeBorder(tab.accent.deep.opacity(0.22), lineWidth: 0.5))
+                            .matchedGeometryEffect(id: "tab", in: namespace)
+                    } else if hovering {
+                        Capsule().fill(Color.white.opacity(0.05))
+                    }
                 }
-            }
         }
         .buttonStyle(PressableStyle(scale: 0.9))
-        .help(tab.title)
-        .accessibilityLabel(tab.title)
+        .help("\(tab.title) · \(tab.subtitle)")
+        .accessibilityLabel("\(tab.title), \(tab.subtitle)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .onHover { h in withAnimation(Theme.soft) { hovering = h } }
     }
 }

@@ -99,3 +99,41 @@ public struct FocusClock: Equatable {
         return String(format: "%02d:%02d", m, s)
     }
 }
+
+// MARK: - Persistence
+
+/// What `FocusClock` needs to survive a restart (a running session keeps its wall-clock end).
+public struct FocusSnapshot: Codable, Equatable {
+    public var mode: FocusClock.Mode
+    public var duration: TimeInterval
+    public var end: Date?
+    public var pausedRemaining: TimeInterval?
+
+    public init(mode: FocusClock.Mode, duration: TimeInterval, end: Date? = nil, pausedRemaining: TimeInterval? = nil) {
+        self.mode = mode
+        self.duration = duration
+        self.end = end
+        self.pausedRemaining = pausedRemaining
+    }
+}
+
+extension FocusClock {
+    public var snapshot: FocusSnapshot {
+        switch phase {
+        case .ready: return FocusSnapshot(mode: mode, duration: duration)
+        case .running(let end): return FocusSnapshot(mode: mode, duration: duration, end: end)
+        case .paused(let remaining): return FocusSnapshot(mode: mode, duration: duration, pausedRemaining: remaining)
+        }
+    }
+
+    public init(snapshot s: FocusSnapshot) {
+        self.init(minutes: max(1, Int((s.duration / 60).rounded())))
+        mode = s.mode
+        duration = max(60, s.duration)
+        if let end = s.end {
+            phase = .running(end: end)
+        } else if let remaining = s.pausedRemaining {
+            phase = .paused(remaining: max(0, min(remaining, duration)))
+        }
+    }
+}
