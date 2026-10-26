@@ -8,6 +8,7 @@ struct PurrPane: View {
     @ObservedObject var music: MusicController
     @ObservedObject private var lyrics: LyricsService
     @State private var scrubbing: Double?
+    @State private var showOutputs = false
 
     init(model: AppModel, music: MusicController) {
         self.model = model
@@ -26,6 +27,20 @@ struct PurrPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .overlay {
+            if showOutputs {
+                OutputPicker(outputs: model.outputs, accent: accent) { withAnimation(Theme.snappy) { showOutputs = false } }
+                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
+            }
+        }
+    }
+
+    /// Where the sound goes: AirPods, the MacBook, a speaker…
+    private var outputButton: some View {
+        IconButton(icon: "airplayaudio", label: L("Sound output"), size: 26, tint: Theme.mist) {
+            model.outputs.refresh()
+            withAnimation(Theme.snappy) { showOutputs = true }
+        }
     }
 
     // MARK: Player
@@ -39,6 +54,7 @@ struct PurrPane: View {
                 HStack(spacing: 10) {
                     transport(np, play: 34)
                     Spacer(minLength: 0)
+                    outputButton
                     lyricsButton
                     openButton(np)
                 }
@@ -60,8 +76,8 @@ struct PurrPane: View {
                 HStack(spacing: 6) {
                     transport(np, play: 30)
                     Spacer(minLength: 0)
+                    outputButton
                     lyricsButton
-                    openButton(np)
                 }
             }
             .frame(width: 176)
@@ -178,7 +194,7 @@ struct PurrPane: View {
     }
 
     private func openButton(_ np: NowPlaying) -> some View {
-        IconButton(icon: "arrow.up.forward.app", label: "Open \(np.player.name)", size: 26, tint: Theme.mist) {
+        IconButton(icon: "arrow.up.forward.app", label: L("Open %@", np.player.name), size: 26, tint: Theme.mist) {
             music.open(np.player)
         }
     }
@@ -198,8 +214,8 @@ struct PurrPane: View {
             HStack(spacing: Theme.Space.m) {
                 LionMascot(size: 44, mood: .awake, animated: false)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Allow music access").font(Theme.font(Theme.Size.body, .semibold)).foregroundStyle(Theme.ink)
-                    Text("Privacy & Security → Automation → Ezkiel Notch → Spotify / Music.")
+                    Text(L("Allow music access")).font(Theme.font(Theme.Size.body, .semibold)).foregroundStyle(Theme.ink)
+                    Text(L("Privacy & Security → Automation → Ezkiel Notch → Spotify / Music."))
                         .font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist).fixedSize(horizontal: false, vertical: true)
                     PillButton(title: "Open Automation settings", icon: "lock.open", prominent: true, accent: .purr) {
                         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")!)
@@ -211,7 +227,7 @@ struct PurrPane: View {
             HStack(spacing: Theme.Space.m) {
                 LionMascot(size: 44, mood: model.displayedMood == .sleeping ? .sleeping : .awake, animated: false)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(music.status == .noPlayer ? "Open Spotify or Music" : "Nothing playing")
+                    Text(music.status == .noPlayer ? L("Open Spotify or Music") : L("Nothing playing"))
                         .font(Theme.font(Theme.Size.body, .semibold)).foregroundStyle(Theme.ink)
                     HStack(spacing: 6) {
                         PillButton(title: "Spotify", prominent: true, accent: Accent(light: Color(hex: 0x7CF0A6), deep: Theme.spotify)) {
@@ -219,6 +235,7 @@ struct PurrPane: View {
                         }
                         PillButton(title: "Music") { music.open(.appleMusic) }
                         IconButton(icon: "arrow.clockwise", label: "Refresh", size: 26, tint: Theme.mist) { music.refresh() }
+                        outputButton
                     }
                 }
             }
@@ -269,7 +286,7 @@ private struct ChorusPanel: View {
         case .plain(let text):
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Not synced").font(Theme.font(Theme.Size.caption, .medium)).foregroundStyle(Theme.faint)
+                    Text(L("Not synced")).font(Theme.font(Theme.Size.caption, .medium)).foregroundStyle(Theme.faint)
                     Text(text)
                         .font(Theme.font(Theme.Size.body))
                         .foregroundStyle(Theme.ink.opacity(0.85))
@@ -283,7 +300,7 @@ private struct ChorusPanel: View {
         case .loading:
             VStack(spacing: 8) {
                 EqualizerBars(playing: true, color: accent.deep, height: 14)
-                Text("Finding lyrics…").font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist)
+                Text(L("Finding lyrics…")).font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist)
             }
         case .idle:
             Color.clear
@@ -357,5 +374,68 @@ private struct SyncedLyrics: View, Equatable {
         .buttonStyle(PressableStyle(scale: 0.98))
         .help("Jump here")
         .animation(Theme.smooth, value: isCurrent)
+    }
+}
+
+/// The sound outputs as chips; the current one is filled.
+private struct OutputPicker: View {
+    @ObservedObject var outputs: AudioOutputs
+    var accent: Accent
+    var close: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            HStack {
+                Text(L("Play sound on")).font(Theme.font(Theme.Size.secondary, .semibold)).foregroundStyle(Theme.ink)
+                Spacer(minLength: 0)
+                IconButton(icon: "xmark", label: L("Close"), size: 24, tint: Theme.mist, action: close)
+            }
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 6)], spacing: 6) {
+                    ForEach(outputs.devices) { device in
+                        OutputTile(device: device, accent: accent) {
+                            outputs.select(device)
+                            close()
+                        }
+                    }
+                }
+            }
+            .scrollEdgeFade(4)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).fill(Color(white: 0.09)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).strokeBorder(Theme.hairline, lineWidth: 0.5))
+    }
+}
+
+private struct OutputTile: View {
+    var device: AudioOutputs.Device
+    var accent: Accent
+    var action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: device.icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(device.isDefault ? Theme.onAccent : Theme.ink)
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(device.isDefault ? AnyShapeStyle(accent.linear) : AnyShapeStyle(Color.white.opacity(0.08))))
+                Text(device.name).font(Theme.font(Theme.Size.secondary, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
+                Spacer(minLength: 0)
+                if device.isDefault {
+                    Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(accent.light)
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 36)
+            .cardSurface(hover: hovering)
+        }
+        .buttonStyle(PressableStyle(scale: 0.97))
+        .onHover { h in withAnimation(Theme.soft) { hovering = h } }
+        .accessibilityLabel(device.name)
+        .accessibilityAddTraits(device.isDefault ? .isSelected : [])
     }
 }

@@ -390,7 +390,7 @@ final class ActionMenuItem: NSMenuItem {
 
     init(_ title: String, key: String = "", handler: @escaping () -> Void) {
         self.handler = handler
-        super.init(title: title, action: #selector(fire), keyEquivalent: key)
+        super.init(title: L(title), action: #selector(fire), keyEquivalent: key)
         target = self
     }
 

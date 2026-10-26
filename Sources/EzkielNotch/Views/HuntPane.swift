@@ -45,7 +45,10 @@ struct HuntPane: View {
                 }
                 Spacer(minLength: 0)
                 if doneCount > 0 {
-                    TextButton(title: "Clear \(doneCount) done", tint: Theme.mist) { model.clearDoneTasks() }
+                    TextButton(title: L("Clear %d done", doneCount), tint: Theme.mist) { model.clearDoneTasks() }
+                }
+                IconButton(icon: "person.crop.square", label: L("Mirror: check your camera"), size: 24, tint: Theme.mist) {
+                    model.setMirror(true)
                 }
             }
 
@@ -79,7 +82,7 @@ struct HuntPane: View {
         if calendar.access == .denied {
             HStack(spacing: 8) {
                 Image(systemName: "calendar.badge.exclamationmark").foregroundStyle(Accent.rally.deep)
-                Text("Rally needs Calendar access").font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist)
+                Text(L("Rally needs Calendar access")).font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist)
                 Spacer()
                 TextButton(title: "Open Settings", tint: Accent.rally.light) {
                     NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")!)
@@ -108,6 +111,18 @@ private struct RallyRow: View {
     var more: Int
     var join: (URL) -> Void
 
+    /// "10:00–10:30 · in 4 min · +1 more"
+    static func when(_ m: CalendarService.Meeting, started: Bool, minutes: Int, more: Int) -> String {
+        var text = "\(m.start.formatted(date: .omitted, time: .shortened))–\(m.end.formatted(date: .omitted, time: .shortened))"
+        if started {
+            text += " · " + L("now")
+        } else if minutes < 60 {
+            text += " · " + L("in %d min", minutes)
+        }
+        if more > 0 { text += " · " + L("+%d more", more) }
+        return text
+    }
+
     var body: some View {
         TimelineView(.everyMinute) { tl in
             let started = meeting.start <= tl.date
@@ -116,9 +131,7 @@ private struct RallyRow: View {
                 Capsule().fill(meeting.color).frame(width: 3, height: 20)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(meeting.title).font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
-                    Text("\(meeting.start.formatted(date: .omitted, time: .shortened))–\(meeting.end.formatted(date: .omitted, time: .shortened))"
-                         + (started ? " · now" : minutes < 60 ? " · in \(minutes) min" : "")
-                         + (more > 0 ? " · +\(more) more" : ""))
+                    Text(Self.when(meeting, started: started, minutes: minutes, more: more))
                         .font(Theme.font(Theme.Size.caption))
                         .foregroundStyle(started || minutes <= 5 ? Accent.rally.light : Theme.mist)
                         .lineLimit(1)
@@ -168,7 +181,7 @@ private struct TaskRow: View {
             Spacer(minLength: 6)
             if let due = task.due, !task.done {
                 let overdue = due <= now
-                Label(due.formatted(Calendar.current.isDateInToday(due) ? .dateTime.hour().minute() : .dateTime.weekday(.abbreviated).hour().minute()),
+                Label(due.formatted(Calendar.current.isDateInToday(due) ? .dateTime.hour().minute() : .dateTime.locale(Lang.locale).weekday(.abbreviated).hour().minute()),
                       systemImage: overdue ? "bell.badge.fill" : "bell")
                     .font(Theme.font(Theme.Size.caption, .medium))
                     .foregroundStyle(overdue ? Accent.hunt.light : Theme.mist)

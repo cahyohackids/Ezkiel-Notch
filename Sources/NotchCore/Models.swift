@@ -169,6 +169,15 @@ public struct NotchSettings: Codable, Equatable {
     /// Purr may ask Spotify and Music what is playing (macOS asks for Automation access the first time).
     /// Off until the user opens Purr, so the permission prompt never comes out of nowhere.
     public var musicAllowed: Bool = false
+    /// Prowl: dots in the closed notch while a microphone or camera is on.
+    public var prowl: Bool = true
+    /// Weather glance: the city picked in Settings (no Location permission). Empty = off.
+    public var weatherCity: String = ""
+    public var weatherLatitude: Double = 0
+    public var weatherLongitude: Double = 0
+    public var fahrenheit: Bool = false
+    /// UI language: follow macOS, English or Indonesian.
+    public var language: AppLanguage = .auto
     /// Bumped when defaults change in a way existing users should get too (see the decoder).
     public var defaultsRevision: Int = NotchSettings.currentRevision
     public static let currentRevision = 2
@@ -215,6 +224,12 @@ public struct NotchSettings: Codable, Equatable {
         hideFromScreenShare = (try? c.decode(Bool.self, forKey: .hideFromScreenShare)) ?? d.hideFromScreenShare
         checkUpdates = (try? c.decode(Bool.self, forKey: .checkUpdates)) ?? d.checkUpdates
         musicAllowed = (try? c.decode(Bool.self, forKey: .musicAllowed)) ?? d.musicAllowed
+        prowl = (try? c.decode(Bool.self, forKey: .prowl)) ?? d.prowl
+        weatherCity = (try? c.decode(String.self, forKey: .weatherCity)) ?? d.weatherCity
+        weatherLatitude = (try? c.decode(Double.self, forKey: .weatherLatitude)) ?? d.weatherLatitude
+        weatherLongitude = (try? c.decode(Double.self, forKey: .weatherLongitude)) ?? d.weatherLongitude
+        fahrenheit = (try? c.decode(Bool.self, forKey: .fahrenheit)) ?? d.fahrenheit
+        language = (try? c.decode(AppLanguage.self, forKey: .language)) ?? d.language
         let revision = (try? c.decode(Int.self, forKey: .defaultsRevision)) ?? 1
         if revision < 2 {
             // 1.3.1: calmer defaults. Only values still at the old default move; choices the user made stay.
@@ -292,5 +307,18 @@ public enum AppVersion {
             if x != y { return x > y }
         }
         return false
+    }
+}
+
+/// The app's language: follow macOS, or pick one.
+public enum AppLanguage: String, Codable, CaseIterable, Identifiable {
+    case auto, en, id
+    public var id: String { rawValue }
+    public var label: String {
+        switch self {
+        case .auto: return "Auto"
+        case .en: return "English"
+        case .id: return "Indonesia"
+        }
     }
 }

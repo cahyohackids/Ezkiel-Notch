@@ -24,7 +24,7 @@ struct DenPane: View {
                                 .foregroundStyle(Theme.ink)
                                 .contentTransition(.numericText(countsDown: true))
                                 .animation(Theme.snappy, value: Int(remaining))
-                            Text(isRest ? "break" : "focus")
+                            Text(isRest ? L("break") : L("focus"))
                                 .font(Theme.font(Theme.Size.caption, .medium))
                                 .foregroundStyle(Theme.mist)
                         }
@@ -34,10 +34,10 @@ struct DenPane: View {
 
                 VStack(alignment: .leading, spacing: Theme.Space.s) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(title)
+                        Text(L(title))
                             .font(Theme.font(Theme.Size.title, .semibold))
                             .foregroundStyle(Theme.ink)
-                        Text(subtitle)
+                        Text(L(subtitle))
                             .font(Theme.font(Theme.Size.secondary))
                             .foregroundStyle(Theme.mist)
                             .lineLimit(1)
@@ -58,7 +58,7 @@ struct DenPane: View {
                             }
                         }
                         Spacer(minLength: 4)
-                        Chip(title: isRest ? "Focus" : "\(model.settings.breakMinutes)m break", selected: isRest,
+                        Chip(title: isRest ? "Focus" : L("%dm break", model.settings.breakMinutes), selected: isRest,
                              accent: .rest, disabled: busy) {
                             model.toggleBreak()
                         }
@@ -77,8 +77,8 @@ struct DenPane: View {
         let week = FocusStats.lastDays(7, entries: model.data.focusLog)
         let peak = max(1, week.map(\.minutes).max() ?? 1)
         return HStack(spacing: Theme.Space.l) {
-            stat(value: "\(model.focusToday) min", label: "today")
-            stat(value: model.focusStreak == 1 ? "1 day" : "\(model.focusStreak) days", label: "streak")
+            stat(value: L("%d min", model.focusToday), label: L("today"))
+            stat(value: model.focusStreak == 1 ? L("1 day") : L("%d days", model.focusStreak), label: L("streak"))
             Spacer(minLength: 0)
             HStack(alignment: .bottom, spacing: 4) {
                 ForEach(Array(week.enumerated()), id: \.offset) { i, entry in
@@ -86,7 +86,7 @@ struct DenPane: View {
                         Capsule()
                             .fill(entry.minutes > 0 ? AnyShapeStyle(Accent.den.linear) : AnyShapeStyle(Color.white.opacity(0.1)))
                             .frame(width: 6, height: max(3, 18 * CGFloat(entry.minutes) / CGFloat(peak)))
-                        Text(entry.day.formatted(.dateTime.weekday(.narrow)))
+                        Text(entry.day.formatted(.dateTime.weekday(.narrow).locale(Lang.locale)))
                             .font(Theme.font(8, i == week.count - 1 ? .semibold : .regular))
                             .foregroundStyle(i == week.count - 1 ? Theme.ink : Theme.faint)
                     }
@@ -112,14 +112,14 @@ struct DenPane: View {
         let minutes = Int(f.duration / 60)
         if f.isPaused { return "Paused" }
         if f.isRunning { return f.mode == .focus ? "In the Den" : "On a break" }
-        return f.mode == .focus ? "\(minutes) min focus" : "\(minutes) min break"
+        return f.mode == .focus ? L("%d min focus", minutes) : L("%d min break", minutes)
     }
 
     private var subtitle: String {
         let f = model.focus
         if f.isRunning {
             let end = Date().addingTimeInterval(f.remaining())
-            return "Ends at \(end.formatted(date: .omitted, time: .shortened))"
+            return L("Ends at %@", end.formatted(date: .omitted, time: .shortened))
         }
         return "Click the notch, then Space to start"
     }

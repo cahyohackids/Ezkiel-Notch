@@ -82,12 +82,12 @@ private struct BadgeRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(badge.name).font(Theme.font(Theme.Size.body, .semibold)).foregroundStyle(Theme.ink).lineLimit(1)
                 TimelineView(.everyMinute) { _ in
-                    Text(badge.since.formatted(.relative(presentation: .named)))
+                    Text(badge.since.formatted(.relative(presentation: .named).locale(Lang.locale)))
                         .font(Theme.font(Theme.Size.caption)).foregroundStyle(Theme.faint).lineLimit(1)
                 }
             }
             Spacer(minLength: 6)
-            IconButton(icon: "bell.slash", label: "Mute \(badge.name)", size: 24, tint: Theme.mist, action: mute)
+            IconButton(icon: "bell.slash", label: L("Mute %@", badge.name), size: 24, tint: Theme.mist, action: mute)
                 .opacity(hovering ? 1 : 0)
             CountPill(label: badge.label, accent: accent)
         }
@@ -97,11 +97,11 @@ private struct BadgeRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: open)
         .onHover { h in withAnimation(Theme.soft) { hovering = h } }
-        .help("Open \(badge.name)")
+        .help(L("Open %@", badge.name))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(badge.name), \(badge.label) unread")
+        .accessibilityLabel(L("%@, %@ unread", badge.name, badge.label))
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction(named: "Mute \(badge.name)", mute)
+        .accessibilityAction(named: L("Mute %@", badge.name), mute)
     }
 }
 
@@ -179,14 +179,14 @@ private struct ScoutRow: View {
                 .background(Circle().fill(accent.deep.opacity(live ? 0.2 : 0.12)))
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
-                    Text(event.title).font(Theme.font(Theme.Size.body, .semibold)).foregroundStyle(Theme.ink)
+                    Text(L(event.title)).font(Theme.font(Theme.Size.body, .semibold)).foregroundStyle(Theme.ink)
                     if let project = event.project {
                         Text(project).font(Theme.font(Theme.Size.caption, .medium)).foregroundStyle(accent.light)
                     }
                 }
                 .lineLimit(1)
                 if !event.body.isEmpty {
-                    Text(event.body).font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist).lineLimit(1)
+                    Text(L(event.body)).font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist).lineLimit(1)
                 }
             }
             Spacer(minLength: 6)
@@ -221,7 +221,7 @@ private struct ScoutRow: View {
     /// "now", "4m", "2h", "3d".
     static func age(_ date: Date, now: Date) -> String {
         let s = max(0, now.timeIntervalSince(date))
-        if s < 60 { return "now" }
+        if s < 60 { return L("now") }
         if s < 3600 { return "\(Int(s / 60))m" }
         if s < 86_400 { return "\(Int(s / 3600))h" }
         return "\(Int(s / 86_400))d"
@@ -254,7 +254,7 @@ private struct AIAppChip: View {
         }
         .buttonStyle(PressableStyle())
         .onHover { h in withAnimation(Theme.snappy) { hovering = h } }
-        .help("Open \(badge.name)")
+        .help(L("Open %@", badge.name))
     }
 }
 
@@ -271,8 +271,8 @@ private struct ScoutSetupCard: View {
                     .frame(width: 34, height: 34)
                     .background(Circle().fill(Accent.scout.deep.opacity(0.14)))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Hear from your agents").font(Theme.font(Theme.Size.body, .semibold)).foregroundStyle(Theme.ink)
-                    Text("A peek when Claude Code or Codex finishes or needs you, while you're in another app.")
+                    Text(L("Hear from your agents")).font(Theme.font(Theme.Size.body, .semibold)).foregroundStyle(Theme.ink)
+                    Text(L("A peek when Claude Code or Codex finishes or needs you, while you're in another app."))
                         .font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -285,8 +285,8 @@ private struct ScoutSetupCard: View {
                         if state != .on { model.setAgent(agent, connected: true) }
                     }
                     .opacity(agent.installed || state == .on ? 1 : 0.5)
-                    .help(agent.installed ? "Adds a small hook to \(agent.file.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")) (a backup is kept)"
-                                          : "\(agent.title) isn't set up on this Mac")
+                    .help(agent.installed ? L("Adds a small hook to %@ (a backup is kept)", agent.file.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                                          : L("%@ isn't set up on this Mac", agent.title))
                 }
                 PillButton(title: "Script", icon: "doc.on.doc") { model.copyScoutCommand() }
                     .help("Copies open \"ezkielnotch://notify?title=…\"")
