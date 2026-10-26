@@ -113,6 +113,8 @@ struct Peek: Identifiable, Equatable {
     var app: String? = nil
     /// Show that app's own icon instead of `icon`.
     var appIcon: Bool = false
+    /// Still shown while an app is fullscreen (low battery, a meeting, a due task, an agent that needs you).
+    var urgent: Bool = false
 
     var isHUD: Bool { hudKey != nil }
     /// Cards with a thumbnail or buttons need a taller second row.

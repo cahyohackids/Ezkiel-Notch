@@ -65,6 +65,12 @@ struct SettingsPane: View {
         ToggleRow(title: "Lion naps when idle", subtitle: "Wakes up when you're back", icon: "moon.zzz", isOn: $model.settings.mascotSleeps)
         ToggleRow(title: "Minimal closed notch", subtitle: "Hide the wings until something is live", icon: "rectangle.compress.vertical",
                   isOn: $model.settings.minimalClosed)
+        ToggleRow(title: "Calm in fullscreen", subtitle: "Videos, games and slides: no wings, only urgent peeks", icon: "arrow.up.left.and.arrow.down.right",
+                  isOn: $model.settings.hideInFullscreen)
+        ToggleRow(title: "Quiet during focus", subtitle: "Roar and finished agents wait while Den runs", icon: "moon",
+                  accent: .den, isOn: $model.settings.quietDuringFocus)
+        ToggleRow(title: "Hide from screen sharing", subtitle: "Zoom, Meet and recordings don't see the notch", icon: "rectangle.on.rectangle.slash",
+                  isOn: $model.settings.hideFromScreenShare)
         ToggleRow(title: "Sounds", subtitle: "Chimes for timers and reminders", icon: "speaker.wave.2", isOn: $model.settings.sounds)
         ToggleRow(title: "Haptics", subtitle: "A tap on the trackpad when opening", icon: "hand.tap", isOn: $model.settings.haptics)
         OptionRow(title: "Display", icon: "display") {
@@ -210,12 +216,14 @@ struct SettingsPane: View {
             }
         }
 
+        UpdateRow(model: model, updates: model.updates)
+
         HStack(spacing: 6) {
             PillButton(title: "ezkielyna.store/notch", icon: "safari") {
                 NSWorkspace.shared.open(URL(string: "https://ezkielyna.store/notch")!)
             }
             PillButton(title: "Data folder", icon: "folder") {
-                NSWorkspace.shared.activateFileViewerSelecting([DataStore.defaultURL()])
+                NSWorkspace.shared.activateFileViewerSelecting([model.dataFileURL])
             }
             Spacer(minLength: 0)
             Button {
@@ -233,6 +241,54 @@ struct SettingsPane: View {
             .buttonStyle(PressableStyle())
             .help("Quit Ezkiel Notch")
         }
+    }
+}
+
+/// "Ezkiel Notch 1.4.0 is out · Download", or the daily-check switch with "Check now".
+private struct UpdateRow: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var updates: UpdateChecker
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: updates.available == nil ? "arrow.triangle.2.circlepath" : "arrow.down.app.fill")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(updates.available == nil ? AnyShapeStyle(Theme.mist) : AnyShapeStyle(Accent.gold.linear))
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(updates.available.map { "Version \($0.version) is out" } ?? "Updates")
+                    .font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink)
+                Text(subtitle).font(Theme.font(Theme.Size.caption)).foregroundStyle(Theme.mist).lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            if let release = updates.available {
+                PillButton(title: "Download", icon: "arrow.down", prominent: true, accent: .gold) {
+                    NSWorkspace.shared.open(release.page)
+                }
+            } else {
+                TextButton(title: updates.checking ? "Checking…" : "Check now") { model.checkForUpdates(force: true) }
+                    .disabled(updates.checking)
+                Button {
+                    withAnimation(Theme.snappy) { model.settings.checkUpdates.toggle() }
+                } label: {
+                    NotchSwitch(isOn: model.settings.checkUpdates, accent: .gold)
+                }
+                .buttonStyle(PressableStyle())
+                .help("Ask GitHub once a day")
+                .accessibilityLabel("Check for updates daily")
+                .accessibilityValue(model.settings.checkUpdates ? "On" : "Off")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(minHeight: 36)
+        .cardSurface()
+    }
+
+    private var subtitle: String {
+        if updates.available != nil { return "You have \(AppModel.version) · opens the release page" }
+        if let at = updates.upToDateAt { return "Up to date · checked \(at.formatted(date: .omitted, time: .shortened))" }
+        return model.settings.checkUpdates ? "Checks GitHub once a day" : "Daily check is off"
     }
 }
 

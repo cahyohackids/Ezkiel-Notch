@@ -11,6 +11,8 @@ public struct ScoutEvent: Codable, Identifiable, Equatable {
         case working
         /// Anything else (scripts, cron jobs, bots).
         case info
+        /// The agent's session closed (Claude Code's SessionEnd): clears it quietly, never logged.
+        case ended
     }
 
     public var id: UUID
@@ -66,6 +68,8 @@ public enum ScoutParser {
             return make(.done, "Claude finished", "Your turn")
         case "SubagentStop":
             return make(.info, "A subagent finished", "")
+        case "SessionEnd":
+            return make(.ended, "Claude session ended", "")
         case "UserPromptSubmit":
             let prompt = (json["prompt"] as? String).map { String($0.prefix(140)) } ?? ""
             return make(.working, "Claude is working", prompt)
@@ -97,10 +101,11 @@ public enum ScoutParser {
               let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return nil }
         func value(_ name: String) -> String? { items.first { $0.name == name }?.value }
         guard let title = value("title"), !title.isEmpty else { return nil }
-        return ScoutEvent(source: value("source") ?? "script",
+        // No `app` from links: any web page can open this URL, and its peek must not launch apps.
+        return ScoutEvent(source: value("source") ?? "link",
                           kind: value("kind").flatMap(ScoutEvent.Kind.init(rawValue:)) ?? .info,
                           title: String(title.prefix(80)), body: String((value("body") ?? "").prefix(200)),
-                          cwd: value("cwd"), session: value("session"), appBundleID: value("app"), date: now)
+                          cwd: value("cwd"), session: value("session"), appBundleID: nil, date: now)
     }
 }
 
@@ -158,12 +163,19 @@ public enum ScoutSetup {
         case otherNotify(String)
     }
 
-    public static let claudeEvents = ["Notification", "Stop", "UserPromptSubmit"]
+    public static let claudeEvents = ["Notification", "Stop", "UserPromptSubmit", "SessionEnd"]
+
+    /// `'path'` for sh, with any `'` in the path escaped.
+    private static func shellQuoted(_ path: String) -> String {
+        "'\(path.replacingOccurrences(of: "'", with: #"'\''"#))'"
+    }
 
     // MARK: Claude Code
 
+    /// Guarded: if the app is moved or deleted, the hook does nothing (and still exits 0) instead of failing every prompt.
     public static func claudeCommand(executable: String) -> String {
-        "'\(executable.replacingOccurrences(of: "'", with: #"'\''"#))' --claude-hook"
+        let p = shellQuoted(executable)
+        return "[ -x \(p) ] && \(p) --claude-hook; true"
     }
 
     private static func isOurs(_ command: String) -> Bool {
@@ -240,9 +252,14 @@ public enum ScoutSetup {
 
     // MARK: Codex
 
+    /// Codex runs the program with the event JSON appended; through sh, a moved app is a no-op instead of an error.
     public static func codexLine(executable: String) -> String {
-        let escaped = executable.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-        return "notify = [\"\(escaped)\", \"--codex-notify\"]"
+        let p = shellQuoted(executable)
+        let script = "[ -x \(p) ] && \(p) --codex-notify \"$1\"; true"
+        func toml(_ s: String) -> String {
+            "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        }
+        return "notify = [\(toml("/bin/sh")), \(toml("-c")), \(toml(script)), \(toml("ezkiel-notch"))]"
     }
 
     /// Lines before the first `[table]`: only there is `notify` a top-level key.

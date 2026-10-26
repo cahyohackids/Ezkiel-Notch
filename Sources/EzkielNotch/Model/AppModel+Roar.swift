@@ -16,7 +16,12 @@ extension AppModel {
         "com.todesktop.230313mzl4w4u92", "com.exafunction.windsurf", "ai.perplexity.mac",
     ]
 
-    private func visible(_ badge: BadgeWatcher.Badge) -> Bool { !settings.roarMuted.contains(badge.bundleID) }
+    /// Badges that mean "an update is waiting", not a message.
+    static let notMessages: Set<String> = ["com.apple.systempreferences", "com.apple.AppStore", "com.apple.appstore"]
+
+    private func visible(_ badge: BadgeWatcher.Badge) -> Bool {
+        !settings.roarMuted.contains(badge.bundleID) && !Self.notMessages.contains(badge.bundleID)
+    }
 
     var roarBadges: [BadgeWatcher.Badge] { badges.badges.filter { visible($0) && !Self.aiApps.contains($0.bundleID) } }
     var aiBadges: [BadgeWatcher.Badge] { badges.badges.filter { visible($0) && Self.aiApps.contains($0.bundleID) } }
@@ -35,8 +40,9 @@ extension AppModel {
     func badgeIncreased(_ badge: BadgeWatcher.Badge, before: Int) {
         guard settings.roar, settings.roarPeeks, visible(badge),
               NSWorkspace.shared.frontmostApplication?.bundleIdentifier != badge.bundleID else { return }
-        // The list already shows it.
+        // The list already shows it; and focus means focus.
         if presentation == .expanded && tab == .roar { return }
+        if focusQuiet { return }
         let now = Date()
         if let last = lastRoarPeek[badge.bundleID], now.timeIntervalSince(last) < 20 { return }
         lastRoarPeek[badge.bundleID] = now
@@ -79,6 +85,9 @@ extension AppModel {
             withAnimation(Theme.smooth) { agents[key] = event }
         case .done:
             withAnimation(Theme.smooth) { agents[key] = nil }
+        case .ended:
+            withAnimation(Theme.smooth) { agents[key] = nil }
+            return
         case .info:
             break
         }
@@ -89,11 +98,12 @@ extension AppModel {
         // Looking at the agent already: no peek.
         if let app = event.appBundleID, NSWorkspace.shared.frontmostApplication?.bundleIdentifier == app { return }
         if presentation == .expanded && tab == .roar && roarMode == .scout { return }
+        if focusQuiet && event.kind != .needsYou { return }
         let detail = [event.project, event.body.isEmpty ? nil : event.body].compactMap { $0 }.joined(separator: " · ")
         showPeek(Peek(icon: Self.scoutIcon(event), title: event.title, subtitle: detail,
                       tint: event.kind == .needsYou ? Accent.den.deep : Accent.scout.deep, tab: .roar,
                       mood: event.kind == .needsYou ? .awake : .happy,
-                      sound: event.kind == .needsYou ? "Tink" : nil, app: event.appBundleID))
+                      sound: event.kind == .needsYou ? "Tink" : nil, app: event.appBundleID, urgent: event.kind == .needsYou))
     }
 
     static func scoutIcon(_ event: ScoutEvent) -> String {
@@ -101,7 +111,7 @@ extension AppModel {
         case .needsYou: return "hand.raised.fill"
         case .working: return "sparkle"
         case .done: return event.source == "codex" ? "chevron.left.forwardslash.chevron.right" : "flag.checkered"
-        case .info: return event.source == "claude" ? "sparkle" : "terminal.fill"
+        case .info, .ended: return event.source == "claude" ? "sparkle" : "terminal.fill"
         }
     }
 
@@ -118,11 +128,47 @@ extension AppModel {
         }
     }
 
-    /// An agent that never reported back (closed terminal, crash) doesn't stay "working" forever.
+    /// Log rows that aren't also showing as a live agent above them.
+    var scoutHistory: [ScoutEvent] {
+        let live = Set(agents.values.map(\.id))
+        return data.scoutLog.filter { !live.contains($0.id) }
+    }
+
+    /// An agent that never reported back (Esc in Claude Code sends no Stop, a closed terminal, a crash)
+    /// doesn't stay live: "needs you" for 30 minutes, "working" for 45.
     func expireAgents(_ now: Date) {
-        let stale = agents.filter { now.timeIntervalSince($0.value.date) > 2 * 3600 }.map(\.key)
+        let stale = agents.filter { _, e in now.timeIntervalSince(e.date) > (e.kind == .needsYou ? 1800 : 2700) }.map(\.key)
         guard !stale.isEmpty else { return }
         withAnimation(Theme.smooth) { stale.forEach { agents[$0] = nil } }
+    }
+
+    /// You went to the agent's terminal: its "needs you" has been seen, so it's back to working.
+    func agentAppActivated(_ bundleID: String?) {
+        guard let bundleID else { return }
+        let seen = agents.filter { $0.value.kind == .needsYou && $0.value.appBundleID == bundleID }
+        guard !seen.isEmpty else { return }
+        withAnimation(Theme.smooth) {
+            for (key, var e) in seen {
+                e.kind = .working
+                e.title = e.source == "codex" ? "Codex is working" : "Claude is working"
+                e.body = ""
+                agents[key] = e
+            }
+        }
+    }
+
+    func dismissAgent(_ event: ScoutEvent) {
+        withAnimation(Theme.smooth) {
+            for key in agents.filter({ $0.value.id == event.id }).map(\.key) { agents[key] = nil }
+        }
+    }
+
+    /// Connected agents whose hook points at an older copy or format get fixed quietly at launch.
+    func repairAgentLinks() {
+        for agent in AgentLinks.Agent.allCases where AgentLinks.state(agent) == .stale {
+            AgentLinks.set(agent, connected: true)
+        }
+        refreshAgentLinks()
     }
 
     // MARK: Connecting agents

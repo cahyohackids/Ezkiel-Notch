@@ -100,6 +100,7 @@ final class NotchWindowController {
     // MARK: - Pointer
 
     private func isInteractive(_ point: CGPoint) -> Bool {
+        if model.hiddenForFullscreen { return false }
         if model.shapeRect.contains(point) { return true }
         return fileDragActive && model.dragAttractRect.contains(point)
     }
@@ -184,7 +185,7 @@ final class NotchWindowController {
         let inPanel = mouse.x >= f.minX && mouse.x <= f.maxX && mouse.y >= f.minY && mouse.y <= f.maxY
         let p = CGPoint(x: mouse.x - f.minX, y: f.maxY - mouse.y)
 
-        let overShape = inPanel && model.shapeRect.contains(p)
+        let overShape = inPanel && model.shapeRect.contains(p) && !model.hiddenForFullscreen
         let nearForDrop = fileDragActive && inPanel && model.dragAttractRect.contains(p)
         let wantsEvents = overShape || nearForDrop
         if panel.ignoresMouseEvents == wantsEvents {
@@ -309,9 +310,22 @@ final class NotchWindowController {
                 MainActor.assumeIsolated {
                     self?.position()
                     self?.panel.orderFrontRegardless()
+                    self?.scheduleFullscreenCheck()
                 }
             })
         }
+        // A fullscreen app arrives with a Space change or by becoming frontmost.
+        observers.append(ws.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scheduleFullscreenCheck() }
+        })
+        model.$data
+            .map(\.settings.hideFromScreenShare)
+            .removeDuplicates()
+            .sink { [weak self] hidden in
+                self?.panel.sharingType = hidden ? .none : .readOnly
+            }
+            .store(in: &cancellables)
+        scheduleFullscreenCheck()
         model.$data
             .map { "\($0.settings.displayID)|\($0.settings.displayName)" }
             .removeDuplicates()
@@ -320,6 +334,53 @@ final class NotchWindowController {
                 DispatchQueue.main.async { self?.position() }
             }
             .store(in: &cancellables)
+    }
+}
+
+// MARK: - Fullscreen
+
+extension NotchWindowController {
+    /// The fullscreen animation takes a moment; look right away and again once it settles.
+    func scheduleFullscreenCheck() {
+        for delay in [0.1, 0.9, 2.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.checkFullscreen() }
+        }
+    }
+
+    private func checkFullscreen() {
+        guard let screen = targetScreen() else { return }
+        let active = Self.fullscreenWindow(on: screen)
+        if model.fullscreenActive != active {
+            withAnimation(Theme.smooth) { model.fullscreenActive = active }
+        }
+    }
+
+    /// Another app's normal window covers the whole display (on a notched one, everything below the camera
+    /// housing) and the menu bar is gone: that is a fullscreen Space, not just a big window.
+    /// Window bounds and layers need no Screen Recording permission.
+    static func fullscreenWindow(on screen: NSScreen) -> Bool {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]],
+              let mainHeight = NSScreen.screens.first?.frame.height else { return false }
+        let own = ProcessInfo.processInfo.processIdentifier
+        let f = screen.frame
+        // CoreGraphics measures from the top-left of the main display.
+        let top = mainHeight - f.maxY
+        let inset = screen.safeAreaInsets.top
+        func bounds(_ w: [String: Any]) -> CGRect? {
+            (w[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) }
+        }
+        let menuBarShown = list.contains { w in
+            guard (w[kCGWindowLayer as String] as? Int) == Int(CGWindowLevelForKey(.mainMenuWindow)), let b = bounds(w) else { return false }
+            return abs(b.minY - top) < 1 && abs(b.minX - f.minX) < 1 && abs(b.width - f.width) < 1 && b.height < 80
+        }
+        guard !menuBarShown else { return false }
+        return list.contains { w in
+            guard (w[kCGWindowLayer as String] as? Int) == 0,
+                  (w[kCGWindowOwnerPID as String] as? Int32) != own,
+                  let b = bounds(w) else { return false }
+            return abs(b.minX - f.minX) < 1 && abs(b.width - f.width) < 1
+                && abs(b.maxY - (top + f.height)) < 1 && b.minY - top <= inset + 1
+        }
     }
 }
 

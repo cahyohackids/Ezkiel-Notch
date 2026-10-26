@@ -53,7 +53,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 /// wrapped in one spring, so the shape and the content always move together.
 @MainActor
 final class AppModel: ObservableObject {
-    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.3.0"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.3.1"
 
     // Presentation
     @Published private(set) var presentation: Presentation = .compact
@@ -68,6 +68,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var fileDragNear = false
     @Published private(set) var peek: Peek?
     @Published var geometry = NotchGeometry()
+    /// An app is fullscreen on the notch's display (set by the window controller).
+    @Published var fullscreenActive = false
     @Published private(set) var lionMood: LionMood = .awake
     @Published var settingsSection: SettingsSection = .general
     @Published var scratchMode: ScratchMode = .notes
@@ -98,9 +100,12 @@ final class AppModel: ObservableObject {
     let lyrics = LyricsService()
     let calendar = CalendarService()
     let badges = BadgeWatcher()
+    let updates = UpdateChecker()
     let scout = ScoutService()
     /// Roar: when each app last peeked, so a busy chat doesn't peek on every message.
     var lastRoarPeek: [String: Date] = [:]
+    /// Screens off or the session switched away: background work pauses.
+    private var screensAsleep = false
     private let system = SystemMonitor()
     private let pounce = PounceWatcher()
     private var subscriptions = Set<AnyCancellable>()
@@ -167,6 +172,21 @@ final class AppModel: ObservableObject {
         applySettings(old: nil)
         rebuildStash()
 
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.reportRecovery() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.checkForUpdates() }
+        if loaded.settings.scout, !ProcessInfo.processInfo.arguments.contains("--self-test") { repairAgentLinks() }
+        let ws = NSWorkspace.shared.notificationCenter
+        for (name, asleep) in [(NSWorkspace.screensDidSleepNotification, true), (NSWorkspace.sessionDidResignActiveNotification, true),
+                               (NSWorkspace.screensDidWakeNotification, false), (NSWorkspace.sessionDidBecomeActiveNotification, false)] {
+            ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.setScreensAsleep(asleep) }
+            }
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
+            let id = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
+            MainActor.assumeIsolated { self?.agentAppActivated(id) }
+        }
+
         // Lyrics follow the song.
         music.$nowPlaying
             .map { $0?.trackKey }
@@ -195,6 +215,9 @@ final class AppModel: ObservableObject {
         music.start()
     }
 
+    /// The data file in use (the default one, or `--data`).
+    var dataFileURL: URL { store.url }
+
     var settings: NotchSettings {
         get { data.settings }
         set { data.settings = newValue }
@@ -203,7 +226,8 @@ final class AppModel: ObservableObject {
     /// Watchers and services follow their switches.
     private func applySettings(old: NotchSettings?) {
         let s = data.settings
-        system.setCapsLockWatching(s.systemOverlays)
+        system.setCapsLockWatching(s.systemOverlays && !screensAsleep)
+        music.allowed = s.musicAllowed
         pounce.setScreenshots(s.pounceScreenshots)
         pounce.setDownloads(s.pounceDownloads)
         calendar.setEnabled(s.rally)
@@ -240,7 +264,17 @@ final class AppModel: ObservableObject {
             || !agents.isEmpty
     }
 
+    /// Fullscreen calm: the setting is on and something is fullscreen on our display.
+    var inFullscreenCalm: Bool { settings.hideInFullscreen && fullscreenActive }
+
+    /// On a display without a notch, a fullscreen app gets the whole top edge: the closed pill steps away.
+    var hiddenForFullscreen: Bool { inFullscreenCalm && !geometry.hasNotch && presentation == .compact }
+
+    /// Den is running a focus block and the user wants quiet.
+    var focusQuiet: Bool { settings.quietDuringFocus && focus.isRunning && focus.mode == .focus }
+
     var showsWings: Bool {
+        if inFullscreenCalm { return chrome.hovering }
         if !settings.minimalClosed { return true }
         return chrome.hovering || hasLiveActivity || showsClosedLyrics
     }
@@ -318,6 +352,7 @@ final class AppModel: ObservableObject {
 
     func expand(_ newTab: NotchTab? = nil) {
         if let newTab { select(newTab) }
+        if tab == .purr { allowMusic() }
         cancelCollapse()
         noteInteraction()
         guard presentation != .expanded else { return }
@@ -365,6 +400,7 @@ final class AppModel: ObservableObject {
     }
 
     func select(_ newTab: NotchTab) {
+        if newTab == .purr { allowMusic() }
         guard newTab != tab else { return }
         tabForward = newTab.index > tab.index
         noteInteraction()
@@ -392,7 +428,8 @@ final class AppModel: ObservableObject {
 
     // MARK: - Pointer (driven by NotchWindowController)
 
-    func pointerMoved(inside: Bool) {
+    func pointerMoved(inside rawInside: Bool) {
+        let inside = rawInside && !hiddenForFullscreen
         guard !ignoresPointer, inside != pointerInside else { return }
         pointerInside = inside
         hoverWork?.cancel()
@@ -465,6 +502,9 @@ final class AppModel: ObservableObject {
 
     func showPeek(_ incoming: Peek) {
         var p = incoming
+        // Over a fullscreen video, game or presentation only what can't wait gets through.
+        if inFullscreenCalm, !p.urgent, !p.isHUD { return }
+        announce(p)
         if settings.sounds, let sound = p.sound { NSSound(named: sound)?.play() }
         if !p.isHUD { makeLionHappy() }
         if presentation == .expanded {
@@ -503,6 +543,14 @@ final class AppModel: ObservableObject {
         }
         peekWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    /// VoiceOver reads peeks out, since they appear without focus.
+    private func announce(_ p: Peek) {
+        guard !p.isHUD, NSWorkspace.shared.isVoiceOverEnabled else { return }
+        let text = p.subtitle.isEmpty ? p.title : "\(p.title). \(p.subtitle)"
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                             userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
     }
 
     func dismissPeek() {
@@ -585,10 +633,19 @@ final class AppModel: ObservableObject {
 
     // MARK: - Ticker
 
+    private func setScreensAsleep(_ asleep: Bool) {
+        guard asleep != screensAsleep else { return }
+        screensAsleep = asleep
+        music.paused = asleep
+        system.setCapsLockWatching(settings.systemOverlays && !asleep)
+    }
+
     private func tick() {
         tickCount += 1
         let now = Date()
         if focus.isFinished(at: now) { completeFocus() }
+        // Nobody is looking: only the timer above (and due reminders, once back) matter.
+        if screensAsleep { return }
 
         guard tickCount % 5 == 0 else { return }
         checkTasks(now)
@@ -596,6 +653,7 @@ final class AppModel: ObservableObject {
         checkMeetings(now)
         expireAgents(now)
         if tickCount % 60 == 0 { calendar.refresh(now: now) }
+        if tickCount % 3600 == 30 { checkForUpdates() }
         if settings.mascotSleeps, lionMood == .awake, presentation == .compact,
            !hasLiveActivity, now.timeIntervalSince(lastInteraction) > 120 {
             withAnimation(Theme.smooth) { lionMood = .sleeping }
@@ -647,11 +705,11 @@ final class AppModel: ObservableObject {
             let streak = focusStreak
             showPeek(Peek(icon: "cup.and.saucer.fill", title: "Focus complete",
                           subtitle: streak > 1 ? "\(streak)-day streak · take \(settings.breakMinutes) min" : "Take a \(settings.breakMinutes)-minute break",
-                          tint: Accent.den.deep, tab: .den, mood: .happy, sound: "Glass", showsLion: true))
+                          tint: Accent.den.deep, tab: .den, mood: .happy, sound: "Glass", showsLion: true, urgent: true))
         } else {
             showPeek(Peek(icon: "bolt.fill", title: "Break complete",
                           subtitle: "Ready to focus again", tint: Accent.den.deep,
-                          tab: .den, mood: .happy, sound: "Glass", showsLion: true))
+                          tab: .den, mood: .happy, sound: "Glass", showsLion: true, urgent: true))
         }
     }
 
@@ -700,7 +758,7 @@ final class AppModel: ObservableObject {
             guard !t.done, !t.reminded, let due = t.due, due <= now else { continue }
             data.tasks[i].reminded = true
             showPeek(Peek(icon: "checklist", title: "Task due", subtitle: t.title, tint: Accent.hunt.deep,
-                          tab: .hunt, mood: .happy, sound: "Ping", showsLion: true))
+                          tab: .hunt, mood: .happy, sound: "Ping", showsLion: true, urgent: true))
             break
         }
     }
@@ -715,7 +773,7 @@ final class AppModel: ObservableObject {
             notifiedMeetings.insert(m.id)
             let time = m.start.formatted(date: .omitted, time: .shortened)
             showPeek(Peek(icon: "calendar", title: m.title, subtitle: "Starts \(time) · in \(Int((lead / 60).rounded(.up))) min",
-                          tint: Accent.rally.deep, tab: .hunt, mood: .awake, sound: "Glass", link: m.link))
+                          tint: Accent.rally.deep, tab: .hunt, mood: .awake, sound: "Glass", link: m.link, urgent: true))
             break
         }
     }
@@ -1027,6 +1085,12 @@ final class AppModel: ObservableObject {
                       tint: np.player.tint, tab: .purr, mood: .happy, artwork: true))
     }
 
+    /// Opening Purr is the moment to read the players (and for macOS to ask, if it hasn't yet).
+    func allowMusic() {
+        guard !settings.musicAllowed else { return }
+        settings.musicAllowed = true
+    }
+
     func updateMusicPolling() {
         music.fastPolling = presentation == .expanded && tab == .purr
     }
@@ -1115,7 +1179,7 @@ final class AppModel: ObservableObject {
                   let threshold = [20, 10, 5].first(where: { old.percent > $0 && new.percent <= $0 }) {
             // Fires when the level crosses a threshold, even if it skips the exact number.
             showPeek(Peek(icon: Self.batteryIcon(new.percent), title: "Battery low", subtitle: threshold <= 10 ? "Plug in now" : "Plug in soon",
-                          tint: Theme.berry, mood: .awake, sound: "Funk", progress: fraction, value: "\(new.percent)%"))
+                          tint: Theme.berry, mood: .awake, sound: "Funk", progress: fraction, value: "\(new.percent)%", urgent: true))
         }
     }
 
@@ -1126,6 +1190,43 @@ final class AppModel: ObservableObject {
         case ..<63: return "battery.50"
         case ..<88: return "battery.75"
         default: return "battery.100"
+        }
+    }
+
+    /// data.json couldn't be read at launch: say what happened (it was kept, never overwritten).
+    private func reportRecovery() {
+        switch store.recovery {
+        case .restoredBackup(_, let date)?:
+            let when = date.map { " from \($0.formatted(date: .abbreviated, time: .shortened))" } ?? ""
+            showPeek(Peek(icon: "lifepreserver", title: "Restored your data\(when)", subtitle: "The damaged file is kept in the data folder",
+                          tint: Theme.gold, tab: .settings, mood: .awake, urgent: true))
+        case .startedFresh?:
+            showPeek(Peek(icon: "exclamationmark.triangle", title: "Couldn't read your data",
+                          subtitle: "It's kept as data.broken-….json in the data folder", tint: Theme.berry, tab: .settings,
+                          mood: .awake, urgent: true))
+        case nil:
+            break
+        }
+    }
+
+    // MARK: - Updates
+
+    /// Daily, quietly. `force` is the "Check now" button.
+    func checkForUpdates(force: Bool = false) {
+        guard force || settings.checkUpdates, !ProcessInfo.processInfo.arguments.contains("--self-test") else { return }
+        if !force, let last = data.lastUpdateCheck, Date().timeIntervalSince(last) < 20 * 3600 { return }
+        data.lastUpdateCheck = Date()
+        updates.check(current: Self.version) { [weak self] release in
+            guard let self else { return }
+            if let release, self.data.announcedVersion != release.version {
+                self.data.announcedVersion = release.version
+                self.showPeek(Peek(icon: "arrow.down.to.line", title: "Ezkiel Notch \(release.version) is out",
+                                   subtitle: "Open Settings › About to update", tint: Theme.gold, tab: .settings, mood: .happy,
+                                   showsLion: true))
+                self.settingsSection = .about
+            } else if force, release == nil {
+                self.showToast(self.updates.upToDateAt != nil ? "You're on the latest version" : "Couldn't reach GitHub")
+            }
         }
     }
 
