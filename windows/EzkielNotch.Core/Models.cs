@@ -29,6 +29,14 @@ public sealed record ClipItem(Guid Id, string Text, DateTime Captured)
     public static ClipItem New(string text) => new(Guid.NewGuid(), text, DateTime.UtcNow);
 }
 
+/// <summary>A file on the Stash shelf. Bookmark is the Mac's security bookmark (base64), kept as is; Windows uses the path.</summary>
+public sealed record ShelfRecord(Guid Id, string Path, string? Bookmark, DateTime Added)
+{
+    public static ShelfRecord New(string path) => new(Guid.NewGuid(), path, null, DateTime.UtcNow);
+    /// <summary>The last part of a Windows or Mac path.</summary>
+    public string Name => Path.TrimEnd('\\', '/').Split('\\', '/').Last() is { Length: > 0 } n ? n : Path;
+}
+
 public sealed record WaterEntry(Guid Id, DateTime Date, int Ml)
 {
     public static WaterEntry New(int ml, DateTime? at = null) => new(Guid.NewGuid(), at ?? DateTime.UtcNow, ml);
@@ -74,6 +82,10 @@ public sealed class NotchSettings
     public List<string> RoarMuted { get; set; } = [];
     /// <summary>Scout: notifications from AI agents and scripts.</summary>
     public bool Scout { get; set; } = true;
+    /// <summary>Pounce: peek when a new screenshot appears.</summary>
+    public bool PounceScreenshots { get; set; }
+    /// <summary>Pounce: peek when a download finishes in Downloads.</summary>
+    public bool PounceDownloads { get; set; }
 
     /// <summary>The settings object as read, Mac-only keys included.</summary>
     internal JsonObject Raw { get; set; } = [];
@@ -101,6 +113,8 @@ public sealed class NotchSettings
         s.RoarPeeks = Json.Bool(o["roarPeeks"]) ?? s.RoarPeeks;
         s.RoarMuted = o["roarMuted"] is JsonArray muted ? [.. muted.Select(Json.String).OfType<string>()] : s.RoarMuted;
         s.Scout = Json.Bool(o["scout"]) ?? s.Scout;
+        s.PounceScreenshots = Json.Bool(o["pounceScreenshots"]) ?? s.PounceScreenshots;
+        s.PounceDownloads = Json.Bool(o["pounceDownloads"]) ?? s.PounceDownloads;
         s.Language = Json.String(o["language"]) switch
         {
             "en" => AppLanguage.En,
@@ -131,6 +145,8 @@ public sealed class NotchSettings
         o["roarPeeks"] = RoarPeeks;
         o["roarMuted"] = new JsonArray(RoarMuted.Select(m => (JsonNode?)m).ToArray());
         o["scout"] = Scout;
+        o["pounceScreenshots"] = PounceScreenshots;
+        o["pounceDownloads"] = PounceDownloads;
         o["language"] = Language switch { AppLanguage.En => "en", AppLanguage.Id => "id", _ => "auto" };
         // Without it the Mac would treat these as pre-1.3.1 settings and migrate them again.
         o["defaultsRevision"] ??= CurrentRevision;
@@ -144,6 +160,7 @@ public sealed class AppData
     public List<TaskItem> Tasks { get; set; } = [];
     public List<NoteItem> Notes { get; set; } = [];
     public List<ClipItem> Clips { get; set; } = [];
+    public List<ShelfRecord> Shelf { get; set; } = [];
     public List<WaterEntry> Water { get; set; } = [];
     public List<FocusEntry> FocusLog { get; set; } = [];
     /// <summary>The last Scout events (agents and scripts), newest first.</summary>
@@ -155,7 +172,7 @@ public sealed class AppData
     /// <summary>Top-level keys this app doesn't use yet (the shelf, Scout's log, update state…), kept as read.</summary>
     private JsonObject _rest = [];
 
-    private static readonly string[] Known = ["tasks", "notes", "clips", "water", "focusLog", "scoutLog", "focusState", "settings"];
+    private static readonly string[] Known = ["tasks", "notes", "clips", "shelf", "water", "focusLog", "scoutLog", "focusState", "settings"];
 
     /// <summary>Parses data.json. Returns null only when the file isn't a JSON object at all.
     /// Like the Mac: one damaged entry costs that entry, never the whole list.</summary>
@@ -171,6 +188,7 @@ public sealed class AppData
             Tasks = Json.List(o["tasks"], ReadTask),
             Notes = Json.List(o["notes"], ReadNote),
             Clips = Json.List(o["clips"], ReadClip),
+            Shelf = Json.List(o["shelf"], ReadShelf),
             Water = Json.List(o["water"], ReadWater),
             FocusLog = Json.List(o["focusLog"], ReadFocus),
             ScoutLog = Json.List(o["scoutLog"], ScoutEvent.Read),
@@ -203,6 +221,12 @@ public sealed class AppData
         {
             ["id"] = Json.Id(c.Id), ["text"] = c.Text, ["captured"] = Json.Date(c.Captured),
         }).ToArray());
+        o["shelf"] = new JsonArray(Shelf.Select(r =>
+        {
+            var j = new JsonObject { ["id"] = Json.Id(r.Id), ["path"] = r.Path, ["added"] = Json.Date(r.Added) };
+            if (r.Bookmark is not null) j["bookmark"] = r.Bookmark;
+            return (JsonNode)j;
+        }).ToArray());
         o["water"] = new JsonArray(Water.Select(w => (JsonNode)new JsonObject
         {
             ["id"] = Json.Id(w.Id), ["date"] = Json.Date(w.Date), ["ml"] = w.Ml,
@@ -234,6 +258,10 @@ public sealed class AppData
     private static ClipItem? ReadClip(JsonObject o) =>
         Json.Guid(o["id"]) is { } id && Json.String(o["text"]) is { } text && Json.Date(o["captured"]) is { } captured
             ? new ClipItem(id, text, captured) : null;
+
+    private static ShelfRecord? ReadShelf(JsonObject o) =>
+        Json.Guid(o["id"]) is { } id && Json.String(o["path"]) is { } path && Json.Date(o["added"]) is { } added
+            ? new ShelfRecord(id, path, Json.String(o["bookmark"]), added) : null;
 
     private static WaterEntry? ReadWater(JsonObject o) =>
         Json.Guid(o["id"]) is { } id && Json.Date(o["date"]) is { } date && Json.Int(o["ml"]) is { } ml

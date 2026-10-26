@@ -279,6 +279,58 @@ public sealed class NotchModel
         }));
     }
 
+    // MARK: Stash
+
+    public const int StashLimit = 60;
+
+    /// <summary>Adds files and folders (newest first, no duplicates, at most 60). Returns how many were new.</summary>
+    public int AddToShelf(IEnumerable<string> paths)
+    {
+        var known = Data.Shelf.Select(r => Normal(r.Path)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        int added = 0;
+        foreach (var p in paths)
+        {
+            if (string.IsNullOrWhiteSpace(p) || !known.Add(Normal(p))) continue;
+            Data.Shelf.Insert(0, ShelfRecord.New(p));
+            added++;
+        }
+        int dropped = Math.Max(0, Data.Shelf.Count - StashLimit);
+        if (dropped > 0) Data.Shelf.RemoveRange(StashLimit, dropped);
+        if (added > 0) Sound?.Invoke("Pop");
+        if (dropped > 0) Toast?.Invoke(new ToastRequest(L("Stash keeps %d items · oldest removed", StashLimit)));
+        Touch(Room.Stash);
+        return added;
+    }
+
+    private static string Normal(string p) => p.Replace('/', '\\').TrimEnd('\\');
+
+    public void RemoveFromShelf(Guid id)
+    {
+        int i = Data.Shelf.FindIndex(r => r.Id == id);
+        if (i < 0) return;
+        var removed = Data.Shelf[i];
+        Data.Shelf.RemoveAt(i);
+        Touch(Room.Stash);
+        Toast?.Invoke(new ToastRequest(L("Removed from Stash"), L("Undo"), () =>
+        {
+            Data.Shelf.Insert(Math.Min(i, Data.Shelf.Count), removed);
+            Touch(Room.Stash);
+        }));
+    }
+
+    public void ClearShelf()
+    {
+        var before = Data.Shelf.ToList();
+        if (before.Count == 0) return;
+        Data.Shelf.Clear();
+        Touch(Room.Stash);
+        Toast?.Invoke(new ToastRequest(L("Stash cleared"), L("Undo"), () =>
+        {
+            Data.Shelf = before;
+            Touch(Room.Stash);
+        }));
+    }
+
     // MARK: Oasis
 
     public int WaterToday => WaterLog.Total(Data.Water, Now());

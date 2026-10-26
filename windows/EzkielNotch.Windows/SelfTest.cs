@@ -98,6 +98,27 @@ internal static class SelfTest
                 m.ShowingCatch = true;
                 w.CurrentPane!.Refresh();
             }),
+            ("stash", () =>
+            {
+                // Real files (in the self-test's own folder), so thumbnails, sizes and "Missing" are real too.
+                var dir = Path.Combine(Path.GetDirectoryName(m.Store!.Path)!, "stash");
+                Directory.CreateDirectory(dir);
+                var shot = Path.Combine(dir, "Screenshot 2026-10-26 091500.png");
+                using (var f = File.Create(shot))
+                {
+                    var png = new PngBitmapEncoder();
+                    png.Frames.Add(BitmapFrame.Create(DemoArtwork()));
+                    png.Save(f);
+                }
+                File.WriteAllText(Path.Combine(dir, "Invoice-October.pdf"), new string('x', 248_000));
+                File.WriteAllText(Path.Combine(dir, "notes.txt"), "hello");
+                Directory.CreateDirectory(Path.Combine(dir, "Brand assets"));
+                int added = m.AddToShelf([Path.Combine(dir, "notes.txt"), Path.Combine(dir, "Brand assets"), Path.Combine(dir, "Invoice-October.pdf"), shot, Path.Combine(dir, "gone.zip")]);
+                Check(added == 5, "files and folders go on the shelf");
+                Check(m.AddToShelf([shot]) == 0, "the same file isn't stashed twice");
+                w.Select(Room.Stash);
+            }),
+            ("stash ok", () => RoomChecks(w, Room.Stash)),
             ("oasis", () => w.Select(Room.Oasis)),
             ("oasis ok", () =>
             {
@@ -207,6 +228,13 @@ internal static class SelfTest
                 Check(w.Presentation == Presentation.Peek, "a peek shows");
             }),
             ("peek text", () => Check(FullyInside(w, w.PeekTitle), "the peek's text is laid out in full, inside the island")),
+            ("pounce peek", () =>
+            {
+                var shot = m.Data.Shelf.First(r => r.Path.EndsWith(".png")).Path;
+                w.ShowPeek("Screenshot", Path.GetFileName(shot), room: Room.Stash, file: shot);
+                Check(w.PeekActions.Children.Count == 3, "a Pounce peek offers Copy · Stash · Show");
+            }),
+            ("pounce peek fits", () => Check(FullyInside(w, w.PeekActions), "the Pounce buttons fit inside the peek")),
             ("fullscreen", () =>
             {
                 w.Collapse();

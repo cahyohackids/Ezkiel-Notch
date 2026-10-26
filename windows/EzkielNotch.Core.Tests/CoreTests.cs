@@ -553,3 +553,27 @@ public class RoarModelTests
         Assert.Single(m.Data.ScoutLog);
     }
 }
+
+[Collection("Lang")]
+public class StashTests
+{
+    [Fact]
+    public void ShelfKeepsSixtyNewestWithoutDuplicates()
+    {
+        var m = new NotchModel(new AppData());
+        Assert.Equal(2, m.AddToShelf([@"C:\a.txt", @"C:\b.txt", @"c:/a.txt"]));
+        Assert.Equal(@"C:\b.txt", m.Data.Shelf[0].Path);
+        m.AddToShelf(Enumerable.Range(0, 70).Select(i => $@"C:\f{i}.txt"));
+        Assert.Equal(60, m.Data.Shelf.Count);
+        Assert.Equal("f69.txt", m.Data.Shelf[0].Name);
+    }
+
+    [Fact]
+    public void MacShelfRecordsSurviveAWindowsSave()
+    {
+        var json = """{"shelf":[{"id":"99999999-8888-7777-6666-555555555555","path":"/Users/x/a.pdf","bookmark":"Ym9vaw==","added":"2026-10-26T01:00:00Z"}]}""";
+        var d = AppData.FromJson(json)!;
+        Assert.Equal("a.pdf", d.Shelf.Single().Name);
+        Assert.Contains("\"bookmark\": \"Ym9vaw==\"", d.ToJson());
+    }
+}

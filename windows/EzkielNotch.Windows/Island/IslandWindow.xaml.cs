@@ -33,6 +33,8 @@ public partial class IslandWindow : Window
     private static readonly Shape LipShape = new(180, 6, 3, 4);
     private static readonly Shape LipHoverShape = new(208, 10, 5, 6);
     private static readonly Shape PeekShape = new(320, 52, 18, 10);
+    /// <summary>A peek with buttons (Pounce: Copy · Stash · Show).</summary>
+    private static readonly Shape PeekWideShape = new(440, 52, 18, 10);
 
     /// <summary>Header 34 + tabs 30 + gap 10 + the room's pane + bottom 12, like the Mac's expandedSize.</summary>
     public double ExpandedHeight(Room room) =>
@@ -43,6 +45,7 @@ public partial class IslandWindow : Window
     public MediaWatcher Media { get; }
     public LyricsClient Lyrics { get; }
     public RoarWatcher Roar { get; }
+    public PounceWatcher Pounce { get; }
     public Presentation Presentation { get; private set; } = Presentation.Lip;
     public bool Hovering { get; private set; }
     public bool FullscreenActive { get; private set; }
@@ -67,6 +70,7 @@ public partial class IslandWindow : Window
     private nint _winEventHook;
     private Win32.WinEventProc? _winEventProc;   // kept alive: the hook calls back into it
     private nint _previousForeground;
+    private bool _dragInside;
     private bool _simulatingFullscreen;
     private readonly Dictionary<Room, Pane> _panes = [];
     private readonly HashSet<Room> _stale = [];
@@ -78,6 +82,13 @@ public partial class IslandWindow : Window
         Media = new MediaWatcher(Dispatcher);
         Lyrics = new LyricsClient(version: typeof(IslandWindow).Assembly.GetName().Version?.ToString(3) ?? "0");
         Roar = new RoarWatcher(Dispatcher);
+        Pounce = new PounceWatcher(Dispatcher);
+        Pounce.Pounced += (path, screenshot) =>
+        {
+            if (!(screenshot ? Model.Settings.PounceScreenshots : Model.Settings.PounceDownloads)) return;
+            if (Presentation == Presentation.Expanded) return;
+            ShowPeek(screenshot ? L("Screenshot") : L("Downloaded"), System.IO.Path.GetFileName(path), 6, room: Room.Stash, file: path);
+        };
         Roar.Updated += Model.UpdateBadges;
         Model.ForegroundApp = AppIdentity.Foreground;
         Model.LookingAtRoar = () => Presentation == Presentation.Expanded && Selected == Room.Roar;
@@ -92,6 +103,37 @@ public partial class IslandWindow : Window
         PeekView.MouseLeftButtonUp += (_, _) => OpenFromPeek();
         Body.PreviewMouseLeftButtonDown += (_, _) => { if (Presentation == Presentation.Expanded) EngageKeyboard(); };
         PreviewKeyDown += OnKey;
+
+        // Drop files on the island: it opens Stash and keeps them there.
+        Root.AllowDrop = true;
+        Root.DragEnter += (_, e) =>
+        {
+            if (StashPane.DraggingOut || !e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.None; return; }
+            _dragInside = true;
+            e.Effects = DragDropEffects.Copy;
+            Select(Room.Stash);
+            if (Presentation != Presentation.Expanded) Expand();
+            (CurrentPane as StashPane)?.SetTargeted(true);
+            e.Handled = true;
+        };
+        Root.DragOver += (_, e) =>
+        {
+            e.Effects = !StashPane.DraggingOut && e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Handled = true;
+        };
+        Root.DragLeave += (_, _) =>
+        {
+            _dragInside = false;
+            (CurrentPane as StashPane)?.SetTargeted(false);
+        };
+        Root.Drop += (_, e) =>
+        {
+            _dragInside = false;
+            (CurrentPane as StashPane)?.SetTargeted(false);
+            if (StashPane.DraggingOut || e.Data.GetData(DataFormats.FileDrop) is not string[] files) return;
+            Model.AddToShelf(files);
+            e.Handled = true;
+        };
         Deactivated += (_, _) => SetNoActivate(true);
 
         Model.Changed += OnModelChanged;
@@ -141,6 +183,7 @@ public partial class IslandWindow : Window
 
         Media.Start();
         Roar.SetEnabled(Model.Settings.Roar && !SelfTesting);
+        if (!SelfTesting) Pounce.Configure(Model.Settings.PounceScreenshots, Model.Settings.PounceDownloads);
         _pointer.Start();
         _second.Start();
         _fullscreenPoll.Start();
@@ -228,20 +271,29 @@ public partial class IslandWindow : Window
 
     /// <summary>A short message under the top edge. While something is fullscreen only urgent ones show.
     /// Clicking it opens its room.</summary>
-    public void ShowPeek(string title, string subtitle, double seconds = 3.4, bool urgent = false, Room? room = null, string? app = null)
+    public void ShowPeek(string title, string subtitle, double seconds = 3.4, bool urgent = false, Room? room = null, string? app = null, string? file = null)
     {
         if (FullscreenActive && Model.Settings.HideInFullscreen && !urgent) return;
         if (Presentation == Presentation.Expanded) return;
         PeekTitle.Text = title;
         PeekSubtitle.Text = subtitle;
         // An app's own news shows that app's icon; everything else, Ezkiel.
-        PeekIcon.Source = app is not null && AppIcons.Icon(app) is { } icon ? icon : Rooms.PurrPane.Lion;
+        PeekIcon.Source = app is not null && AppIcons.Icon(app) is { } icon ? icon
+            : file is not null && Files.Thumbnail(file, 64) is { } thumb ? thumb : Rooms.PurrPane.Lion;
+        PeekActions.Children.Clear();
+        if (file is not null)
+        {
+            // Pounce: the file right where you need it.
+            PeekActions.Children.Add(Ui.TextButton(L("Copy"), () => { Files.Copy([file]); Collapse(); }, Accent.Stash.LightBrush));
+            PeekActions.Children.Add(Ui.TextButton("Stash", () => { Model.AddToShelf([file]); Collapse(); }, Accent.Stash.LightBrush));
+            PeekActions.Children.Add(Ui.TextButton(L("Show"), () => { Files.Reveal(file); Collapse(); }, Accent.Stash.LightBrush));
+        }
         _peekRoom = room;
         PeekView.Cursor = room is null ? null : Cursors.Hand;
         Presentation = Presentation.Peek;
         Root.Opacity = 1;
         Root.IsHitTestVisible = true;
-        Apply(PeekShape, animate: true, bouncy: true);
+        Apply(file is null ? PeekShape : PeekWideShape, animate: true, bouncy: true);
         Fade(PeekView, 1, 0.2, delay: 0.1);
         _peekTimer?.Stop();
         _peekTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(urgent ? Math.Max(seconds, 6) : seconds) };
@@ -435,6 +487,8 @@ public partial class IslandWindow : Window
         // A click on the lip opens it even with hover-to-open off.
         if (Presentation == Presentation.Lip && inside && (Win32.GetAsyncKeyState(0x01) & 0x8000) != 0) Expand();
         // A click anywhere else closes the open island (clicks there go to other apps, so we look).
+        // Not while a file is being dragged out of Stash or over the island.
+        if (StashPane.DraggingOut || _dragInside) return;
         if (Presentation == Presentation.Expanded && !inside && (Win32.GetAsyncKeyState(0x01) & 0x8000) != 0) Collapse();
     }
 
@@ -466,6 +520,7 @@ public partial class IslandWindow : Window
             }
             // While you type, the island waits (an idle field still lets go after 20 s outside).
             var grace = Typing ? TimeSpan.FromSeconds(20) : TimeSpan.FromMilliseconds(500);
+            if (StashPane.DraggingOut || _dragInside) return;
             if (Presentation == Presentation.Expanded && now - _outsideSince > grace) Collapse();
         }
     }
@@ -542,9 +597,30 @@ public partial class IslandWindow : Window
             Room.Settings => new SettingsPane(Model),
             Room.Purr => new PurrPane(Model, Media, Lyrics),
             Room.Roar => new RoarPane(Model),
+            Room.Stash => new StashPane(Model),
             _ => new ComingPane(Model, room),
         };
         if (pane is RoarPane roar) roar.OpenSettings += () => Select(Room.Settings);
+        if (pane is StashPane stash)
+        {
+            stash.ShareFiles += files =>
+            {
+                Collapse();
+                Files.Share(_hwnd, files);
+            };
+            stash.ChooseFiles += () =>
+            {
+                // The file dialog would sit under the open island, so the island tucks away while it's up.
+                Collapse();
+                var dialog = new Microsoft.Win32.OpenFileDialog { Multiselect = true, Title = L("Add files to Stash") };
+                if (dialog.ShowDialog() == true)
+                {
+                    Model.AddToShelf(dialog.FileNames);
+                    Select(Room.Stash);
+                    Expand();
+                }
+            };
+        }
         if (pane is PurrPane purr)
             purr.HeightChanged += () => { if (Presentation == Presentation.Expanded && Selected == Room.Purr) Apply(ExpandedShape(Room.Purr), animate: true); };
         if (pane is ScratchPane scratch) scratch.Copied += () => ShowToast(new ToastRequest(L("Copied")));
@@ -610,6 +686,7 @@ public partial class IslandWindow : Window
         if (room == Room.Settings)
         {
             Roar.SetEnabled(Model.Settings.Roar && !SelfTesting);
+            if (!SelfTesting) Pounce.Configure(Model.Settings.PounceScreenshots, Model.Settings.PounceDownloads);
             // Settings feed Den, Oasis and the rest; the Settings room redraws itself.
             foreach (var r in _panes.Keys) if (r != Room.Settings) _stale.Add(r);
             if (Presentation == Presentation.Expanded && Selected != Room.Settings) ShowRoom(Selected);

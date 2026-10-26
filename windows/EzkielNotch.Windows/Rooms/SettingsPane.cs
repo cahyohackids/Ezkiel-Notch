@@ -54,6 +54,9 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
                 Changed();
             }))]));
 
+        list.Children.Add(Toggle(L("Pounce on screenshots"), L("New screenshots appear with Copy · Stash · Show"), s.PounceScreenshots, v => s.PounceScreenshots = v, Accent.Stash));
+        list.Children.Add(Toggle(L("Pounce on downloads"), L("Finished downloads appear the same way"), s.PounceDownloads, v => s.PounceDownloads = v, Accent.Stash));
+
         list.Children.Add(Section("Roar & Scout"));
         list.Children.Add(Toggle("Roar", L("Unread counts from WhatsApp, Teams, Outlook and any app that notifies you. Only the number, no permission."),
                                  s.Roar, v => s.Roar = v, Accent.Roar));

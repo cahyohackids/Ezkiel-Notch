@@ -40,7 +40,7 @@ public sealed record RoomInfo(Room Room, string Glyph, Accent Accent, double Pan
         new(Room.Roar, "\uEA8F", Accent.Roar, 176, "Unread and agents"),
         new(Room.Scratch, "\uE70B", Accent.Scratch, 180, "Notes and clips"),
         new(Room.Purr, "\uE8D6", Accent.Purr, 122, "Now playing"),
-        new(Room.Stash, "\uE8B7", Accent.Stash, 122, "File shelf"),
+        new(Room.Stash, "\uE8B7", Accent.Stash, 128, "File shelf"),
         new(Room.Oasis, "\uEC32", Accent.Oasis, 136, "Water"),
         new(Room.Settings, "\uE713", Accent.Neutral, 196, "Settings"),
     ];
