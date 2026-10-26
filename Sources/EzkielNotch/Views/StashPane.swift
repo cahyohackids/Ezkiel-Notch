@@ -42,11 +42,11 @@ struct StashPane: View {
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(Accent.stash.linear)
                             .offset(y: bob ? 5 : 0)
-                        Text(targeted ? "Release to stash" : "Drop files here")
+                        Text(targeted ? L("Release to stash") : L("Drop files here"))
                             .font(Theme.font(Theme.Size.body, .semibold))
                             .foregroundStyle(Theme.ink)
                         if !targeted {
-                            Text("Originals stay where they are")
+                            Text(L("Originals stay where they are"))
                                 .font(Theme.font(Theme.Size.caption))
                                 .foregroundStyle(Theme.mist)
                         }
@@ -110,7 +110,7 @@ private struct StashCard: View {
                     .buttonStyle(PressableStyle())
                     .offset(x: 10, y: -9)
                     .help("Remove from Stash")
-                    .accessibilityLabel("Remove \(item.name) from Stash")
+                    .accessibilityLabel(L("Remove %@ from Stash", item.name))
                     .transition(.scale.combined(with: .opacity))
                 }
             }
@@ -127,7 +127,7 @@ private struct StashCard: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(width: 66)
-            Text(item.detail)
+            Text(L(item.detail))
                 .font(Theme.font(9))
                 .foregroundStyle(item.exists ? Theme.mist : Accent.hunt.light)
         }
@@ -155,7 +155,7 @@ private struct StashCard: View {
             Divider()
             Button("Remove from Stash") { model.removeFromShelf(item.id) }
         }
-        .help(item.exists ? "\(item.url.path)\nDouble-click to open · drag to share" : "File missing: \(item.url.path)")
+        .help(item.exists ? "\(item.url.path)\n" + L("Double-click to open · drag to share") : L("File missing: %@", item.url.path))
     }
 }
 

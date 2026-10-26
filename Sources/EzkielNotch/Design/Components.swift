@@ -107,7 +107,7 @@ struct PillButton: View {
                 if let icon {
                     Image(systemName: icon).font(.system(size: 11, weight: .semibold))
                 }
-                Text(title).font(Theme.font(Theme.Size.body, .medium)).lineLimit(1)
+                Text(L(title)).font(Theme.font(Theme.Size.body, .medium)).lineLimit(1)
             }
             .padding(.horizontal, 12)
             .frame(height: 28)
@@ -152,8 +152,8 @@ struct IconButton: View {
                 }
         }
         .buttonStyle(PressableStyle(scale: 0.88))
-        .help(label)
-        .accessibilityLabel(label)
+        .help(L(label))
+        .accessibilityLabel(L(label))
         .onHover { h in withAnimation(Theme.snappy) { hovering = h } }
     }
 }
@@ -169,7 +169,7 @@ struct Chip: View {
 
     var body: some View {
         Button(action: action) {
-            Text(title)
+            Text(L(title))
                 .font(Theme.font(Theme.Size.secondary, .medium))
                 .foregroundStyle(selected ? Theme.onAccent : Theme.ink.opacity(disabled ? 0.35 : 0.85))
                 .padding(.horizontal, 10)
@@ -209,9 +209,9 @@ struct ToggleRow: View {
                     .foregroundStyle(isOn ? accent.deep : Theme.mist)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink)
+                    Text(L(title)).font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink)
                     if let subtitle {
-                        Text(subtitle).font(Theme.font(Theme.Size.caption)).foregroundStyle(Theme.mist)
+                        Text(L(subtitle)).font(Theme.font(Theme.Size.caption)).foregroundStyle(Theme.mist)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -226,10 +226,10 @@ struct ToggleRow: View {
         .buttonStyle(PressableStyle(scale: 0.98))
         .onHover { h in withAnimation(Theme.snappy) { hovering = h } }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
-        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityLabel(L(title))
+        .accessibilityValue(isOn ? L("On") : L("Off"))
         .accessibilityAddTraits(.isButton)
-        .accessibilityHint(subtitle ?? "")
+        .accessibilityHint(subtitle.map(L) ?? "")
     }
 }
 
@@ -316,9 +316,9 @@ struct PaneHeader<Trailing: View>: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(title).font(Theme.font(Theme.Size.secondary, .semibold)).foregroundStyle(Theme.ink)
+            Text(L(title)).font(Theme.font(Theme.Size.secondary, .semibold)).foregroundStyle(Theme.ink)
             if let detail {
-                Text(detail).font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist).lineLimit(1)
+                Text(L(detail)).font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist).lineLimit(1)
             }
             Spacer(minLength: 4)
             trailing()
@@ -342,7 +342,7 @@ struct TextButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text(title)
+            Text(L(title))
                 .font(Theme.font(Theme.Size.secondary, .medium))
                 .foregroundStyle(tint)
                 .padding(.horizontal, 6)
@@ -363,8 +363,8 @@ struct EmptyHint: View {
         HStack(spacing: 12) {
             LionMascot(size: 40, mood: mood, animated: false)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(Theme.font(Theme.Size.body, .semibold)).foregroundStyle(Theme.ink)
-                Text(subtitle).font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist)
+                Text(L(title)).font(Theme.font(Theme.Size.body, .semibold)).foregroundStyle(Theme.ink)
+                Text(L(subtitle)).font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -379,7 +379,7 @@ struct NotchField: View {
     var onSubmit: () -> Void
 
     var body: some View {
-        TextField("", text: $text, prompt: Text(placeholder).foregroundColor(Theme.faint))
+        TextField("", text: $text, prompt: Text(L(placeholder)).foregroundColor(Theme.faint))
             .textFieldStyle(.plain)
             .font(Theme.font(Theme.Size.body))
             .foregroundStyle(Theme.ink)
@@ -397,7 +397,7 @@ struct ToastBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(toast.text)
+            Text(L(toast.text))
                 .font(Theme.font(Theme.Size.secondary, .medium))
                 .foregroundStyle(Theme.ink)
                 .lineLimit(1)
@@ -406,7 +406,7 @@ struct ToastBar: View {
                     action()
                     dismiss()
                 } label: {
-                    Text(title).font(Theme.font(Theme.Size.secondary, .semibold)).foregroundStyle(Theme.gold)
+                    Text(L(title)).font(Theme.font(Theme.Size.secondary, .semibold)).foregroundStyle(Theme.gold)
                         .padding(.horizontal, 6).frame(minHeight: 22)
                 }
                 .buttonStyle(PressableStyle())

@@ -1,4 +1,5 @@
 import AppKit
+import CoreAudio
 import NotchCore
 import SwiftUI
 
@@ -18,6 +19,8 @@ enum SelfTest {
         model.ignoresPointer = true
         // Never the real Dock badges: they'd make results (and snapshots) depend on this Mac's chats.
         model.badges.simulate([])
+        // Nor the real Spotify/Music: only the simulated song below.
+        model.music.paused = true
         let saved = model.settings
 
         steps.append(("panel on screen", {
@@ -169,7 +172,6 @@ enum SelfTest {
             }))
             steps.append(("chorus off", {
                 model.music.simulate(nil)
-                model.music.refresh()
             }))
         }
 
@@ -208,7 +210,7 @@ enum SelfTest {
         }))
         steps.append(("roar closed notch", {
             model.dismissPeek()
-            check(model.presentation == .compact && model.unreadTotal > 0, "closed notch shows the unread count")
+            check(model.presentation == .compact && model.unreadTotal > 0 && model.showsWings, "closed notch shows the unread count")
         }))
 
         // Scout: an agent session, as Claude Code's hook would send it.
@@ -314,6 +316,50 @@ enum SelfTest {
             model.settingsSection = .roar
             model.expand(.settings)
             check(model.agentLinks.count == AgentLinks.Agent.allCases.count, "Settings knows each agent's link state")
+        }))
+
+        // 1.4: Prowl, weather, sound outputs, Indonesian.
+        steps.append(("prowl closed notch", {
+            model.collapse()
+            model.prowl.simulate(mic: true, camera: true)
+            check(model.hasLiveActivity && model.showsWings, "a live mic or camera shows in the closed notch")
+        }))
+        steps.append(("weather header", {
+            model.prowl.simulate(mic: false, camera: false)
+            let json = #"{"current":{"temperature_2m":30.6,"weather_code":3,"is_day":1},"daily":{"temperature_2m_max":[33.6],"temperature_2m_min":[25.1],"precipitation_probability_max":[73]}}"#
+            let now = WeatherService.parseForecast(Data(json.utf8))
+            check(now?.temperature == 30.6 && now?.rainChance == 73, "reads an Open-Meteo forecast")
+            check(WeatherService.parsePlaces(Data(#"{"results":[{"name":"Jakarta","admin1":"Jakarta","country":"Indonesia","latitude":-6.2,"longitude":106.8}]}"#.utf8))?.first?.name == "Jakarta",
+                  "reads an Open-Meteo place")
+            model.weather.simulate(now)
+            model.settings.weatherCity = "Jakarta"
+            model.expand(.den)
+        }))
+        steps.append(("purr outputs", {
+            model.outputs.simulate([
+                AudioOutputs.Device(id: 1, name: "AirPods Pro", transport: kAudioDeviceTransportTypeBluetooth, isDefault: true),
+                AudioOutputs.Device(id: 2, name: "MacBook Air Speakers", transport: kAudioDeviceTransportTypeBuiltIn, isDefault: false),
+            ])
+            check(model.outputs.devices.first?.icon == "airpodspro", "outputs get their own icons")
+        }))
+        steps.append(("bahasa indonesia", {
+            model.settings.language = .id
+            check(L("Settings") == "Pengaturan" && L("%d unread", 3) == "3 belum dibaca", "Indonesian text and formats")
+            model.roarMode = .roar
+            model.expand(.roar)
+        }))
+        steps.append(("bahasa settings", {
+            model.settingsSection = .general
+            model.expand(.settings)
+        }))
+        steps.append(("bahasa den", {
+            model.expand(.den)
+        }))
+        steps.append(("english again", {
+            model.settings.language = .en
+            check(L("Settings") == "Settings", "back to English")
+            model.settings.weatherCity = ""
+            model.weather.simulate(nil)
         }))
 
         steps.append(("settings about", {

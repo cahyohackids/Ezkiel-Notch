@@ -20,6 +20,10 @@ struct ExpandedView: View {
                 page
                     .id(model.tab)
                     .transition(.tabSlide(forward: model.tabForward))
+                if model.mirrorOn {
+                    MirrorOverlay(mirror: model.mirror) { model.setMirror(false) }
+                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                }
             }
             .frame(maxWidth: .infinity)
             .frame(height: model.paneHeight, alignment: .top)
@@ -60,18 +64,24 @@ struct ExpandedView: View {
 
             HStack(spacing: 4) {
                 Spacer(minLength: 0)
-                TimelineView(.everyMinute) { tl in
-                    Text(tl.date, format: .dateTime.hour().minute())
-                        .font(Theme.number(Theme.Size.secondary, .medium))
-                        .foregroundStyle(Theme.mist)
+                // The weather takes the clock's place (the menu bar keeps its own clock).
+                if let w = model.weather.now {
+                    WeatherChip(now: w, city: model.settings.weatherCity, fahrenheit: model.settings.fahrenheit)
                         .padding(.trailing, 4)
+                } else {
+                    TimelineView(.everyMinute) { tl in
+                        Text(tl.date, format: .dateTime.hour().minute())
+                            .font(Theme.number(Theme.Size.secondary, .medium))
+                            .foregroundStyle(Theme.mist)
+                            .padding(.trailing, 4)
+                    }
                 }
                 IconButton(icon: model.pinned ? "pin.fill" : "pin",
                            label: model.pinned ? "Unpin · close when you move away" : "Keep the notch open",
                            size: 24, tint: model.pinned ? Theme.gold : Theme.mist) {
                     withAnimation(Theme.snappy) { model.pinned.toggle() }
                 }
-                IconButton(icon: "chevron.up", label: "Collapse (Esc) · \(model.settings.hotkey.label) toggles",
+                IconButton(icon: "chevron.up", label: L("Collapse (Esc) · %@ toggles", model.settings.hotkey.label),
                            size: 24, tint: Theme.mist) {
                     model.collapse()
                 }
@@ -162,9 +172,36 @@ private struct TabButton: View {
                 }
         }
         .buttonStyle(PressableStyle(scale: 0.9))
-        .help("\(tab.title) · \(tab.subtitle)")
-        .accessibilityLabel("\(tab.title), \(tab.subtitle)")
+        .help("\(tab.title) · \(L(tab.subtitle))")
+        .accessibilityLabel("\(tab.title), \(L(tab.subtitle))")
         .accessibilityAddTraits(selected ? .isSelected : [])
         .onHover { h in withAnimation(Theme.soft) { hovering = h } }
+    }
+}
+
+/// "☀︎ 31°" beside the clock; hover for today's range and rain.
+private struct WeatherChip: View {
+    var now: WeatherService.Now
+    var city: String
+    var fahrenheit: Bool
+
+    private func t(_ c: Double) -> String { "\(Int((fahrenheit ? c * 9 / 5 + 32 : c).rounded()))°" }
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: WeatherService.symbol(now.code, day: now.isDay))
+                .symbolRenderingMode(.multicolor)
+                .font(.system(size: 11, weight: .medium))
+            Text(t(now.temperature)).font(Theme.number(Theme.Size.secondary, .medium)).foregroundStyle(Theme.ink.opacity(0.85))
+        }
+        .help(help)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(help)
+    }
+
+    private var help: String {
+        var parts = [city, WeatherService.word(now.code), "\(t(now.low))–\(t(now.high))"]
+        if let rain = now.rainChance { parts.append(L("rain %d%%", rain)) }
+        return parts.joined(separator: " · ")
     }
 }

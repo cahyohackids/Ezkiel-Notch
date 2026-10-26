@@ -79,7 +79,7 @@ private struct NoteEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                TextField("", text: $title, prompt: Text("Title").foregroundColor(Theme.faint))
+                TextField("", text: $title, prompt: Text(L("Title")).foregroundColor(Theme.faint))
                     .textFieldStyle(.plain)
                     .font(Theme.font(Theme.Size.title, .semibold))
                     .foregroundStyle(Theme.ink)
@@ -143,7 +143,7 @@ private struct NoteListRow: View {
                     .font(Theme.font(Theme.Size.secondary, .medium))
                     .foregroundStyle(selected ? Theme.ink : Theme.ink.opacity(0.85))
                     .lineLimit(1)
-                Text(note.updated.formatted(.relative(presentation: .named)))
+                Text(note.updated.formatted(.relative(presentation: .named).locale(Lang.locale)))
                     .font(Theme.font(Theme.Size.caption))
                     .foregroundStyle(Theme.faint)
                     .lineLimit(1)
@@ -196,7 +196,7 @@ private struct ClipRow: View {
                     .foregroundStyle(Theme.ink)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Text(clip.captured.formatted(.relative(presentation: .named)))
+                Text(clip.captured.formatted(.relative(presentation: .named).locale(Lang.locale)))
                     .font(Theme.font(Theme.Size.caption))
                     .foregroundStyle(Theme.faint)
             }

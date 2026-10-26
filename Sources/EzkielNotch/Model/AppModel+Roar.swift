@@ -48,7 +48,7 @@ extension AppModel {
         lastRoarPeek[badge.bundleID] = now
         let added = badge.count - before
         showPeek(Peek(icon: "bell.fill", title: badge.name,
-                      subtitle: before == 0 ? "\(badge.count) unread" : "\(added) new · \(badge.count) unread",
+                      subtitle: before == 0 ? L("%d unread", badge.count) : L("%d new · %d unread", added, badge.count),
                       tint: Self.aiApps.contains(badge.bundleID) ? Accent.scout.deep : Accent.roar.deep,
                       tab: .roar, mood: .happy, value: badge.label, app: badge.bundleID, appIcon: true))
     }
@@ -56,7 +56,7 @@ extension AppModel {
     func mute(_ bundleID: String, name: String) {
         guard !settings.roarMuted.contains(bundleID) else { return }
         withAnimation(Theme.smooth) { settings.roarMuted.append(bundleID) }
-        showToast("\(name) muted", action: "Undo") { [weak self] in self?.unmute(bundleID) }
+        showToast(L("%@ muted", name), action: "Undo") { [weak self] in self?.unmute(bundleID) }
     }
 
     func unmute(_ bundleID: String) {
@@ -183,7 +183,7 @@ extension AppModel {
         if let problem = AgentLinks.set(agent, connected: connected) {
             showToast(problem)
         } else {
-            showToast(connected ? "\(agent.title) connected · new sessions report to Scout" : "\(agent.title) disconnected")
+            showToast(connected ? L("%@ connected · new sessions report to Scout", agent.title) : L("%@ disconnected", agent.title))
         }
         refreshAgentLinks()
     }

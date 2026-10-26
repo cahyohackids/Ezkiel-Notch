@@ -28,12 +28,12 @@ struct OasisPane: View {
                         .foregroundStyle(Theme.ink)
                         .contentTransition(.numericText())
                         .animation(Theme.snappy, value: today)
-                    Text(progress >= 1 ? "goal reached" : "of \(goal)")
+                    Text(progress >= 1 ? L("goal reached") : L("of %d", goal))
                         .font(Theme.font(Theme.Size.secondary))
                         .foregroundStyle(progress >= 1 ? Accent.oasis.light : Theme.mist)
                     Spacer(minLength: 0)
                     if streak > 0 {
-                        Text("\(streak)-day streak").font(Theme.font(Theme.Size.caption, .medium)).foregroundStyle(Theme.mist)
+                        Text(L("%d-day streak", streak)).font(Theme.font(Theme.Size.caption, .medium)).foregroundStyle(Theme.mist)
                     }
                 }
 
@@ -59,7 +59,7 @@ struct OasisPane: View {
                     Button {
                         withAnimation(Theme.snappy) { model.settings.waterReminders.toggle() }
                     } label: {
-                        Label(model.settings.waterReminders ? "\(model.settings.waterIntervalMinutes)m" : "Off",
+                        Label(model.settings.waterReminders ? "\(model.settings.waterIntervalMinutes)m" : L("Off"),
                               systemImage: model.settings.waterReminders ? "bell.fill" : "bell.slash")
                             .font(Theme.font(Theme.Size.caption, .medium))
                             .foregroundStyle(model.settings.waterReminders ? Accent.oasis.light : Theme.mist)
@@ -68,7 +68,7 @@ struct OasisPane: View {
                             .background(Capsule().fill(Color.white.opacity(0.06)))
                     }
                     .buttonStyle(PressableStyle())
-                    .help("Reminders between \(model.settings.activeHourStart):00 and \(model.settings.activeHourEnd):00")
+                    .help(L("Reminders between %d:00 and %d:00", model.settings.activeHourStart, model.settings.activeHourEnd))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -173,7 +173,7 @@ private struct WeekChart: View {
                                 .frame(width: 7, height: max(3, appeared ? barArea * Double(entry.ml) / maxValue : 3))
                                 .animation(.spring(response: 0.6, dampingFraction: 0.75).delay(Double(index) * 0.03), value: appeared)
                                 .animation(Theme.smooth, value: entry.ml)
-                            Text(entry.day.formatted(.dateTime.weekday(.narrow)))
+                            Text(entry.day.formatted(.dateTime.weekday(.narrow).locale(Lang.locale)))
                                 .font(Theme.font(8, isToday ? .semibold : .regular))
                                 .foregroundStyle(isToday ? Theme.ink : Theme.faint)
                                 .frame(height: 10)

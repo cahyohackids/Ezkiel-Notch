@@ -49,6 +49,7 @@ struct NotchRootView: View {
         }
         .frame(width: model.panelSize.width, height: model.panelSize.height, alignment: .top)
         .opacity(model.hiddenForFullscreen ? 0 : 1)
+        .environment(\.locale, Lang.locale)
         .animation(Theme.soft, value: model.hiddenForFullscreen)
         .environment(\.colorScheme, .dark)
         .onChange(of: model.dropTargeted) { targeted in
@@ -100,6 +101,7 @@ struct CompactView: View {
                 if model.showsWings {
                     leftWing
                         .frame(width: NotchMetrics.wing + (chrome.hovering ? 6 : 0))
+                        .overlay(alignment: .trailing) { ProwlDots(mic: model.prowl.micInUse, camera: model.prowl.cameraInUse) }
                         .transition(.opacity.combined(with: .scale(scale: 0.7)))
                 }
                 center
@@ -121,7 +123,7 @@ struct CompactView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .contentShape(Rectangle())
         .onTapGesture { model.expand() }
-        .help("Ezkiel Notch · hover or click to open · \(model.settings.hotkey.label)")
+        .help(L("Ezkiel Notch · hover or click to open · %@", model.settings.hotkey.label))
         .animation(Theme.smooth, value: model.showsClosedLyrics)
     }
 
@@ -172,7 +174,7 @@ struct CompactView: View {
         } else if let meeting = model.meetingSoon {
             TimelineView(.everyMinute) { tl in
                 let minutes = max(1, Int((meeting.start.timeIntervalSince(tl.date) / 60).rounded(.up)))
-                Text("in \(minutes)m")
+                Text(L("in %dm", minutes))
                     .font(Theme.number(11, .semibold))
                     .foregroundStyle(Accent.rally.linear)
                     .lineLimit(1)
@@ -192,7 +194,7 @@ struct CompactView: View {
                 }
             }
             .foregroundStyle(waiting ? Accent.den.linear : Accent.scout.linear)
-            .help(waiting ? agent.title : "\(agent.title)\(agent.project.map { " · \($0)" } ?? "")")
+            .help(waiting ? L(agent.title) : "\(L(agent.title))\(agent.project.map { " · \($0)" } ?? "")")
             .transition(.scale.combined(with: .opacity))
         } else if let np = music.nowPlaying, np.isPlaying {
             EqualizerBars(playing: true, color: music.artworkAccent?.deep ?? np.player.tint, height: 12)
@@ -200,7 +202,7 @@ struct CompactView: View {
         } else if model.unreadTotal > 0 {
             CountPill(label: RoarPane.short(model.unreadTotal), accent: .roar)
                 .scaleEffect(0.82)
-                .help("\(model.unreadTotal) unread · \(model.roarBadges.map(\.name).joined(separator: ", "))")
+                .help(L("%d unread", model.unreadTotal) + " · " + model.roarBadges.map(\.name).joined(separator: ", "))
                 .transition(.scale.combined(with: .opacity))
         } else if let b = battery.state, b.isCharging {
             HStack(spacing: 2) {
@@ -212,7 +214,7 @@ struct CompactView: View {
         } else {
             ProgressRing(progress: model.waterProgress, lineWidth: 2.4, accent: .oasis)
                 .frame(width: 13, height: 13)
-                .help("\(model.waterToday) ml of water today")
+                .help(L("%d ml of water today", model.waterToday))
                 .transition(.scale.combined(with: .opacity))
         }
     }
@@ -288,8 +290,8 @@ struct PeekView: View {
                         .help("Drag it anywhere")
                 }
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(peek.title).font(Theme.font(Theme.Size.body, .semibold)).foregroundStyle(Theme.ink).lineLimit(1)
-                    Text(peek.subtitle).font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist)
+                    Text(L(peek.title)).font(Theme.font(Theme.Size.body, .semibold)).foregroundStyle(Theme.ink).lineLimit(1)
+                    Text(L(peek.subtitle)).font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist)
                         .lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength: 6)
@@ -321,12 +323,12 @@ struct PeekView: View {
     /// One line under the camera: title, then the detail in grey.
     private var caption: some View {
         HStack(spacing: 6) {
-            Text(peek.title)
+            Text(L(peek.title))
                 .font(Theme.font(Theme.Size.body, .semibold))
                 .foregroundStyle(Theme.ink)
                 .layoutPriority(1)
             if !peek.subtitle.isEmpty {
-                Text(peek.subtitle)
+                Text(L(peek.subtitle))
                     .font(Theme.font(Theme.Size.secondary))
                     .foregroundStyle(Theme.mist)
             }
@@ -430,4 +432,29 @@ struct ClosedLyricLine: View {
 extension Accent {
     /// Den's break mode.
     static let rest = Accent(light: Color(hex: 0xA6F0D8), deep: Color(hex: 0x30C99A))
+}
+
+/// Prowl: green while a camera is on, orange while a microphone is (the colours macOS uses).
+struct ProwlDots: View {
+    var mic: Bool
+    var camera: Bool
+
+    var body: some View {
+        VStack(spacing: 3) {
+            if camera { dot(Color(hex: 0x30D158)) }
+            if mic { dot(Color(hex: 0xFF9F0A)) }
+        }
+        .padding(.trailing, 3)
+        .animation(Theme.snappy, value: mic)
+        .animation(Theme.snappy, value: camera)
+        .help([camera ? L("Camera is on") : nil, mic ? L("Microphone is on") : nil].compactMap { $0 }.joined(separator: " · "))
+        .accessibilityHidden(!mic && !camera)
+        .accessibilityLabel([camera ? L("Camera is on") : nil, mic ? L("Microphone is on") : nil].compactMap { $0 }.joined(separator: ", "))
+    }
+
+    private func dot(_ color: Color) -> some View {
+        Circle().fill(color).frame(width: 5, height: 5)
+            .shadow(color: color.opacity(0.7), radius: 2)
+            .transition(.scale.combined(with: .opacity))
+    }
 }

@@ -53,7 +53,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 /// wrapped in one spring, so the shape and the content always move together.
 @MainActor
 final class AppModel: ObservableObject {
-    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.3.1"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.0"
 
     // Presentation
     @Published private(set) var presentation: Presentation = .compact
@@ -101,6 +101,12 @@ final class AppModel: ObservableObject {
     let calendar = CalendarService()
     let badges = BadgeWatcher()
     let updates = UpdateChecker()
+    let prowl = PrivacyWatch()
+    let outputs = AudioOutputs()
+    let weather = WeatherService()
+    let mirror = CameraMirror()
+    /// Mirror covers the page of the open notch.
+    @Published var mirrorOn = false
     let scout = ScoutService()
     /// Roar: when each app last peeked, so a busy chat doesn't peek on every message.
     var lastRoarPeek: [String: Date] = [:]
@@ -195,10 +201,13 @@ final class AppModel: ObservableObject {
                 DispatchQueue.main.async { self?.refreshLyrics() }
             }
             .store(in: &subscriptions)
-        // Roar's counts show in the closed notch and the tab badge.
-        badges.objectWillChange
-            .sink { [weak self] _ in self?.objectWillChange.send() }
-            .store(in: &subscriptions)
+        // Roar's counts, Prowl's dots and the weather show in the closed notch and the header.
+        for publisher in [badges.objectWillChange.eraseToAnyPublisher(), prowl.objectWillChange.eraseToAnyPublisher(),
+                          weather.objectWillChange.eraseToAnyPublisher()] {
+            publisher
+                .sink { [weak self] _ in self?.objectWillChange.send() }
+                .store(in: &subscriptions)
+        }
         // The open notch's height depends on whether Purr shows lyrics.
         lyrics.$state
             .map { if case .synced = $0 { return true } else { return false } }
@@ -232,6 +241,10 @@ final class AppModel: ObservableObject {
         pounce.setDownloads(s.pounceDownloads)
         calendar.setEnabled(s.rally)
         badges.setEnabled(s.roar)
+        prowl.setEnabled(s.prowl)
+        Lang.choice = s.language
+        weather.configure(latitude: s.weatherCity.isEmpty ? nil : s.weatherLatitude,
+                          longitude: s.weatherCity.isEmpty ? nil : s.weatherLongitude)
         scout.setEnabled(s.scout)
         if !s.scout { agents = [:] }
         if old?.hotkey != s.hotkey { onHotkeyChange(s.hotkey) }
@@ -261,7 +274,7 @@ final class AppModel: ObservableObject {
     /// True when the closed notch has something live to show in its wings.
     var hasLiveActivity: Bool {
         focus.isRunning || (music.nowPlaying?.isPlaying ?? false) || battery.state?.isCharging == true || meetingSoon != nil
-            || !agents.isEmpty
+            || !agents.isEmpty || prowl.micInUse || prowl.cameraInUse
     }
 
     /// Fullscreen calm: the setting is on and something is fullscreen on our display.
@@ -276,7 +289,8 @@ final class AppModel: ObservableObject {
     var showsWings: Bool {
         if inFullscreenCalm { return chrome.hovering }
         if !settings.minimalClosed { return true }
-        return chrome.hovering || hasLiveActivity || showsClosedLyrics
+        // Unread messages are what Roar is for: the count stays visible in the calm closed notch.
+        return chrome.hovering || hasLiveActivity || showsClosedLyrics || (settings.roar && unreadTotal > 0)
     }
 
     /// The closed notch grows a line underneath and sings along (Chorus).
@@ -391,6 +405,7 @@ final class AppModel: ObservableObject {
         splash(-4)
         peek = nil
         clearToast()
+        if mirrorOn { setMirror(false) }
         onCollapse()
         updateMusicPolling()
     }
@@ -508,7 +523,7 @@ final class AppModel: ObservableObject {
         if settings.sounds, let sound = p.sound { NSSound(named: sound)?.play() }
         if !p.isHUD { makeLionHappy() }
         if presentation == .expanded {
-            if !p.isHUD { showToast(p.subtitle.isEmpty ? p.title : "\(p.title) · \(p.subtitle)") }
+            if !p.isHUD { showToast(p.subtitle.isEmpty ? L(p.title) : "\(L(p.title)) · \(L(p.subtitle))") }
             return
         }
         // An overlay never pushes a card away; it waits until the card is gone.
@@ -548,7 +563,7 @@ final class AppModel: ObservableObject {
     /// VoiceOver reads peeks out, since they appear without focus.
     private func announce(_ p: Peek) {
         guard !p.isHUD, NSWorkspace.shared.isVoiceOverEnabled else { return }
-        let text = p.subtitle.isEmpty ? p.title : "\(p.title). \(p.subtitle)"
+        let text = p.subtitle.isEmpty ? L(p.title) : "\(L(p.title)). \(L(p.subtitle))"
         NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
                              userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
     }
@@ -637,6 +652,7 @@ final class AppModel: ObservableObject {
         guard asleep != screensAsleep else { return }
         screensAsleep = asleep
         music.paused = asleep
+        prowl.isPaused = asleep
         system.setCapsLockWatching(settings.systemOverlays && !asleep)
     }
 
@@ -654,6 +670,7 @@ final class AppModel: ObservableObject {
         expireAgents(now)
         if tickCount % 60 == 0 { calendar.refresh(now: now) }
         if tickCount % 3600 == 30 { checkForUpdates() }
+        if tickCount % 600 == 0 { weather.refresh() }
         if settings.mascotSleeps, lionMood == .awake, presentation == .compact,
            !hasLiveActivity, now.timeIntervalSince(lastInteraction) > 120 {
             withAnimation(Theme.smooth) { lionMood = .sleeping }
@@ -678,7 +695,7 @@ final class AppModel: ObservableObject {
     func setFocusMinutes(_ minutes: Int) {
         settings.focusMinutes = minutes
         if focus.isRunning || focus.isPaused {
-            showToast("Next focus: \(minutes) min")
+            showToast(L("Next focus: %d min", minutes))
         } else {
             withAnimation(Theme.smooth) { focus.setMinutes(minutes, mode: .focus) }
         }
@@ -704,7 +721,7 @@ final class AppModel: ObservableObject {
             data.focusLog.append(FocusEntry(start: Date().addingTimeInterval(-Double(minutes) * 60), minutes: minutes))
             let streak = focusStreak
             showPeek(Peek(icon: "cup.and.saucer.fill", title: "Focus complete",
-                          subtitle: streak > 1 ? "\(streak)-day streak · take \(settings.breakMinutes) min" : "Take a \(settings.breakMinutes)-minute break",
+                          subtitle: streak > 1 ? L("%d-day streak · take %d min", streak, settings.breakMinutes) : L("Take a %d-minute break", settings.breakMinutes),
                           tint: Accent.den.deep, tab: .den, mood: .happy, sound: "Glass", showsLion: true, urgent: true))
         } else {
             showPeek(Peek(icon: "bolt.fill", title: "Break complete",
@@ -747,7 +764,7 @@ final class AppModel: ObservableObject {
         let count = before.filter(\.done).count
         guard count > 0 else { return }
         withAnimation(Theme.smooth) { data.tasks.removeAll(where: \.done) }
-        showToast("Cleared \(count) done", action: "Undo") { [weak self] in
+        showToast(L("Cleared %d done", count), action: "Undo") { [weak self] in
             withAnimation(Theme.smooth) { self?.data.tasks = before }
         }
     }
@@ -772,7 +789,7 @@ final class AppModel: ObservableObject {
             guard lead > 0, lead <= 300 else { continue }
             notifiedMeetings.insert(m.id)
             let time = m.start.formatted(date: .omitted, time: .shortened)
-            showPeek(Peek(icon: "calendar", title: m.title, subtitle: "Starts \(time) · in \(Int((lead / 60).rounded(.up))) min",
+            showPeek(Peek(icon: "calendar", title: m.title, subtitle: L("Starts %@ · in %d min", time, Int((lead / 60).rounded(.up))),
                           tint: Accent.rally.deep, tab: .hunt, mood: .awake, sound: "Glass", link: m.link, urgent: true))
             break
         }
@@ -909,7 +926,7 @@ final class AppModel: ObservableObject {
             if settings.sounds { NSSound(named: "Pop")?.play() }
             makeLionHappy()
         }
-        if dropped > 0 { showToast("Stash keeps \(Self.stashLimit) items · oldest removed") }
+        if dropped > 0 { showToast(L("Stash keeps %d items · oldest removed", Self.stashLimit)) }
     }
 
     func receiveDrop(_ providers: [NSItemProvider]) -> Bool {
@@ -1047,7 +1064,7 @@ final class AppModel: ObservableObject {
         if settings.sounds { NSSound(named: "Bottle")?.play() }
         makeLionHappy()
         if before < settings.waterGoal && waterToday >= settings.waterGoal {
-            showToast("Goal reached · \(waterToday) ml today")
+            showToast(L("Goal reached · %d ml today", waterToday))
         }
     }
 
@@ -1058,7 +1075,7 @@ final class AppModel: ObservableObject {
         }
         let ml = data.water[i].ml
         withAnimation(Theme.smooth) { _ = data.water.remove(at: i) }
-        showToast("Removed \(ml) ml · \(waterToday) ml today")
+        showToast(L("Removed %d ml · %d ml today", ml, waterToday))
     }
 
     private func checkWater(_ now: Date) {
@@ -1071,7 +1088,7 @@ final class AppModel: ObservableObject {
         else { return }
         lastWaterReminder = now
         showPeek(Peek(icon: "drop.fill", title: "Time for a sip",
-                      subtitle: "\(waterToday) of \(settings.waterGoal) ml today", tint: Accent.oasis.deep,
+                      subtitle: L("%d of %d ml today", waterToday, settings.waterGoal), tint: Accent.oasis.deep,
                       tab: .oasis, mood: .happy, sound: "Purr", showsLion: true))
     }
 
@@ -1083,6 +1100,15 @@ final class AppModel: ObservableObject {
         guard let np, np.isPlaying, presentation == .compact else { return }
         showPeek(Peek(icon: "music.note", title: np.title, subtitle: np.artist,
                       tint: np.player.tint, tab: .purr, mood: .happy, artwork: true))
+    }
+
+    // MARK: - Mirror
+
+    func setMirror(_ on: Bool) {
+        noteInteraction()
+        prowl.ignoreCamera = on
+        withAnimation(Theme.smooth) { mirrorOn = on }
+        if on { expand() }
     }
 
     /// Opening Purr is the moment to read the players (and for macOS to ask, if it hasn't yet).
@@ -1147,8 +1173,8 @@ final class AppModel: ObservableObject {
                 showPeek(Peek(icon: Self.headphonesIcon(name), title: name, subtitle: "Connected",
                               tint: Theme.teal, mood: .happy))
             } else if let previous, previous.kind == .bluetooth || previous.kind == .wired {
-                showPeek(Peek(icon: Self.headphonesIcon(previous.name), title: "\(previous.name) disconnected",
-                              subtitle: "Now on \(name)", tint: Accent.neutral.deep, mood: .awake))
+                showPeek(Peek(icon: Self.headphonesIcon(previous.name), title: L("%@ disconnected", previous.name),
+                              subtitle: L("Now on %@", name), tint: Accent.neutral.deep, mood: .awake))
             }
         }
     }
@@ -1197,8 +1223,8 @@ final class AppModel: ObservableObject {
     private func reportRecovery() {
         switch store.recovery {
         case .restoredBackup(_, let date)?:
-            let when = date.map { " from \($0.formatted(date: .abbreviated, time: .shortened))" } ?? ""
-            showPeek(Peek(icon: "lifepreserver", title: "Restored your data\(when)", subtitle: "The damaged file is kept in the data folder",
+            let title = date.map { L("Restored your data from %@", $0.formatted(date: .abbreviated, time: .shortened)) } ?? L("Restored your data")
+            showPeek(Peek(icon: "lifepreserver", title: title, subtitle: "The damaged file is kept in the data folder",
                           tint: Theme.gold, tab: .settings, mood: .awake, urgent: true))
         case .startedFresh?:
             showPeek(Peek(icon: "exclamationmark.triangle", title: "Couldn't read your data",
@@ -1220,7 +1246,7 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             if let release, self.data.announcedVersion != release.version {
                 self.data.announcedVersion = release.version
-                self.showPeek(Peek(icon: "arrow.down.to.line", title: "Ezkiel Notch \(release.version) is out",
+                self.showPeek(Peek(icon: "arrow.down.to.line", title: L("Ezkiel Notch %@ is out", release.version),
                                    subtitle: "Open Settings › About to update", tint: Theme.gold, tab: .settings, mood: .happy,
                                    showsLion: true))
                 self.settingsSection = .about

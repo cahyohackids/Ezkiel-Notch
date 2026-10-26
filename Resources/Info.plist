@@ -11,8 +11,8 @@
     <key>CFBundleDisplayName</key><string>Ezkiel Notch</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleSignature</key><string>EZKN</string>
-    <key>CFBundleShortVersionString</key><string>1.3.1</string>
-    <key>CFBundleVersion</key><string>5</string>
+    <key>CFBundleShortVersionString</key><string>1.4.0</string>
+    <key>CFBundleVersion</key><string>6</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSUIElement</key><true/>
@@ -30,6 +30,7 @@
             <key>CFBundleURLSchemes</key><array><string>ezkielnotch</string></array>
         </dict>
     </array>
+    <key>NSCameraUsageDescription</key><string>Mirror shows your camera in the notch so you can check yourself before a call. Nothing is recorded.</string>
     <key>NSAppleEventsUsageDescription</key><string>Ezkiel Notch shows what is playing in Spotify or Apple Music and controls playback when you use the Music controls.</string>
 </dict>
 </plist>

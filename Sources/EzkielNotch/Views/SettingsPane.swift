@@ -45,6 +45,13 @@ struct SettingsPane: View {
 
     @ViewBuilder
     private var general: some View {
+        OptionRow(title: L("Language"), icon: "globe") {
+            ForEach(AppLanguage.allCases) { lang in
+                Chip(title: lang == .auto ? L("Auto") : lang.label, selected: model.settings.language == lang) {
+                    model.settings.language = lang
+                }
+            }
+        }
         ToggleRow(title: "Open on hover", subtitle: "Click always works too", icon: "cursorarrow.motionlines",
                   isOn: $model.settings.expandOnHover)
         OptionRow(title: "Hover delay", icon: "timer") {
@@ -130,8 +137,8 @@ struct SettingsPane: View {
             HStack(spacing: 10) {
                 Image(systemName: "terminal").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.mist).frame(width: 18)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Any script or app").font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink)
-                    Text("open \"ezkielnotch://notify?title=Done&body=…\"").font(.system(size: Theme.Size.caption, design: .monospaced))
+                    Text(L("Any script or app")).font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink)
+                    Text(L("open \"ezkielnotch://notify?title=Done&body=…\"")).font(.system(size: Theme.Size.caption, design: .monospaced))
                         .foregroundStyle(Theme.mist).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength: 6)
@@ -147,6 +154,9 @@ struct SettingsPane: View {
 
     @ViewBuilder
     private var features: some View {
+        WeatherRow(model: model, weather: model.weather)
+        ToggleRow(title: "Prowl", subtitle: "Green and orange dots while a camera or microphone is on", icon: "eye",
+                  accent: Accent(light: Color(hex: 0x9BF0B4), deep: Color(hex: 0x30D158)), isOn: $model.settings.prowl)
         ToggleRow(title: "Rally", subtitle: rallySubtitle, icon: "calendar", accent: .rally, isOn: $model.settings.rally)
         if model.settings.rally {
             ToggleRow(title: "Meeting countdown", subtitle: "\"in 5m\" in the closed notch", icon: "timer", accent: .rally,
@@ -163,10 +173,10 @@ struct SettingsPane: View {
                   accent: .purr, isOn: $model.settings.closedLyrics)
         OptionRow(title: "Den break", icon: "cup.and.saucer") {
             ForEach([5, 10, 15], id: \.self) { m in
-                Chip(title: "\(m) min", selected: model.settings.breakMinutes == m, accent: .rest) { model.settings.breakMinutes = m }
+                Chip(title: L("%d min", m), selected: model.settings.breakMinutes == m, accent: .rest) { model.settings.breakMinutes = m }
             }
         }
-        ToggleRow(title: "Oasis reminders", subtitle: "Every \(model.settings.waterIntervalMinutes) min in your active hours", icon: "drop",
+        ToggleRow(title: "Oasis reminders", subtitle: L("Every %d min in your active hours", model.settings.waterIntervalMinutes), icon: "drop",
                   accent: .oasis, isOn: $model.settings.waterReminders)
         OptionRow(title: "Remind every", icon: "bell") {
             ForEach([30, 45, 60, 90], id: \.self) { m in
@@ -189,7 +199,7 @@ struct SettingsPane: View {
         switch calendar.access {
         case .denied: return "Calendar access is off · Privacy & Security → Calendars"
         case .unknown: return "Waiting for Calendar access…"
-        case .granted: return calendar.upcoming.isEmpty ? "No more meetings today" : "\(calendar.upcoming.count) coming up today"
+        case .granted: return calendar.upcoming.isEmpty ? "No more meetings today" : L("%d coming up today", calendar.upcoming.count)
         }
     }
 
@@ -200,9 +210,9 @@ struct SettingsPane: View {
         HStack(spacing: Theme.Space.m) {
             LionMascot(size: 56, mood: .happy, animated: false, detailed: true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Ezkiel Notch").font(Theme.font(Theme.Size.title, .semibold)).foregroundStyle(Theme.ink)
-                Text("Version \(AppModel.version) · open source").font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist)
-                Text("Everything stays on this Mac. Chorus asks LRCLIB for lyrics only while it's on.")
+                Text(L("Ezkiel Notch")).font(Theme.font(Theme.Size.title, .semibold)).foregroundStyle(Theme.ink)
+                Text(L("Version %@ · open source", AppModel.version)).font(Theme.font(Theme.Size.secondary)).foregroundStyle(Theme.mist)
+                Text(L("Everything stays on this Mac. Chorus asks LRCLIB for lyrics only while it's on."))
                     .font(Theme.font(Theme.Size.caption)).foregroundStyle(Theme.mist).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
@@ -244,6 +254,64 @@ struct SettingsPane: View {
     }
 }
 
+/// Weather glance: type a city, pick it, done. Open-Meteo, no account, no Location permission.
+private struct WeatherRow: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var weather: WeatherService
+    @State private var query = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Image(systemName: "cloud.sun").font(.system(size: 12, weight: .medium)).symbolRenderingMode(.multicolor).frame(width: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(L("Weather")).font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink)
+                    Text(subtitle).font(Theme.font(Theme.Size.caption)).foregroundStyle(Theme.mist).lineLimit(1)
+                }
+                Spacer(minLength: 6)
+                if model.settings.weatherCity.isEmpty {
+                    NotchField(placeholder: L("City"), text: $query) { weather.search(query) }
+                        .frame(width: 130)
+                } else {
+                    Chip(title: "°C", selected: !model.settings.fahrenheit) { model.settings.fahrenheit = false }
+                    Chip(title: "°F", selected: model.settings.fahrenheit) { model.settings.fahrenheit = true }
+                    TextButton(title: L("Remove"), tint: Theme.mist) {
+                        model.settings.weatherCity = ""
+                        query = ""
+                    }
+                }
+            }
+            if model.settings.weatherCity.isEmpty, !weather.results.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 5) {
+                        ForEach(weather.results) { place in
+                            Chip(title: place.detail.isEmpty ? place.name : "\(place.name), \(place.detail)", selected: false, accent: .oasis) {
+                                model.settings.weatherLatitude = place.latitude
+                                model.settings.weatherLongitude = place.longitude
+                                model.settings.weatherCity = place.name
+                                weather.clearResults()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(minHeight: 36)
+        .cardSurface()
+    }
+
+    private var subtitle: String {
+        if model.settings.weatherCity.isEmpty {
+            return weather.searching ? L("Searching…") : L("Type a city and press Return · no location access")
+        }
+        guard let now = weather.now else { return model.settings.weatherCity }
+        let t = { (c: Double) in "\(Int((model.settings.fahrenheit ? c * 9 / 5 + 32 : c).rounded()))°" }
+        return "\(model.settings.weatherCity) · \(WeatherService.word(now.code)) \(t(now.temperature)) · \(t(now.low))–\(t(now.high))"
+    }
+}
+
 /// "Ezkiel Notch 1.4.0 is out · Download", or the daily-check switch with "Check now".
 private struct UpdateRow: View {
     @ObservedObject var model: AppModel
@@ -256,7 +324,7 @@ private struct UpdateRow: View {
                 .foregroundStyle(updates.available == nil ? AnyShapeStyle(Theme.mist) : AnyShapeStyle(Accent.gold.linear))
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
-                Text(updates.available.map { "Version \($0.version) is out" } ?? "Updates")
+                Text(updates.available.map { L("Version %@ is out", $0.version) } ?? L("Updates"))
                     .font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink)
                 Text(subtitle).font(Theme.font(Theme.Size.caption)).foregroundStyle(Theme.mist).lineLimit(1)
             }
@@ -286,8 +354,8 @@ private struct UpdateRow: View {
     }
 
     private var subtitle: String {
-        if updates.available != nil { return "You have \(AppModel.version) · opens the release page" }
-        if let at = updates.upToDateAt { return "Up to date · checked \(at.formatted(date: .omitted, time: .shortened))" }
+        if updates.available != nil { return L("You have %@ · opens the release page", AppModel.version) }
+        if let at = updates.upToDateAt { return L("Up to date · checked %@", at.formatted(date: .omitted, time: .shortened)) }
         return model.settings.checkUpdates ? "Checks GitHub once a day" : "Daily check is off"
     }
 }
@@ -303,7 +371,7 @@ private struct AgentRow: View {
         switch state {
         case .on: return "Connected · new sessions report here"
         case .stale: return "Linked to an older copy of the app · reconnect"
-        case .off: return agent.installed ? "Adds a hook to \(file), backed up first" : "Not set up on this Mac"
+        case .off: return agent.installed ? L("Adds a hook to %@, backed up first", file) : "Not set up on this Mac"
         }
     }
 
@@ -315,7 +383,7 @@ private struct AgentRow: View {
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
                 Text(agent.title).font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink)
-                Text(subtitle).font(Theme.font(Theme.Size.caption)).foregroundStyle(state == .stale ? Accent.den.light : Theme.mist)
+                Text(L(subtitle)).font(Theme.font(Theme.Size.caption)).foregroundStyle(state == .stale ? Accent.den.light : Theme.mist)
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 6)
@@ -342,7 +410,7 @@ private struct OptionRow<Content: View>: View {
         HStack(spacing: 8) {
             Image(systemName: icon).font(.system(size: 12, weight: .medium)).symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Theme.mist).frame(width: 18)
-            Text(title).font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink)
+            Text(L(title)).font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink)
                 .frame(width: 92, alignment: .leading)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 5) { content() }.padding(.trailing, 8)
@@ -369,7 +437,7 @@ private struct LaunchTile: View {
                     .foregroundStyle(item.accent.linear)
                     .frame(width: 30, height: 30)
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(item.accent.deep.opacity(0.16)))
-                Text(item.title).font(Theme.font(Theme.Size.caption, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
+                Text(L(item.title)).font(Theme.font(Theme.Size.caption, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)

@@ -3,7 +3,7 @@ import Carbon.HIToolbox
 import NotchCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private(set) var model: AppModel!
     private(set) var controller: NotchWindowController!
     private var statusItem: NSStatusItem?
@@ -52,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKeyRegistered = hotKey != nil
         // A peek, so it's seen even with the notch closed (a toast only shows in the open notch).
         if !hotKeyRegistered {
-            model?.showPeek(Peek(icon: "command", title: "\(choice.label) is taken by another app", subtitle: "Pick another in Settings",
+            model?.showPeek(Peek(icon: "command", title: L("%@ is taken by another app", choice.label), subtitle: "Pick another in Settings",
                                  tint: Theme.gold, tab: .settings, mood: .awake, urgent: true))
         }
     }
@@ -98,6 +98,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.toolTip = "Ezkiel Notch"
         let menu = NSMenu()
         menu.autoenablesItems = false
+        menu.delegate = self
+        item.menu = menu
+        statusItem = item
+        fillMenu(menu)
+    }
+
+    /// Rebuilt each time it opens, so it follows the language setting.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        fillMenu(menu)
+    }
+
+    private func fillMenu(_ menu: NSMenu) {
 
         menu.addItem(ActionMenuItem("Open Ezkiel Notch") { [weak self] in self?.model.toggle() })
         menu.addItem(ActionMenuItem("Keep Open") { [weak self] in
@@ -107,7 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
         menu.addItem(.separator())
         for tab in NotchTab.allCases where tab != .settings {
-            let entry = ActionMenuItem("\(tab.title) · \(tab.subtitle)") { [weak self] in self?.model.expand(tab) }
+            let entry = ActionMenuItem("\(tab.title) · \(L(tab.subtitle))") { [weak self] in self?.model.expand(tab) }
             entry.image = NSImage(systemSymbolName: tab.icon, accessibilityDescription: tab.title)
             menu.addItem(entry)
         }
@@ -117,8 +130,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSWorkspace.shared.open(URL(string: "https://ezkielyna.store/notch")!)
         })
         menu.addItem(.separator())
+        menu.addItem(ActionMenuItem("Mirror", key: "") { [weak self] in self?.model.setMirror(true) })
+        menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Quit Ezkiel Notch", key: "q") { NSApp.terminate(nil) })
-        item.menu = menu
-        statusItem = item
     }
 }
