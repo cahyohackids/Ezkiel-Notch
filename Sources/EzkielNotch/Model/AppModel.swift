@@ -53,7 +53,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 /// wrapped in one spring, so the shape and the content always move together.
 @MainActor
 final class AppModel: ObservableObject {
-    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.4.0"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.5.0"
 
     // Presentation
     @Published private(set) var presentation: Presentation = .compact
@@ -101,6 +101,7 @@ final class AppModel: ObservableObject {
     let calendar = CalendarService()
     let badges = BadgeWatcher()
     let updates = UpdateChecker()
+    let updater = AppUpdater()
     let prowl = PrivacyWatch()
     let outputs = AudioOutputs()
     let weather = WeatherService()
@@ -180,6 +181,7 @@ final class AppModel: ObservableObject {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.reportRecovery() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.checkForUpdates() }
+        updater.beforeQuit = { [weak self] in self?.saveNow() }
         if loaded.settings.scout, !ProcessInfo.processInfo.arguments.contains("--self-test") { repairAgentLinks() }
         let ws = NSWorkspace.shared.notificationCenter
         for (name, asleep) in [(NSWorkspace.screensDidSleepNotification, true), (NSWorkspace.sessionDidResignActiveNotification, true),
@@ -203,7 +205,7 @@ final class AppModel: ObservableObject {
             .store(in: &subscriptions)
         // Roar's counts, Prowl's dots and the weather show in the closed notch and the header.
         for publisher in [badges.objectWillChange.eraseToAnyPublisher(), prowl.objectWillChange.eraseToAnyPublisher(),
-                          weather.objectWillChange.eraseToAnyPublisher()] {
+                          weather.objectWillChange.eraseToAnyPublisher(), updates.objectWillChange.eraseToAnyPublisher()] {
             publisher
                 .sink { [weak self] _ in self?.objectWillChange.send() }
                 .store(in: &subscriptions)
@@ -1244,15 +1246,31 @@ final class AppModel: ObservableObject {
         data.lastUpdateCheck = Date()
         updates.check(current: Self.version) { [weak self] release in
             guard let self else { return }
+            // End-to-end updater test: with a test feed, `--update-now` installs right away.
+            let args = ProcessInfo.processInfo.arguments
+            if release != nil, args.contains("--update-feed"), args.contains("--update-now") {
+                self.installUpdate()
+                return
+            }
             if let release, self.data.announcedVersion != release.version {
                 self.data.announcedVersion = release.version
                 self.showPeek(Peek(icon: "arrow.down.to.line", title: L("Ezkiel Notch %@ is out", release.version),
-                                   subtitle: "Open Settings › About to update", tint: Theme.gold, tab: .settings, mood: .happy,
+                                   subtitle: "Click to update in one step", tint: Theme.gold, tab: .settings, mood: .happy,
                                    showsLion: true))
                 self.settingsSection = .about
             } else if force, release == nil {
                 self.showToast(self.updates.upToDateAt != nil ? "You're on the latest version" : "Couldn't reach GitHub")
             }
+        }
+    }
+
+    /// One click: download, verify, replace, reopen. Falls back to the release page when it can't.
+    func installUpdate() {
+        guard let release = updates.available else { return }
+        if release.canInstall, AppUpdater.blocker == nil {
+            updater.install(release, current: Self.version)
+        } else {
+            NSWorkspace.shared.open(release.page)
         }
     }
 

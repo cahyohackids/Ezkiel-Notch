@@ -207,6 +207,10 @@ struct SettingsPane: View {
 
     @ViewBuilder
     private var about: some View {
+        // A waiting update goes first, where it's seen without scrolling.
+        if model.updates.available != nil {
+            UpdateRow(model: model, updates: model.updates, updater: model.updater)
+        }
         HStack(spacing: Theme.Space.m) {
             LionMascot(size: 56, mood: .happy, animated: false, detailed: true)
             VStack(alignment: .leading, spacing: 2) {
@@ -226,7 +230,9 @@ struct SettingsPane: View {
             }
         }
 
-        UpdateRow(model: model, updates: model.updates)
+        if model.updates.available == nil {
+            UpdateRow(model: model, updates: model.updates, updater: model.updater)
+        }
 
         HStack(spacing: 6) {
             PillButton(title: "ezkielyna.store/notch", icon: "safari") {
@@ -316,45 +322,88 @@ private struct WeatherRow: View {
 private struct UpdateRow: View {
     @ObservedObject var model: AppModel
     @ObservedObject var updates: UpdateChecker
+    @ObservedObject var updater: AppUpdater
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: updates.available == nil ? "arrow.triangle.2.circlepath" : "arrow.down.app.fill")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(updates.available == nil ? AnyShapeStyle(Theme.mist) : AnyShapeStyle(Accent.gold.linear))
-                .frame(width: 18)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(updates.available.map { L("Version %@ is out", $0.version) } ?? L("Updates"))
-                    .font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink)
-                Text(subtitle).font(Theme.font(Theme.Size.caption)).foregroundStyle(Theme.mist).lineLimit(1)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Image(systemName: updates.available == nil ? "arrow.triangle.2.circlepath" : "arrow.down.app.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(updates.available == nil ? AnyShapeStyle(Theme.mist) : AnyShapeStyle(Accent.gold.linear))
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(updates.available.map { L("Version %@ is out", $0.version) } ?? L("Updates"))
+                        .font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink)
+                    Text(subtitle).font(Theme.font(Theme.Size.caption))
+                        .foregroundStyle(isFailed ? Accent.hunt.light : Theme.mist).lineLimit(1)
+                }
+                Spacer(minLength: 6)
+                trailing
             }
-            Spacer(minLength: 6)
-            if let release = updates.available {
-                PillButton(title: "Download", icon: "arrow.down", prominent: true, accent: .gold) {
-                    NSWorkspace.shared.open(release.page)
-                }
-            } else {
-                TextButton(title: updates.checking ? "Checking…" : "Check now") { model.checkForUpdates(force: true) }
-                    .disabled(updates.checking)
-                Button {
-                    withAnimation(Theme.snappy) { model.settings.checkUpdates.toggle() }
-                } label: {
-                    NotchSwitch(isOn: model.settings.checkUpdates, accent: .gold)
-                }
-                .buttonStyle(PressableStyle())
-                .help("Ask GitHub once a day")
-                .accessibilityLabel("Check for updates daily")
-                .accessibilityValue(model.settings.checkUpdates ? "On" : "Off")
+            if case .downloading(let fraction) = updater.phase {
+                LevelBar(level: max(0.03, fraction), accent: .gold)
+                    .padding(.leading, 28)
+                    .transition(.opacity)
             }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .frame(minHeight: 36)
         .cardSurface()
+        .animation(Theme.snappy, value: updater.phase)
     }
 
+    @ViewBuilder
+    private var trailing: some View {
+        if let release = updates.available {
+            switch updater.phase {
+            case .downloading, .verifying:
+                TextButton(title: "Cancel", tint: Theme.mist) { updater.cancel() }
+            case .installing, .relaunching:
+                ProgressView().controlSize(.small)
+            case .idle, .failed:
+                if release.canInstall && AppUpdater.blocker == nil {
+                    TextButton(title: "Release notes", tint: Theme.mist) { NSWorkspace.shared.open(release.page) }
+                    PillButton(title: isFailed ? "Try again" : "Update now", icon: "arrow.down", prominent: true, accent: .gold) {
+                        model.installUpdate()
+                    }
+                } else {
+                    PillButton(title: "Download", icon: "arrow.down", prominent: true, accent: .gold) {
+                        NSWorkspace.shared.open(release.page)
+                    }
+                }
+            }
+        } else {
+            TextButton(title: updates.checking ? "Checking…" : "Check now") { model.checkForUpdates(force: true) }
+                .disabled(updates.checking)
+            Button {
+                withAnimation(Theme.snappy) { model.settings.checkUpdates.toggle() }
+            } label: {
+                NotchSwitch(isOn: model.settings.checkUpdates, accent: .gold)
+            }
+            .buttonStyle(PressableStyle())
+            .help(L("Ask GitHub once a day"))
+            .accessibilityLabel(L("Check for updates daily"))
+            .accessibilityValue(model.settings.checkUpdates ? L("On") : L("Off"))
+        }
+    }
+
+    private var isFailed: Bool { if case .failed = updater.phase { return true } else { return false } }
+
     private var subtitle: String {
-        if updates.available != nil { return L("You have %@ · opens the release page", AppModel.version) }
+        switch updater.phase {
+        case .downloading(let f): return L("Downloading… %d%%", Int((f * 100).rounded()))
+        case .verifying: return L("Checking the download…")
+        case .installing: return L("Installing…")
+        case .relaunching: return L("Reopening…")
+        case .failed(let reason): return L(reason)
+        case .idle: break
+        }
+        if let release = updates.available {
+            if let blocker = AppUpdater.blocker { return L(blocker) }
+            return release.canInstall ? L("You have %@ · updates in place, your data stays", AppModel.version)
+                                      : L("You have %@ · opens the release page", AppModel.version)
+        }
         if let at = updates.upToDateAt { return L("Up to date · checked %@", at.formatted(date: .omitted, time: .shortened)) }
         return model.settings.checkUpdates ? "Checks GitHub once a day" : "Daily check is off"
     }

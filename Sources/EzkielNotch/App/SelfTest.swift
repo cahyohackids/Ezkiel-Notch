@@ -364,7 +364,16 @@ enum SelfTest {
 
         steps.append(("settings about", {
             model.settingsSection = .about
+            let json = #"{"tag_name":"v9.9.0","html_url":"https://github.com/cahyohackids/Ezkiel-Notch/releases/tag/v9.9.0","draft":false,"prerelease":false,"assets":[{"name":"EzkielNotch-9.9.0-macOS-universal.dmg","browser_download_url":"https://github.com/cahyohackids/Ezkiel-Notch/releases/download/v9.9.0/EzkielNotch-9.9.0-macOS-universal.dmg"},{"name":"SHA256SUMS.txt","browser_download_url":"https://github.com/cahyohackids/Ezkiel-Notch/releases/download/v9.9.0/SHA256SUMS.txt"}]}"#
+            let release = UpdateChecker.parse(Data(json.utf8))
+            check(release?.canInstall == true, "a release with a DMG and SHA256SUMS can update in one click")
+            let foreign = #"{"tag_name":"v9.9.0","html_url":"https://github.com/x/y","assets":[{"name":"a-universal.dmg","browser_download_url":"https://evil.example/a-universal.dmg"},{"name":"SHA256SUMS.txt","browser_download_url":"https://evil.example/SHA256SUMS.txt"}]}"#
+            check(UpdateChecker.parse(Data(foreign.utf8))?.canInstall == false, "downloads from other hosts are ignored")
+            model.updates.simulate(release)
             model.expand(.settings)
+        }))
+        steps.append(("update clean-up", {
+            model.updates.simulate(nil)
         }))
 
         steps.append(("splash settles", {

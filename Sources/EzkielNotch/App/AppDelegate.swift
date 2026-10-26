@@ -111,6 +111,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func fillMenu(_ menu: NSMenu) {
+        if let release = model.updates.available {
+            menu.addItem(ActionMenuItem(L("Update to %@", release.version)) { [weak self] in
+                self?.model.settingsSection = .about
+                self?.model.expand(.settings)
+                self?.model.installUpdate()
+            })
+            menu.addItem(.separator())
+        }
 
         menu.addItem(ActionMenuItem("Open Ezkiel Notch") { [weak self] in self?.model.toggle() })
         menu.addItem(ActionMenuItem("Keep Open") { [weak self] in

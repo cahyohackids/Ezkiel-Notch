@@ -301,3 +301,30 @@ final class DataSafetyTests: XCTestCase {
         XCTAssertFalse(AppVersion.isNewer("1.3", than: "1.3.0"))
     }
 }
+
+final class UpdateVerifyTests: XCTestCase {
+    func testChecksumLookup() {
+        let sums = """
+        8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4  EzkielNotch-1.5.0-macOS-universal.dmg
+        a3f1c2e4b5d6978812345678901234567890abcdefabcdefabcdefabcdefab12 *EzkielNotch-1.5.0-macOS-universal.zip
+        """
+        XCTAssertEqual(UpdateVerify.checksum(for: "EzkielNotch-1.5.0-macOS-universal.dmg", in: sums),
+                       "8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4")
+        XCTAssertNotNil(UpdateVerify.checksum(for: "EzkielNotch-1.5.0-macOS-universal.zip", in: sums))
+        XCTAssertNil(UpdateVerify.checksum(for: "Other.dmg", in: sums))
+        XCTAssertNil(UpdateVerify.checksum(for: "x.dmg", in: "nothex  x.dmg"))
+    }
+
+    func testFileHash() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("ezk-\(UUID().uuidString)")
+        try Data("abc".utf8).write(to: url)
+        XCTAssertEqual(try UpdateVerify.sha256(of: url), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    }
+
+    func testAcceptable() {
+        XCTAssertTrue(UpdateVerify.acceptable(bundleID: "store.ezkielyna.notch", version: "1.5.0", expected: "1.5.0", current: "1.4.0"))
+        XCTAssertFalse(UpdateVerify.acceptable(bundleID: "com.evil.app", version: "1.5.0", expected: "1.5.0", current: "1.4.0"))
+        XCTAssertFalse(UpdateVerify.acceptable(bundleID: "store.ezkielyna.notch", version: "1.4.0", expected: "1.5.0", current: "1.4.0"))
+        XCTAssertFalse(UpdateVerify.acceptable(bundleID: "store.ezkielyna.notch", version: "1.3.0", expected: "1.3.0", current: "1.4.0"))
+    }
+}
