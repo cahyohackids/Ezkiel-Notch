@@ -134,6 +134,14 @@ public partial class IslandWindow : Window
             Toggle();
             handled = true;
         }
+        else if (msg == Win32.WM_MOUSEACTIVATE && Presentation == Presentation.Expanded)
+        {
+            // A click into the open island activates it, so typing goes to its fields, not the app behind.
+            RememberForeground();
+            SetNoActivate(false);
+            handled = true;
+            return Win32.MA_ACTIVATE;
+        }
         return 0;
     }
 
@@ -311,11 +319,23 @@ public partial class IslandWindow : Window
     public void EngageKeyboard()
     {
         if (_hwnd == 0 || IsActive) return;
-        var fg = Win32.GetForegroundWindow();
-        if (fg != _hwnd) _previousForeground = fg;
+        RememberForeground();
         SetNoActivate(false);
-        Activate();
+        var fg = Win32.GetForegroundWindow();
+        if (Win32.SetForegroundWindow(_hwnd) && fg == _hwnd) return;
+        // Windows only lets the foreground app hand over focus: borrow its input queue for a moment.
+        uint mine = Win32.GetCurrentThreadId(), theirs = fg == 0 ? 0 : Win32.GetWindowThreadProcessId(fg, out _);
+        bool attached = theirs != 0 && theirs != mine && Win32.AttachThreadInput(theirs, mine, true);
+        Win32.BringWindowToTop(_hwnd);
         Win32.SetForegroundWindow(_hwnd);
+        Activate();
+        if (attached) Win32.AttachThreadInput(theirs, mine, false);
+    }
+
+    private void RememberForeground()
+    {
+        var fg = Win32.GetForegroundWindow();
+        if (fg != 0 && fg != _hwnd) _previousForeground = fg;
     }
 
     private void ReleaseKeyboard()

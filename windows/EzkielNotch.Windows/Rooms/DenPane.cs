@@ -16,8 +16,8 @@ public sealed class DenPane(NotchModel model) : Pane(model, Room.Den)
     {
         Children.Clear();
         RowDefinitions.Clear();
-        RowDefinitions.Add(new RowDefinition { Height = Px(92) });
-        RowDefinitions.Add(new RowDefinition { Height = Px(12) });
+        RowDefinitions.Add(new RowDefinition { Height = Px(106) });
+        RowDefinitions.Add(new RowDefinition { Height = Px(10) });
         RowDefinitions.Add(new RowDefinition { Height = Px(40) });
 
         var focus = Model.Focus;
@@ -25,8 +25,8 @@ public sealed class DenPane(NotchModel model) : Pane(model, Room.Den)
         var accent = rest ? Accent.Rest : Accent.Den;
 
         var top = Columns(Px(92), Px(16), Star);
-        _ring = new ProgressRing { Accent = accent, Width = 92, Height = 92 };
-        var inside = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        _ring = new ProgressRing { Accent = accent, Width = 92, Height = 92, VerticalAlignment = VerticalAlignment.Top };
+        var inside = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 0, 14) };
         _time = Ui.Number("", 20);
         _time.HorizontalAlignment = HorizontalAlignment.Center;
         var mode = Ui.Label(rest ? L("break") : L("focus"), Ui.Caption, Ui.Mist, FontWeights.Medium);
@@ -47,7 +47,7 @@ public sealed class DenPane(NotchModel model) : Pane(model, Room.Den)
             Ui.Pill(focus.IsRunning ? L("Pause") : focus.IsPaused ? L("Resume") : L("Start"), Model.FocusStartPause, accent,
                     prominent: true, glyph: focus.IsRunning ? "\uE769" : "\uE768", tip: L("Space")),
             Ui.IconButton("\uE72C", L("Reset timer"), Model.FocusReset, tint: Ui.Mist));
-        buttons.Margin = new Thickness(0, 8, 0, 8);
+        buttons.Margin = new Thickness(0, 7, 0, 7);
         right.Children.Add(buttons);
 
         var chips = Columns(Auto, Star, Auto);
