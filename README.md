@@ -86,4 +86,4 @@ Sources/EzkielNotch/
   Views/                  Compact, peek, expanded and every tab
 ```
 
-Design follows the MacBook notch and the Dynamic Island (a pure-black, top-attached body with concave ears, spring motion, live activities, peek cards), built natively for macOS. Each feature has its own Apple-style two-stop accent: Den amber, Hunt coral, Rally purple, Scratch yellow, Purr pink (or the artwork's colour), Stash indigo, Oasis blue; the app's own accent is lion gold `#FFCF87`.
+Design follows the MacBook notch and the Dynamic Island (a pure-black, top-attached body with concave ears, spring motion, live activities, peek cards), built natively for macOS in SwiftUI and AppKit. Each feature has its own Apple-style two-stop accent: Den amber, Hunt coral, Rally purple, Scratch yellow, Purr pink (or the artwork's colour), Stash indigo, Oasis blue; the app's own accent is lion gold `#FFCF87`.
