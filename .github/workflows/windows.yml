@@ -1,0 +1,62 @@
+name: Build Ezkiel Notch for Windows
+
+on:
+  push:
+    branches: ["**"]
+    paths: ["windows/**", ".github/workflows/windows.yml"]
+  pull_request:
+    paths: ["windows/**", ".github/workflows/windows.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: windows/EzkielNotch.Windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build
+        run: dotnet build -c Release
+
+      - name: Core tests (data format, timers, stats, strings)
+        run: dotnet test ../EzkielNotch.Core.Tests -c Release
+
+      - name: Publish x64 and ARM64 (self-contained, one file each)
+        run: |
+          foreach ($rid in "win-x64", "win-arm64") {
+            dotnet publish -c Release -r $rid --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "out/$rid"
+            Compress-Archive -Path "out/$rid/*" -DestinationPath "out/EzkielNotch-windows-$rid.zip" -Force
+          }
+          Get-ChildItem out -Filter *.zip | Format-Table Name, Length
+
+      - name: Self-test (drives the real island window)
+        run: |
+          $snap = Join-Path $PWD "snapshots"
+          $p = Start-Process -FilePath "out/win-x64/EzkielNotch.exe" -ArgumentList "--self-test","--snapshots",$snap -PassThru -RedirectStandardOutput "selftest.log"
+          if (-not $p.WaitForExit(240000)) { $p.Kill(); Write-Error "self-test timed out"; exit 1 }
+          Get-Content selftest.log
+          Get-Content (Join-Path $snap "self-test-result.txt")
+          exit $p.ExitCode
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-snapshots
+          path: windows/EzkielNotch.Windows/snapshots/*
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EzkielNotch-windows
+          path: windows/EzkielNotch.Windows/out/*.zip

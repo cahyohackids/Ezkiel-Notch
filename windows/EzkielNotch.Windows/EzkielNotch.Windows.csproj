@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- 19041 = Windows 10 2004: the oldest build with every WinRT API the later phases use. -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <!-- Only for the tray icon (NotifyIcon); its namespaces stay out of the global usings. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- Lets the project build on macOS/Linux too (CI and development); it only runs on Windows. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <!-- LibraryImport generates the P/Invoke marshalling at compile time; it needs this. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>EzkielNotch</AssemblyName>
+    <RootNamespace>EzkielNotch</RootNamespace>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <Version>0.9.0</Version>
+    <Product>Ezkiel Notch</Product>
+    <Company>Ezkielyna Store</Company>
+    <Copyright>Ezkielyna Store · ezkielyna.store</Copyright>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\EzkielNotch.Core\EzkielNotch.Core.csproj" />
+    <!-- Roar reads Windows' notification database (a copy of it) for unread counts. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\lion.png" />
+    <Resource Include="Assets\app.ico" />
+  </ItemGroup>
+
+</Project>

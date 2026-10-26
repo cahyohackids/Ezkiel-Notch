@@ -1,0 +1,91 @@
+{
+  "announcedVersion" : "1.5.0",
+  "clips" : [
+    {
+      "captured" : "2026-10-25T09:00:00Z",
+      "id" : "0B8C8E2A-1F5B-4B53-9F0B-5A2E8C1D3E4F",
+      "text" : "rapat jam 3"
+    }
+  ],
+  "focusLog" : [
+    {
+      "id" : "6E3A2B1C-0D4E-4F5A-8B9C-1D2E3F4A5B6C",
+      "minutes" : 25,
+      "start" : "2026-10-25T02:00:00Z"
+    }
+  ],
+  "focusState" : {
+    "duration" : 1500,
+    "end" : "2026-10-26T03:25:00Z",
+    "mode" : "focus"
+  },
+  "lastUpdateCheck" : "2026-10-26T01:00:00Z",
+  "notes" : [
+    {
+      "body" : "Beli kopi\nKirim invoice",
+      "id" : "A1B2C3D4-E5F6-4711-8899-AABBCCDDEEFF",
+      "title" : "",
+      "updated" : "2026-10-26T01:30:00Z"
+    },
+    {
+      "body" : "broken: no id"
+    }
+  ],
+  "onboarded" : true,
+  "scoutLog" : [
+    {
+      "body" : "Done",
+      "date" : "2026-10-26T01:00:00Z",
+      "id" : "11111111-2222-3333-4444-555555555555",
+      "kind" : "done",
+      "source" : "Claude Code",
+      "title" : "ezkiel-notch"
+    }
+  ],
+  "settings" : {
+    "activeHourEnd" : 22,
+    "activeHourStart" : 8,
+    "breakMinutes" : 10,
+    "defaultsRevision" : 2,
+    "focusMinutes" : 45,
+    "hotkey" : "controlOptionN",
+    "language" : "id",
+    "musicAllowed" : true,
+    "roarMuted" : [
+      "com.tinyspeck.slackmacgap"
+    ],
+    "waterGoal" : 2500,
+    "weatherCity" : "Jakarta"
+  },
+  "shelf" : [
+    {
+      "added" : "2026-10-26T01:00:00Z",
+      "id" : "99999999-8888-7777-6666-555555555555",
+      "path" : "/Users/someone/Desktop/a.pdf"
+    }
+  ],
+  "tasks" : [
+    {
+      "created" : "2026-10-26T01:00:00Z",
+      "done" : false,
+      "due" : "2026-10-26T05:00:00Z",
+      "id" : "C0FFEE00-1234-4ABC-9DEF-000000000001",
+      "reminded" : false,
+      "title" : "Kirim laporan"
+    },
+    {
+      "created" : "2026-10-26T01:00:00Z",
+      "done" : "yes",
+      "id" : "C0FFEE00-1234-4ABC-9DEF-000000000002",
+      "reminded" : false,
+      "title" : "damaged: done is a string"
+    }
+  ],
+  "water" : [
+    {
+      "date" : "2026-10-26T01:00:00Z",
+      "id" : "D00D0000-0000-4000-8000-000000000001",
+      "ml" : 350
+    }
+  ]
+}
