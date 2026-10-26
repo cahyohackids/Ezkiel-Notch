@@ -36,12 +36,13 @@ enum ScratchMode: String, CaseIterable, Identifiable {
 }
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case general, whiskers, features, about
+    case general, whiskers, roar, features, about
     var id: String { rawValue }
     var title: String {
         switch self {
         case .general: return "General"
         case .whiskers: return "Whiskers"
+        case .roar: return "Roar"
         case .features: return "Features"
         case .about: return "About"
         }
@@ -52,7 +53,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 /// wrapped in one spring, so the shape and the content always move together.
 @MainActor
 final class AppModel: ObservableObject {
-    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.0"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.3.0"
 
     // Presentation
     @Published private(set) var presentation: Presentation = .compact
@@ -70,6 +71,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var lionMood: LionMood = .awake
     @Published var settingsSection: SettingsSection = .general
     @Published var scratchMode: ScratchMode = .notes
+    @Published var roarMode: RoarMode = .roar
+    /// Scout: agents that are working or waiting for you, by session.
+    @Published var agents: [String: ScoutEvent] = [:]
+    @Published var agentLinks: [AgentLinks.Agent: ScoutSetup.LinkState] = [:]
 
     // Data
     @Published var data: AppData {
@@ -92,6 +97,10 @@ final class AppModel: ObservableObject {
     let battery = BatteryMonitor()
     let lyrics = LyricsService()
     let calendar = CalendarService()
+    let badges = BadgeWatcher()
+    let scout = ScoutService()
+    /// Roar: when each app last peeked, so a busy chat doesn't peek on every message.
+    var lastRoarPeek: [String: Date] = [:]
     private let system = SystemMonitor()
     private let pounce = PounceWatcher()
     private var subscriptions = Set<AnyCancellable>()
@@ -153,6 +162,8 @@ final class AppModel: ObservableObject {
         system.start()
         pounce.onScreenshot = { [weak self] url in self?.pounced(url, screenshot: true) }
         pounce.onDownload = { [weak self] url in self?.pounced(url, screenshot: false) }
+        badges.onIncrease = { [weak self] badge, before in self?.badgeIncreased(badge, before: before) }
+        scout.onEvent = { [weak self] event in self?.scoutReceived(event) }
         applySettings(old: nil)
         rebuildStash()
 
@@ -163,6 +174,10 @@ final class AppModel: ObservableObject {
             .sink { [weak self] _ in
                 DispatchQueue.main.async { self?.refreshLyrics() }
             }
+            .store(in: &subscriptions)
+        // Roar's counts show in the closed notch and the tab badge.
+        badges.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &subscriptions)
         // The open notch's height depends on whether Purr shows lyrics.
         lyrics.$state
@@ -192,6 +207,9 @@ final class AppModel: ObservableObject {
         pounce.setScreenshots(s.pounceScreenshots)
         pounce.setDownloads(s.pounceDownloads)
         calendar.setEnabled(s.rally)
+        badges.setEnabled(s.roar)
+        scout.setEnabled(s.scout)
+        if !s.scout { agents = [:] }
         if old?.hotkey != s.hotkey { onHotkeyChange(s.hotkey) }
         if old?.musicSource != s.musicSource {
             music.source = s.musicSource
@@ -219,6 +237,7 @@ final class AppModel: ObservableObject {
     /// True when the closed notch has something live to show in its wings.
     var hasLiveActivity: Bool {
         focus.isRunning || (music.nowPlaying?.isPlaying ?? false) || battery.state?.isCharging == true || meetingSoon != nil
+            || !agents.isEmpty
     }
 
     var showsWings: Bool {
@@ -499,6 +518,12 @@ final class AppModel: ObservableObject {
     }
 
     func openPeek() {
+        if let app = peek?.app {
+            openApp(app)
+            dismissPeek()
+            return
+        }
+        if peek?.tab == .roar { roarMode = .scout }
         expand(peek?.tab)
     }
 
@@ -569,6 +594,7 @@ final class AppModel: ObservableObject {
         checkTasks(now)
         checkWater(now)
         checkMeetings(now)
+        expireAgents(now)
         if tickCount % 60 == 0 { calendar.refresh(now: now) }
         if settings.mascotSleeps, lionMood == .awake, presentation == .compact,
            !hasLiveActivity, now.timeIntervalSince(lastInteraction) > 120 {

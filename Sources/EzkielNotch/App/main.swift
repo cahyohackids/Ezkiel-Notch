@@ -1,8 +1,13 @@
 import AppKit
 
 MainActor.assumeIsolated {
-    let app = NSApplication.shared
     let args = ProcessInfo.processInfo.arguments
+
+    // Scout senders (`--claude-hook`, `--codex-notify`, `--notify`): hand the event over and exit,
+    // before anything connects to the window server.
+    if ScoutService.runSender(args) { exit(0) }
+
+    let app = NSApplication.shared
 
     // `EzkielNotch --render-icon <dir.iconset>` draws the app icon (used by scripts/build_app.sh).
     if let i = args.firstIndex(of: "--render-icon"), i + 1 < args.count {

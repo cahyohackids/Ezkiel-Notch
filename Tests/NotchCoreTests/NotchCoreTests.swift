@@ -181,3 +181,77 @@ final class FocusStatsTests: XCTestCase {
         XCTAssertEqual(paused.remaining(), 1400, accuracy: 0.001)
     }
 }
+
+final class ScoutParserTests: XCTestCase {
+    func testClaudeNotificationAndStop() {
+        let note = #"{"session_id":"s1","cwd":"/Users/me/ezkiel-notch","hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}"#
+        let e = ScoutParser.claudeHook(Data(note.utf8), appBundleID: "com.apple.Terminal")
+        XCTAssertEqual(e?.kind, .needsYou)
+        XCTAssertEqual(e?.body, "Claude needs your permission to use Bash")
+        XCTAssertEqual(e?.project, "ezkiel-notch")
+        XCTAssertEqual(e?.appBundleID, "com.apple.Terminal")
+
+        let stop = #"{"session_id":"s1","cwd":"/tmp","hook_event_name":"Stop","stop_hook_active":false}"#
+        XCTAssertEqual(ScoutParser.claudeHook(Data(stop.utf8))?.kind, .done)
+        XCTAssertNil(ScoutParser.claudeHook(Data(#"{"hook_event_name":"PreToolUse"}"#.utf8)))
+        XCTAssertNil(ScoutParser.claudeHook(Data("not json".utf8)))
+    }
+
+    func testCodexTurnComplete() {
+        let arg = #"{"type":"agent-turn-complete","turn-id":"t1","input-messages":["fix it"],"last-assistant-message":"  Fixed the failing test.  "}"#
+        let e = ScoutParser.codexNotify(arg)
+        XCTAssertEqual(e?.kind, .done)
+        XCTAssertEqual(e?.source, "codex")
+        XCTAssertEqual(e?.body, "Fixed the failing test.")
+    }
+
+    func testURL() {
+        let e = ScoutParser.url(URL(string: "ezkielnotch://notify?title=Build%20done&body=All%20green&source=ci&kind=done")!)
+        XCTAssertEqual(e?.title, "Build done")
+        XCTAssertEqual(e?.kind, .done)
+        XCTAssertEqual(e?.source, "ci")
+        XCTAssertNil(ScoutParser.url(URL(string: "ezkielnotch://notify?body=x")!))
+        XCTAssertNil(ScoutParser.url(URL(string: "https://example.com/notify?title=x")!))
+    }
+}
+
+final class ScoutSetupTests: XCTestCase {
+    let exe = "/Applications/Ezkiel Notch.app/Contents/MacOS/EzkielNotch"
+
+    func testBadgeLabel() {
+        XCTAssertEqual(BadgeLabel.count("8"), 8)
+        XCTAssertEqual(BadgeLabel.count("99+"), 99)
+        XCTAssertEqual(BadgeLabel.count("•"), 1)
+        XCTAssertNil(BadgeLabel.count(""))
+        XCTAssertNil(BadgeLabel.count("0"))
+    }
+
+    func testClaudeConnectKeepsOtherHooksAndIsIdempotent() throws {
+        let cmd = ScoutSetup.claudeCommand(executable: exe)
+        let existing = #"{"model":"opus","hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}]}}"#
+        let once = try ScoutSetup.connectClaude(Data(existing.utf8), command: cmd)
+        let twice = try ScoutSetup.connectClaude(once, command: cmd)
+        XCTAssertEqual(ScoutSetup.claudeState(twice, command: cmd), .on)
+        let root = try JSONSerialization.jsonObject(with: twice) as! [String: Any]
+        XCTAssertEqual(root["model"] as? String, "opus")
+        let stop = (root["hooks"] as! [String: Any])["Stop"] as! [[String: Any]]
+        XCTAssertEqual(stop.count, 2, "user's hook kept, ours added once")
+
+        let off = try ScoutSetup.disconnectClaude(twice)
+        XCTAssertEqual(ScoutSetup.claudeState(off, command: cmd), .off)
+        let hooks = (try JSONSerialization.jsonObject(with: off) as! [String: Any])["hooks"] as! [String: Any]
+        XCTAssertEqual(hooks.keys.sorted(), ["Stop"])
+        XCTAssertEqual(ScoutSetup.claudeState(try ScoutSetup.connectClaude(nil, command: "'/old/EzkielNotch' --claude-hook"), command: cmd), .stale)
+        XCTAssertThrowsError(try ScoutSetup.connectClaude(Data("{oops".utf8), command: cmd))
+    }
+
+    func testCodex() throws {
+        let toml = "model = \"o3\"\n\n[tui]\nnotify = true\n"
+        let on = try ScoutSetup.connectCodex(toml, executable: exe)
+        XCTAssertTrue(on.hasPrefix("notify = [\"\(exe)\", \"--codex-notify\"]\n"))
+        XCTAssertEqual(ScoutSetup.codexState(on, executable: exe), .on)
+        XCTAssertEqual(try ScoutSetup.connectCodex(on, executable: exe), on)
+        XCTAssertEqual(ScoutSetup.disconnectCodex(on), toml)
+        XCTAssertThrowsError(try ScoutSetup.connectCodex("notify = [\"terminal-notifier\"]\n", executable: exe))
+    }
+}

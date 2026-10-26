@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// The seven places in the open notch, each with its own name, symbol, accent and height.
+/// The places in the open notch, each with its own name, symbol, accent and height.
 enum NotchTab: String, CaseIterable, Identifiable {
-    case den, hunt, scratch, purr, stash, oasis, settings
+    case den, hunt, roar, scratch, purr, stash, oasis, settings
 
     var id: String { rawValue }
 
@@ -10,6 +10,7 @@ enum NotchTab: String, CaseIterable, Identifiable {
         switch self {
         case .den: return "Den"
         case .hunt: return "Hunt"
+        case .roar: return "Roar"
         case .scratch: return "Scratch"
         case .purr: return "Purr"
         case .stash: return "Stash"
@@ -23,6 +24,7 @@ enum NotchTab: String, CaseIterable, Identifiable {
         switch self {
         case .den: return "Focus timer"
         case .hunt: return "Tasks and meetings"
+        case .roar: return "Unread and agents"
         case .scratch: return "Notes and clips"
         case .purr: return "Now playing"
         case .stash: return "File shelf"
@@ -35,6 +37,7 @@ enum NotchTab: String, CaseIterable, Identifiable {
         switch self {
         case .den: return "timer"
         case .hunt: return "checklist"
+        case .roar: return "bell"
         case .scratch: return "note.text"
         case .purr: return "waveform"
         case .stash: return "tray.full"
@@ -48,6 +51,7 @@ enum NotchTab: String, CaseIterable, Identifiable {
         switch self {
         case .den, .hunt, .purr, .scratch: return icon
         case .stash: return "tray.full.fill"
+        case .roar: return "bell.fill"
         case .oasis: return "drop.fill"
         case .settings: return "gearshape.fill"
         }
@@ -57,6 +61,7 @@ enum NotchTab: String, CaseIterable, Identifiable {
         switch self {
         case .den: return .den
         case .hunt: return .hunt
+        case .roar: return .roar
         case .scratch: return .scratch
         case .purr: return .purr
         case .stash: return .stash
@@ -104,6 +109,10 @@ struct Peek: Identifiable, Equatable {
     var file: URL? = nil
     /// Rally: the meeting link behind the Join button.
     var link: URL? = nil
+    /// Roar and Scout: the app that opens when the peek is clicked (WhatsApp, the agent's terminal).
+    var app: String? = nil
+    /// Show that app's own icon instead of `icon`.
+    var appIcon: Bool = false
 
     var isHUD: Bool { hudKey != nil }
     /// Cards with a thumbnail or buttons need a taller second row.
@@ -153,6 +162,7 @@ enum NotchMetrics {
         switch tab {
         case .den: return 160
         case .hunt: return 188
+        case .roar: return 176
         case .scratch: return 180
         case .purr: return lyrics ? 170 : 122
         case .stash: return 128

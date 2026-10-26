@@ -105,6 +105,8 @@ struct Accent: Equatable {
     static let purr = Accent(light: Color(hex: 0xFF8FB0), deep: Color(hex: 0xFF375F))
     static let stash = Accent(light: Color(hex: 0x9C9AFF), deep: Color(hex: 0x5E5CE6))
     static let oasis = Accent(light: Color(hex: 0x8AE3FF), deep: Color(hex: 0x0A84FF))
+    static let roar = Accent(light: Color(hex: 0x9BF0B4), deep: Color(hex: 0x30D158))
+    static let scout = Accent(light: Color(hex: 0x9EF3EE), deep: Color(hex: 0x00C7BE))
     static let whiskers = Accent(light: Color(hex: 0xF5F1EA), deep: Color(hex: 0xC7C2BA))
     static let neutral = Accent(light: Color(hex: 0xC7C7CC), deep: Color(hex: 0x8E8E93))
 

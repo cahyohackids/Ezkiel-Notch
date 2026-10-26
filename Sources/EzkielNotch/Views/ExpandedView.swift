@@ -100,6 +100,7 @@ struct ExpandedView: View {
         switch tab {
         case .den: return model.focus.isRunning
         case .purr: return music.nowPlaying?.isPlaying ?? false
+        case .roar: return model.unreadTotal > 0 || !model.agents.isEmpty
         case .hunt:
             return model.data.tasks.contains { !$0.done && ($0.due.map { $0 <= Date() } ?? false) } || model.meetingSoon != nil
         default: return false
@@ -113,6 +114,7 @@ struct ExpandedView: View {
         switch model.tab {
         case .den: DenPane(model: model)
         case .hunt: HuntPane(model: model, calendar: model.calendar)
+        case .roar: RoarPane(model: model, badges: model.badges)
         case .scratch: ScratchPane(model: model)
         case .purr: PurrPane(model: model, music: music)
         case .stash: StashPane(model: model)

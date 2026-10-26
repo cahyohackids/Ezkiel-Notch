@@ -177,8 +177,28 @@ struct CompactView: View {
             }
             .help(meeting.title)
             .transition(.scale.combined(with: .opacity))
+        } else if let agent = model.liveAgents.first {
+            // Scout: an agent is working (calm pulse) or waiting for you (amber).
+            let waiting = agent.kind == .needsYou
+            HStack(spacing: 2) {
+                Image(systemName: waiting ? "hand.raised.fill" : "sparkle")
+                    .font(.system(size: 11, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+                    .symbolPulse(true)
+                if model.agents.count > 1 {
+                    Text("\(model.agents.count)").font(Theme.number(10.5, .semibold))
+                }
+            }
+            .foregroundStyle(waiting ? Accent.den.linear : Accent.scout.linear)
+            .help(waiting ? agent.title : "\(agent.title)\(agent.project.map { " · \($0)" } ?? "")")
+            .transition(.scale.combined(with: .opacity))
         } else if let np = music.nowPlaying, np.isPlaying {
             EqualizerBars(playing: true, color: music.artworkAccent?.deep ?? np.player.tint, height: 12)
+                .transition(.scale.combined(with: .opacity))
+        } else if model.unreadTotal > 0 {
+            CountPill(label: RoarPane.short(model.unreadTotal), accent: .roar)
+                .scaleEffect(0.82)
+                .help("\(model.unreadTotal) unread · \(model.roarBadges.map(\.name).joined(separator: ", "))")
                 .transition(.scale.combined(with: .opacity))
         } else if let b = battery.state, b.isCharging {
             HStack(spacing: 2) {
@@ -324,6 +344,8 @@ struct PeekView: View {
                 .aspectRatio(contentMode: .fill)
                 .frame(width: 22, height: 22)
                 .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        } else if peek.appIcon, let app = peek.app {
+            AppIconView(bundleID: app, size: 22)
         } else if peek.showsLion {
             LionMascot(size: 26, mood: peek.mood, detailed: true)
         } else if let progress = peek.progress {

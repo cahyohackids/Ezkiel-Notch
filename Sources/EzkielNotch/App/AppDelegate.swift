@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var controller: NotchWindowController!
     private var statusItem: NSStatusItem?
     private var hotKey: HotKey?
+    /// A URL can arrive before launching has finished (the app was opened by it).
+    private var pendingURLs: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         quitOtherInstances()
@@ -24,6 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.start()
         installStatusItem()
         registerHotKey(model.settings.hotkey)
+        pendingURLs.forEach { model.handle(url: $0) }
+        pendingURLs = []
 
         if ProcessInfo.processInfo.arguments.contains("--self-test") {
             SelfTest.run(model: model, controller: controller)
@@ -49,12 +53,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !hotKeyRegistered { model?.showToast("\(choice.label) is taken by another app · pick another in Settings") }
     }
 
-    /// Opened from the keyboard: take key status so Esc and ⌘1…⌘7 work right away.
+    /// Opened from the keyboard: take key status so Esc and ⌘1…⌘8 work right away.
     private func toggleFromKeyboard() {
         model.toggle()
         if model.presentation == .expanded {
             controller.panel.makeKeyAndOrderFront(nil)
         }
+    }
+
+    /// `ezkielnotch://notify?title=…&body=…` from any script or app (Scout).
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let model else { return pendingURLs += urls }
+        urls.forEach { model.handle(url: $0) }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

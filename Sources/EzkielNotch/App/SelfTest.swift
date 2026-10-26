@@ -16,6 +16,8 @@ enum SelfTest {
         let snapshotDir = args.firstIndex(of: "--snapshots").flatMap { i in i + 1 < args.count ? args[i + 1] : nil }
         if snapshotDir != nil { seedDemoData(model) }
         model.ignoresPointer = true
+        // Never the real Dock badges: they'd make results (and snapshots) depend on this Mac's chats.
+        model.badges.simulate([])
         let saved = model.settings
 
         steps.append(("panel on screen", {
@@ -171,6 +173,107 @@ enum SelfTest {
             }))
         }
 
+        // Roar: Dock badges from other apps (simulated, so the result doesn't depend on what runs here).
+        let telegram = BadgeWatcher.Badge(bundleID: "ru.keepcoder.Telegram", name: "Telegram", label: "8", count: 8, since: Date())
+        steps.append(("roar list", {
+            model.collapse()
+            model.badges.simulate([
+                telegram,
+                BadgeWatcher.Badge(bundleID: "net.whatsapp.WhatsApp", name: "WhatsApp", label: "3", count: 3, since: Date().addingTimeInterval(-240)),
+                BadgeWatcher.Badge(bundleID: "com.microsoft.teams2", name: "Microsoft Teams", label: "2", count: 2, since: Date().addingTimeInterval(-1500)),
+                BadgeWatcher.Badge(bundleID: "com.anthropic.claudefordesktop", name: "Claude", label: "1", count: 1, since: Date().addingTimeInterval(-600)),
+            ])
+            model.settings.roar = true
+            model.settings.scout = true
+            // The Rally countdown would take the closed notch's wing.
+            model.settings.rally = false
+            check(model.unreadTotal == 13, "Roar counts 13 unread (got \(model.unreadTotal))")
+            check(model.aiBadges.map(\.bundleID) == ["com.anthropic.claudefordesktop"], "AI apps go to Scout, not the Roar list")
+            model.roarMode = .roar
+            model.expand(.roar)
+        }))
+        steps.append(("roar mute", {
+            model.mute(telegram.bundleID, name: telegram.name)
+            check(model.unreadTotal == 5, "a muted app leaves the count")
+            model.chrome.toast?.action?()
+            check(model.unreadTotal == 13, "Undo unmutes")
+            model.clearToast()
+            model.collapse()
+        }))
+        steps.append(("roar peek", {
+            model.lastRoarPeek = [:]
+            model.badgeIncreased(telegram, before: 6)
+            check(model.presentation == .peek && model.peek?.app == telegram.bundleID && model.peek?.appIcon == true,
+                  "a new message peeks with the app's icon")
+        }))
+        steps.append(("roar closed notch", {
+            model.dismissPeek()
+            check(model.presentation == .compact && model.unreadTotal > 0, "closed notch shows the unread count")
+        }))
+
+        // Scout: an agent session, as Claude Code's hook would send it.
+        let hook = { (event: String, extra: String) -> ScoutEvent? in
+            ScoutParser.claudeHook(Data(#"{"session_id":"selftest","cwd":"/Users/demo/ezkiel-notch","hook_event_name":"\#(event)"\#(extra)}"#.utf8),
+                                   appBundleID: "com.microsoft.VSCode")
+        }
+        steps.append(("scout working", {
+            if let e = hook("UserPromptSubmit", #","prompt":"Add Roar and Scout to the notch""#) { model.scout.receive(e) }
+            check(model.agents.count == 1 && model.hasLiveActivity, "a working agent is live in the closed notch")
+        }))
+        steps.append(("scout needs you", {
+            if let e = hook("Notification", #","message":"Claude needs your permission to use Bash""#) { model.scout.receive(e) }
+            check(model.liveAgents.first?.kind == .needsYou, "the agent is waiting for you")
+            check(model.presentation == .peek && model.peek?.title == "Claude needs you", "and peeks")
+        }))
+        steps.append(("scout done", {
+            model.dismissPeek()
+            let before = model.data.scoutLog.count
+            if let e = hook("Stop", "") { model.scout.receive(e) }
+            check(model.agents.isEmpty, "finished agents leave the live list")
+            check(model.data.scoutLog.count == before + 1, "and are logged")
+            if let e = hook("Notification", #","message":"Claude is waiting for your input""#) { model.scout.receive(e) }
+            check(model.data.scoutLog.count == before + 1, "the idle reminder after a finish is dropped")
+        }))
+        steps.append(("scout pane", {
+            model.dismissPeek()
+            model.roarMode = .scout
+            model.expand(.roar)
+            check(model.tab == .roar && model.roarMode == .scout, "Scout shows")
+        }))
+        let wireTitle = "Wire test \(UUID().uuidString.prefix(6))"
+        steps.append(("scout wire", {
+            model.collapse()
+            // The same path `EzkielNotch --notify` and the hooks use: a distributed notification.
+            ScoutService.post(ScoutEvent(source: "script", kind: .info, title: wireTitle))
+            if let url = URL(string: "ezkielnotch://notify?title=URL%20test&source=ci&kind=done") { model.handle(url: url) }
+        }))
+        steps.append(("scout wire arrived", {
+            check(model.data.scoutLog.contains { $0.title == wireTitle }, "an event posted by another process arrives")
+            check(model.data.scoutLog.contains { $0.title == "URL test" && $0.source == "ci" }, "ezkielnotch:// URLs arrive")
+            model.dismissPeek()
+        }))
+        steps.append(("scout connect", {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ezkiel-scout-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let settingsFile = dir.appendingPathComponent("settings.json")
+            try? Data(#"{"model":"opus"}"#.utf8).write(to: settingsFile)
+            check(AgentLinks.set(.claude, connected: true, file: settingsFile) == nil, "connects Claude Code")
+            check(AgentLinks.state(.claude, file: settingsFile) == .on, "Claude Code hook is in place")
+            check(FileManager.default.fileExists(atPath: settingsFile.path + ".ezkiel-backup"), "the old settings are backed up")
+            AgentLinks.set(.claude, connected: false, file: settingsFile)
+            check(AgentLinks.state(.claude, file: settingsFile) == .off, "disconnects Claude Code")
+            let toml = dir.appendingPathComponent("config.toml")
+            try? Data("model = \"o3\"\n".utf8).write(to: toml)
+            check(AgentLinks.set(.codex, connected: true, file: toml) == nil && AgentLinks.state(.codex, file: toml) == .on, "connects Codex")
+            try? FileManager.default.removeItem(at: dir)
+        }))
+
+        steps.append(("settings roar", {
+            model.settingsSection = .roar
+            model.expand(.settings)
+            check(model.agentLinks.count == AgentLinks.Agent.allCases.count, "Settings knows each agent's link state")
+        }))
+
         steps.append(("splash settles", {
             model.collapse()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -267,6 +370,14 @@ enum SelfTest {
                     model.data.focusLog.append(FocusEntry(start: day, minutes: minutes))
                 }
             }
+        }
+        if model.data.scoutLog.isEmpty {
+            model.data.scoutLog = [
+                ScoutEvent(source: "codex", kind: .done, title: "Codex finished", body: "Fixed the failing badge test and added a fallback.",
+                           cwd: "/Users/demo/ezkielyna-api", date: Date().addingTimeInterval(-11 * 60)),
+                ScoutEvent(source: "ci", kind: .done, title: "Deploy finished", body: "ezkielyna.store/notch is live",
+                           date: Date().addingTimeInterval(-47 * 60)),
+            ]
         }
         if model.data.shelf.isEmpty {
             model.addToShelf([URL(fileURLWithPath: "/System/Applications/Calculator.app"),

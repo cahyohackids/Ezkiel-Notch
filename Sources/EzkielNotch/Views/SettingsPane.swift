@@ -23,6 +23,7 @@ struct SettingsPane: View {
                     switch model.settingsSection {
                     case .general: general
                     case .whiskers: whiskers
+                    case .roar: roar
                     case .features: features
                     case .about: about
                     }
@@ -34,7 +35,10 @@ struct SettingsPane: View {
             .scrollEdgeFade(8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onAppear { model.refreshLoginItemState() }
+        .onAppear {
+            model.refreshLoginItemState()
+            model.refreshAgentLinks()
+        }
     }
 
     // MARK: General
@@ -89,6 +93,48 @@ struct SettingsPane: View {
                   icon: "camera.viewfinder", accent: .stash, isOn: $model.settings.pounceScreenshots)
         ToggleRow(title: "Pounce on downloads", subtitle: "Finished downloads in ~/Downloads appear the same way. macOS asks for Downloads access once.",
                   icon: "arrow.down.circle", accent: .stash, isOn: $model.settings.pounceDownloads)
+    }
+
+    // MARK: Roar & Scout
+
+    @ViewBuilder
+    private var roar: some View {
+        ToggleRow(title: "Roar", subtitle: "Unread counts from WhatsApp, Telegram, Teams and any app with a Dock badge. Only the number; no permission needed.",
+                  icon: "bell.badge", accent: .roar, isOn: $model.settings.roar)
+        if model.settings.roar {
+            ToggleRow(title: "Peek on new messages", subtitle: "Not while that app is in front", icon: "bubble.left",
+                      accent: .roar, isOn: $model.settings.roarPeeks)
+            if !model.settings.roarMuted.isEmpty {
+                OptionRow(title: "Muted", icon: "bell.slash") {
+                    ForEach(model.settings.roarMuted, id: \.self) { id in
+                        Chip(title: "\(AppIcons.name(id))  ✕", selected: false, accent: .roar) { model.unmute(id) }
+                            .help("Unmute")
+                    }
+                }
+            }
+        }
+        ToggleRow(title: "Scout", subtitle: "AI agents and scripts: a peek when they finish or need you", icon: "sparkle",
+                  accent: .scout, isOn: $model.settings.scout)
+        if model.settings.scout {
+            ForEach(AgentLinks.Agent.allCases) { agent in
+                AgentRow(agent: agent, state: model.agentLinks[agent] ?? .off) { connect in
+                    model.setAgent(agent, connected: connect)
+                }
+            }
+            HStack(spacing: 10) {
+                Image(systemName: "terminal").font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.mist).frame(width: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Any script or app").font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink)
+                    Text("open \"ezkielnotch://notify?title=Done&body=…\"").font(.system(size: Theme.Size.caption, design: .monospaced))
+                        .foregroundStyle(Theme.mist).lineLimit(1).truncationMode(.middle)
+                }
+                Spacer(minLength: 6)
+                PillButton(title: "Copy", icon: "doc.on.doc") { model.copyScoutCommand() }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .cardSurface()
+        }
     }
 
     // MARK: Features
@@ -187,6 +233,46 @@ struct SettingsPane: View {
             .buttonStyle(PressableStyle())
             .help("Quit Ezkiel Notch")
         }
+    }
+}
+
+/// Claude Code or Codex: connected or not, with one button.
+private struct AgentRow: View {
+    var agent: AgentLinks.Agent
+    var state: ScoutSetup.LinkState
+    var set: (Bool) -> Void
+
+    private var subtitle: String {
+        let file = agent.file.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+        switch state {
+        case .on: return "Connected · new sessions report here"
+        case .stale: return "Linked to an older copy of the app · reconnect"
+        case .off: return agent.installed ? "Adds a hook to \(file), backed up first" : "Not set up on this Mac"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: agent == .claude ? "sparkle" : "chevron.left.forwardslash.chevron.right")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(state == .on ? AnyShapeStyle(Accent.scout.linear) : AnyShapeStyle(Theme.mist))
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(agent.title).font(Theme.font(Theme.Size.body, .medium)).foregroundStyle(Theme.ink)
+                Text(subtitle).font(Theme.font(Theme.Size.caption)).foregroundStyle(state == .stale ? Accent.den.light : Theme.mist)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            Spacer(minLength: 6)
+            switch state {
+            case .on: TextButton(title: "Disconnect", tint: Theme.mist) { set(false) }
+            case .stale: PillButton(title: "Reconnect", prominent: true, accent: .scout) { set(true) }
+            case .off: PillButton(title: "Connect", prominent: agent.installed, accent: .scout) { set(true) }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(minHeight: 36)
+        .cardSurface()
     }
 }
 

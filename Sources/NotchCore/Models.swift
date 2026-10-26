@@ -148,6 +148,14 @@ public struct NotchSettings: Codable, Equatable {
     public var hotkey: HotkeyChoice = .controlOptionN
     /// CGDirectDisplayID of the chosen display; 0 = automatic. `displayName` is the older fallback.
     public var displayID: UInt32 = 0
+    /// Roar: unread counts from WhatsApp, Telegram, Teams and other apps' Dock badges (no permission needed).
+    public var roar: Bool = true
+    /// Roar: peek when an app's unread count goes up.
+    public var roarPeeks: Bool = true
+    /// Roar: bundle IDs the user muted.
+    public var roarMuted: [String] = []
+    /// Scout: notifications from AI agents and scripts (Claude Code, Codex, ezkiel-notify).
+    public var scout: Bool = true
 
     public init() {}
 
@@ -182,6 +190,10 @@ public struct NotchSettings: Codable, Equatable {
         rallyCountdown = (try? c.decode(Bool.self, forKey: .rallyCountdown)) ?? d.rallyCountdown
         hotkey = (try? c.decode(HotkeyChoice.self, forKey: .hotkey)) ?? d.hotkey
         displayID = (try? c.decode(UInt32.self, forKey: .displayID)) ?? d.displayID
+        roar = (try? c.decode(Bool.self, forKey: .roar)) ?? d.roar
+        roarPeeks = (try? c.decode(Bool.self, forKey: .roarPeeks)) ?? d.roarPeeks
+        roarMuted = (try? c.decode([String].self, forKey: .roarMuted)) ?? d.roarMuted
+        scout = (try? c.decode(Bool.self, forKey: .scout)) ?? d.scout
     }
 
     public static let defaults = NotchSettings()
@@ -196,6 +208,8 @@ public struct AppData: Codable, Equatable {
     public var water: [WaterEntry] = []
     public var settings: NotchSettings = NotchSettings()
     public var focusLog: [FocusEntry] = []
+    /// The last Scout events (agents and scripts), newest first.
+    public var scoutLog: [ScoutEvent] = []
     /// The Den timer, so a running session survives a restart.
     public var focusState: FocusSnapshot?
     public var onboarded: Bool = false
@@ -211,6 +225,7 @@ public struct AppData: Codable, Equatable {
         water = (try? c.decode([WaterEntry].self, forKey: .water)) ?? []
         settings = (try? c.decode(NotchSettings.self, forKey: .settings)) ?? NotchSettings()
         focusLog = (try? c.decode([FocusEntry].self, forKey: .focusLog)) ?? []
+        scoutLog = (try? c.decode([ScoutEvent].self, forKey: .scoutLog)) ?? []
         focusState = try? c.decode(FocusSnapshot.self, forKey: .focusState)
         onboarded = (try? c.decode(Bool.self, forKey: .onboarded)) ?? false
     }
