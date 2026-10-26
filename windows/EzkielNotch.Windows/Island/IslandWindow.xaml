@@ -35,6 +35,12 @@
                     </StackPanel>
                 </Grid>
 
+                <!-- Closed but live: the Mac's wings, as a small pill (a timer, music, Prowl, unread…). -->
+                <Grid x:Name="LiveView" Opacity="0" IsHitTestVisible="False" Margin="12,0">
+                    <StackPanel x:Name="LiveLeft" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                    <StackPanel x:Name="LiveRight" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                </Grid>
+
                 <!-- Expanded: header, the rooms, and the page. -->
                 <Grid x:Name="ExpandedView" Opacity="0" Margin="14,0,14,12">
                     <Grid.RowDefinitions>
@@ -65,6 +71,8 @@
                                 </ControlTemplate>
                             </Button.Template>
                         </Button>
+                        <StackPanel x:Name="WeatherChip" Orientation="Horizontal" DockPanel.Dock="Right" Margin="0,0,10,0"
+                                    VerticalAlignment="Center" Visibility="Collapsed" Background="Transparent"/>
                         <TextBlock x:Name="Clock" Text="00:00" DockPanel.Dock="Right" Margin="0,0,10,0" FontFamily="{StaticResource Text}"
                                    FontSize="12" Foreground="{StaticResource Mist}" VerticalAlignment="Center"/>
                     </DockPanel>
@@ -74,6 +82,8 @@
                     <!-- The room's page, at its own height; toasts float over its bottom edge. -->
                     <Grid Grid.Row="2" Margin="0,10,0,0">
                         <Border x:Name="PageHost" VerticalAlignment="Top"/>
+                        <!-- Mirror: the camera, over the page, only while it's open. -->
+                        <Border x:Name="MirrorView" VerticalAlignment="Top" CornerRadius="14" Background="#FF0E0E10" Visibility="Collapsed" ClipToBounds="True"/>
                         <Border x:Name="ToastView" VerticalAlignment="Bottom" HorizontalAlignment="Center" Opacity="0" IsHitTestVisible="False"
                                 Height="30" CornerRadius="15" Background="#F22C2C2E" Padding="14,0,6,0" Margin="0,0,0,2">
                             <Border.Effect>

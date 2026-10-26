@@ -27,6 +27,14 @@ internal static class SelfTest
         w.IgnorePointer = true;
         var m = w.Model;
         Seed(m);
+        m.Settings.WeatherCity = "Jakarta";
+        w.Weather.Simulate(new WeatherClient.Now(29.4, 2, 32, 24, 40, true, DateTime.UtcNow));
+        m.Settings.Rally = true;
+        m.Settings.RallyCalendarUrl = "https://calendar.example/basic.ics";
+        w.Rally.Simulate([
+            new Meeting("1", "Design review", DateTime.UtcNow.AddMinutes(20), DateTime.UtcNow.AddMinutes(50), "https://meet.google.com/abc-defg-hij"),
+            new Meeting("2", "1:1 with Rina", DateTime.UtcNow.AddHours(2), DateTime.UtcNow.AddHours(2.5), null),
+        ]);
         Lang.Choice = AppLanguage.En;
         m.Settings.Language = AppLanguage.En;
         m.SettingsChanged(everything: true);
@@ -74,6 +82,16 @@ internal static class SelfTest
                 pane.Submit();
                 Check(m.Data.Tasks.Count == before + 1 && m.Data.Tasks[0].Title == "Book the venue", "typing a task and pressing Return adds it on top");
                 Check(((HuntPane)w.CurrentPane!).Input!.Text.Length == 0, "the field clears after adding");
+            }),
+            ("mirror", () =>
+            {
+                w.SetMirror(true);
+                Check(w.MirrorView.IsVisible, "Mirror opens over the page");
+            }),
+            ("mirror closed", () =>
+            {
+                w.SetMirror(false);
+                Check(!w.MirrorView.IsVisible, "and closes");
             }),
             ("hunt undo toast", () =>
             {
@@ -222,6 +240,12 @@ internal static class SelfTest
             ("leave", () => w.PointerMoved(false)),
             ("left", () => w.PointerMoved(false)),
             ("closed again", () => Check(w.Presentation == Presentation.Lip, "leaving closes it")),
+            ("live pill", () =>
+            {
+                var r = w.Island.BodyRect;
+                Check(w.IsLive && r.Width > 200 && r.Height >= 26, $"a running timer keeps the closed island live, like the Mac's wings ({r.Width:0}×{r.Height:0})");
+                Check(FullyInside(w, w.LiveRight, minSize: 4), "the countdown fits in the pill");
+            }),
             ("peek", () =>
             {
                 w.ShowPeek("Focus complete", "3-day streak · take 5 min", room: Room.Den);

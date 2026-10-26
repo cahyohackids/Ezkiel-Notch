@@ -57,6 +57,25 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
         list.Children.Add(Toggle(L("Pounce on screenshots"), L("New screenshots appear with Copy · Stash · Show"), s.PounceScreenshots, v => s.PounceScreenshots = v, Accent.Stash));
         list.Children.Add(Toggle(L("Pounce on downloads"), L("Finished downloads appear the same way"), s.PounceDownloads, v => s.PounceDownloads = v, Accent.Stash));
 
+        list.Children.Add(Toggle("Prowl", L("Green and orange dots while a camera or microphone is on"), s.Prowl, v => s.Prowl = v, Accent.Roar));
+        list.Children.Add(Toggle("Rally", L("Next meeting in Hunt, a peek with Join 5 min before"), s.Rally, v => { s.Rally = v; Dispatcher.BeginInvoke(Refresh); }, Accent.Rally));
+        if (s.Rally)
+        {
+            list.Children.Add(TextRow(L("Calendar address (iCal)"), L("Google: Settings › your calendar › Secret address in iCal format. Outlook: Shared calendars › Publish › ICS."),
+                                      s.RallyCalendarUrl, "https://…/basic.ics", v =>
+                                      {
+                                          s.RallyCalendarUrl = v.Trim();
+                                          Model.SettingsChanged();
+                                          Refresh();
+                                      }));
+            list.Children.Add(Toggle(L("Meeting countdown"), L("\"in 5m\" in the closed island"), s.RallyCountdown, v => s.RallyCountdown = v, Accent.Rally));
+        }
+        list.Children.Add(WeatherRow());
+        if (s.WeatherCity.Length > 0)
+            list.Children.Add(Option(L("Temperature"), [
+                Ui.Chip("°C", !s.Fahrenheit, Accent.Neutral, () => { s.Fahrenheit = false; Changed(); }),
+                Ui.Chip("°F", s.Fahrenheit, Accent.Neutral, () => { s.Fahrenheit = true; Changed(); })]));
+
         list.Children.Add(Section("Roar & Scout"));
         list.Children.Add(Toggle("Roar", L("Unread counts from WhatsApp, Teams, Outlook and any app that notifies you. Only the number, no permission."),
                                  s.Roar, v => s.Roar = v, Accent.Roar));
@@ -130,6 +149,77 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
         Background = Ui.Surface,
         Margin = new Thickness(0, 0, 0, 3),
     };
+
+    /// <summary>A labelled text field that saves on Return or when it loses focus.</summary>
+    private Border TextRow(string title, string help, string value, string placeholder, Action<string> save)
+    {
+        var s = new StackPanel();
+        s.Children.Add(Ui.Label(title, Ui.Body, weight: FontWeights.Medium));
+        var helpText = Ui.Label(help, Ui.Caption, Ui.Mist, trim: false);
+        helpText.TextWrapping = TextWrapping.Wrap;
+        s.Children.Add(helpText);
+        var (box, input) = Ui.Field(placeholder, i => save(i.Text), 28);
+        input.Text = value;
+        input.LostKeyboardFocus += (_, _) => { if (input.Text.Trim() != value) save(input.Text); };
+        box.Margin = new Thickness(0, 6, 0, 0);
+        s.Children.Add(box);
+        return Row(s);
+    }
+
+    private string _weatherQuery = "";
+
+    /// <summary>Weather: type a city, pick it from the results (no location permission).</summary>
+    private Border WeatherRow()
+    {
+        var s = Model.Settings;
+        var weather = WeatherSource?.Invoke();
+        var stack = new StackPanel();
+        var head = Columns(Star, Auto);
+        var text = new StackPanel();
+        text.Children.Add(Ui.Label(L("Weather"), Ui.Body, weight: FontWeights.Medium));
+        text.Children.Add(Ui.Label(s.WeatherCity.Length > 0 ? s.WeatherCity : L("Type your city · Open-Meteo, no location permission"), Ui.Caption, Ui.Mist));
+        head.Children.Add(At(text, 0));
+        if (s.WeatherCity.Length > 0)
+            head.Children.Add(At(Ui.TextButton(L("Turn off"), () =>
+            {
+                s.WeatherCity = "";
+                Changed();
+            }), 1));
+        stack.Children.Add(head);
+        var (box, input) = Ui.Field(L("City"), i =>
+        {
+            _weatherQuery = i.Text;
+            if (weather is not null) _ = weather.Search(i.Text, Lang.IsIndonesian);
+        }, 28);
+        input.Text = _weatherQuery;
+        box.Margin = new Thickness(0, 6, 0, 0);
+        stack.Children.Add(box);
+        if (weather is { Results.Count: > 0 })
+        {
+            var results = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
+            foreach (var p in weather.Results)
+            {
+                var chip = Ui.Chip(p.Detail.Length > 0 ? $"{p.Name} · {p.Detail}" : p.Name, false, Accent.Oasis, () =>
+                {
+                    s.WeatherCity = p.Name;
+                    s.WeatherLatitude = p.Latitude;
+                    s.WeatherLongitude = p.Longitude;
+                    _weatherQuery = "";
+                    weather.ClearResults();
+                    Changed();
+                });
+                chip.Margin = new Thickness(0, 0, 4, 4);
+                results.Children.Add(chip);
+            }
+            stack.Children.Add(results);
+        }
+        else if (weather is { Searching: true })
+            stack.Children.Add(Ui.Label(L("Searching…"), Ui.Caption, Ui.Faint));
+        return Row(stack);
+    }
+
+    /// <summary>Set by the window: the weather client (for city search).</summary>
+    public Func<WeatherClient>? WeatherSource { get; set; }
 
     private Border AgentRow(AgentLinks.Agent agent)
     {

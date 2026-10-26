@@ -15,6 +15,7 @@ public readonly record struct Accent(Color Light, Color Deep)
     public static readonly Accent Hunt = new(Hex(0xFF9A8A), Hex(0xFF453A));
     public static readonly Accent Roar = new(Hex(0x9BF0B4), Hex(0x30D158));
     public static readonly Accent Scout = new(Hex(0x9EF3EE), Hex(0x00C7BE));
+    public static readonly Accent Rally = new(Hex(0xD9A2FF), Hex(0xBF5AF2));
     public static readonly Accent Scratch = new(Hex(0xFFE680), Hex(0xFFC400));
     public static readonly Accent Purr = new(Hex(0xFF8FB0), Hex(0xFF375F));
     public static readonly Accent Stash = new(Hex(0x9C9AFF), Hex(0x5E5CE6));

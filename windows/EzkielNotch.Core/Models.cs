@@ -86,6 +86,20 @@ public sealed class NotchSettings
     public bool PounceScreenshots { get; set; }
     /// <summary>Pounce: peek when a download finishes in Downloads.</summary>
     public bool PounceDownloads { get; set; }
+    /// <summary>Prowl: dots in the closed island while a microphone or camera is on.</summary>
+    public bool Prowl { get; set; } = true;
+    /// <summary>Rally: today's next meetings in Hunt and a peek 5 minutes before.</summary>
+    public bool Rally { get; set; }
+    /// <summary>Rally: "in 5m" in the closed island.</summary>
+    public bool RallyCountdown { get; set; } = true;
+    /// <summary>Windows only: the calendar's private iCal address Rally reads (Windows has no calendar access for
+    /// apps outside the Store). The Mac ignores it.</summary>
+    public string RallyCalendarUrl { get; set; } = "";
+    /// <summary>Weather glance: the city picked in Settings (no location permission). Empty = off.</summary>
+    public string WeatherCity { get; set; } = "";
+    public double WeatherLatitude { get; set; }
+    public double WeatherLongitude { get; set; }
+    public bool Fahrenheit { get; set; }
 
     /// <summary>The settings object as read, Mac-only keys included.</summary>
     internal JsonObject Raw { get; set; } = [];
@@ -115,6 +129,14 @@ public sealed class NotchSettings
         s.Scout = Json.Bool(o["scout"]) ?? s.Scout;
         s.PounceScreenshots = Json.Bool(o["pounceScreenshots"]) ?? s.PounceScreenshots;
         s.PounceDownloads = Json.Bool(o["pounceDownloads"]) ?? s.PounceDownloads;
+        s.Prowl = Json.Bool(o["prowl"]) ?? s.Prowl;
+        s.Rally = Json.Bool(o["rally"]) ?? s.Rally;
+        s.RallyCountdown = Json.Bool(o["rallyCountdown"]) ?? s.RallyCountdown;
+        s.RallyCalendarUrl = Json.String(o["rallyCalendarURL"]) ?? s.RallyCalendarUrl;
+        s.WeatherCity = Json.String(o["weatherCity"]) ?? s.WeatherCity;
+        s.WeatherLatitude = Json.Double(o["weatherLatitude"]) ?? s.WeatherLatitude;
+        s.WeatherLongitude = Json.Double(o["weatherLongitude"]) ?? s.WeatherLongitude;
+        s.Fahrenheit = Json.Bool(o["fahrenheit"]) ?? s.Fahrenheit;
         s.Language = Json.String(o["language"]) switch
         {
             "en" => AppLanguage.En,
@@ -147,6 +169,14 @@ public sealed class NotchSettings
         o["scout"] = Scout;
         o["pounceScreenshots"] = PounceScreenshots;
         o["pounceDownloads"] = PounceDownloads;
+        o["prowl"] = Prowl;
+        o["rally"] = Rally;
+        o["rallyCountdown"] = RallyCountdown;
+        o["rallyCalendarURL"] = RallyCalendarUrl;
+        o["weatherCity"] = WeatherCity;
+        o["weatherLatitude"] = WeatherLatitude;
+        o["weatherLongitude"] = WeatherLongitude;
+        o["fahrenheit"] = Fahrenheit;
         o["language"] = Language switch { AppLanguage.En => "en", AppLanguage.Id => "id", _ => "auto" };
         // Without it the Mac would treat these as pre-1.3.1 settings and migrate them again.
         o["defaultsRevision"] ??= CurrentRevision;

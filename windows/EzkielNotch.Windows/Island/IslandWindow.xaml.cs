@@ -46,6 +46,9 @@ public partial class IslandWindow : Window
     public LyricsClient Lyrics { get; }
     public RoarWatcher Roar { get; }
     public PounceWatcher Pounce { get; }
+    public RallyClient Rally { get; } = new();
+    public WeatherClient Weather { get; } = new();
+    public CameraMirror Mirror { get; }
     public Presentation Presentation { get; private set; } = Presentation.Lip;
     public bool Hovering { get; private set; }
     public bool FullscreenActive { get; private set; }
@@ -137,11 +140,35 @@ public partial class IslandWindow : Window
         Deactivated += (_, _) => SetNoActivate(true);
 
         Model.Changed += OnModelChanged;
+        Model.Changed += _ => UpdateLive();
+        Model.Meetings = () => Rally.Upcoming;
+        Mirror = new CameraMirror(Dispatcher);
+        Mirror.Changed += RenderMirror;
+        Media.Changed += UpdateLive;
+        Prowl.Changed += UpdateLive;
+        Power.Changed += UpdateLive;
+        Power.Notice += (kind, pct) =>
+        {
+            // Whiskers: the battery, beside the camera.
+            if (kind == "charging") ShowPeek(L("Charging"), $"{pct}%", 2.2);
+            else ShowPeek(kind == "critical" ? L("Battery very low") : L("Battery low"), L("%d%% left · plug in soon", pct), 5, urgent: true);
+        };
+        Rally.Changed += () =>
+        {
+            UpdateLive();
+            if (_panes.ContainsKey(Room.Hunt)) OnModelChanged(Room.Hunt);
+        };
+        Weather.Changed += () =>
+        {
+            UpdateWeatherChip();
+            // City search results show in Settings.
+            if (Presentation == Presentation.Expanded && Selected == Room.Settings) CurrentPane?.Refresh();
+        };
         Model.Peek += p =>
         {
             if (Model.Settings.Sounds && p.Sound.Length > 0) Sounds.Play(p.Sound);
             if (Presentation == Presentation.Expanded) ShowToast(new ToastRequest($"{p.Title} · {p.Subtitle}"));
-            else ShowPeek(p.Title, p.Subtitle, urgent: p.Urgent, room: p.Room, app: p.App);
+            else ShowPeek(p.Title, p.Subtitle, urgent: p.Urgent, room: p.Room, app: p.App, link: p.Link);
         };
         Model.Toast += ShowToast;
         Model.Sound += name => { if (Model.Settings.Sounds && name.Length > 0) Sounds.Play(name); };
@@ -181,9 +208,9 @@ public partial class IslandWindow : Window
         });
         _winEventHook = Win32.SetWinEventHook(Win32.EVENT_SYSTEM_FOREGROUND, Win32.EVENT_SYSTEM_FOREGROUND, 0, _winEventProc, 0, 0, Win32.WINEVENT_OUTOFCONTEXT);
 
-        Media.Start();
-        Roar.SetEnabled(Model.Settings.Roar && !SelfTesting);
-        if (!SelfTesting) Pounce.Configure(Model.Settings.PounceScreenshots, Model.Settings.PounceDownloads);
+        if (!SelfTesting) Media.Start();
+        Power.Start();
+        ConfigureSources();
         _pointer.Start();
         _second.Start();
         _fullscreenPoll.Start();
@@ -226,11 +253,130 @@ public partial class IslandWindow : Window
         Win32.SetWindowPos(_hwnd, Win32.HWND_TOPMOST, x, y, w, h, Win32.SWP_NOACTIVATE | Win32.SWP_SHOWWINDOW);
     }
 
+    private int _ticks;
+
     private void SecondTick()
     {
+        _ticks++;
         Model.Tick();
         if (DateTime.Now.Second == 0) Clock.Text = Lang.Time(DateTime.Now);
         if (Presentation == Presentation.Expanded) CurrentPane?.SecondTick();
+        UpdateLive();
+        if (_ticks % 60 == 0) Rally.Tick(DateTime.UtcNow);
+        if (_ticks % 600 == 0) _ = Weather.Refresh();
+    }
+
+    /// <summary>Sources that read the outside world follow their settings (none of them in the self-test).</summary>
+    private void ConfigureSources()
+    {
+        if (SelfTesting) return;
+        var s = Model.Settings;
+        Roar.SetEnabled(s.Roar);
+        Pounce.Configure(s.PounceScreenshots, s.PounceDownloads);
+        Prowl.SetEnabled(s.Prowl);
+        Rally.Configure(s.Rally, s.RallyCalendarUrl);
+        Weather.Configure(s.WeatherCity.Length > 0 ? s.WeatherLatitude : null, s.WeatherCity.Length > 0 ? s.WeatherLongitude : null);
+    }
+
+    // MARK: Weather (in the header, where the clock is)
+
+    private void UpdateWeatherChip()
+    {
+        WeatherChip.Children.Clear();
+        var w = Weather.Current;
+        var city = Model.Settings.WeatherCity;
+        if (w is null || city.Length == 0)
+        {
+            WeatherChip.Visibility = Visibility.Collapsed;
+            Clock.Visibility = Visibility.Visible;
+            return;
+        }
+        bool f = Model.Settings.Fahrenheit;
+        string T(double c) => $"{Math.Round(WeatherClient.Display(c, f)):0}°";
+        var (glyph, color) = WeatherGlyph(w.Code, w.IsDay);
+        WeatherChip.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe UI Symbol"), FontSize = 13, Foreground = new SolidColorBrush(color), VerticalAlignment = VerticalAlignment.Center });
+        var temp = Ui.Number(T(w.Temperature), 12.5);
+        temp.Margin = new Thickness(4, 0, 0, 0);
+        WeatherChip.Children.Add(temp);
+        var parts = new List<string> { city, L(WeatherClient.Word(w.Code)), $"{T(w.Low)}–{T(w.High)}" };
+        if (w.RainChance is int rain) parts.Add(L("%d%% rain", rain));
+        WeatherChip.ToolTip = string.Join(" · ", parts);
+        WeatherChip.Visibility = Visibility.Visible;
+        // The weather takes the clock's place (the taskbar keeps its own clock).
+        Clock.Visibility = Visibility.Collapsed;
+    }
+
+    private static (string, Color) WeatherGlyph(int code, bool day) => code switch
+    {
+        0 => day ? ("\u2600", Color.FromRgb(0xFF, 0xC8, 0x3D)) : ("\u263E", Color.FromRgb(0xD8, 0xDC, 0xFF)),
+        1 or 2 => day ? ("\u26C5", Color.FromRgb(0xFF, 0xD2, 0x7A)) : ("\u2601", Color.FromRgb(0xC7, 0xCB, 0xD6)),
+        45 or 48 => ("\u2248", Color.FromRgb(0xC7, 0xCB, 0xD6)),
+        >= 51 and <= 67 or >= 80 and <= 82 => ("\u2614", Color.FromRgb(0x8A, 0xE3, 0xFF)),
+        >= 71 and <= 77 or 85 or 86 => ("\u2744", Color.FromRgb(0xE6, 0xF4, 0xFF)),
+        >= 95 and <= 99 => ("\u26A1", Color.FromRgb(0xFF, 0xD6, 0x0A)),
+        _ => ("\u2601", Color.FromRgb(0xC7, 0xCB, 0xD6)),
+    };
+
+    // MARK: Mirror
+
+    public bool MirrorOpen { get; private set; }
+
+    public void SetMirror(bool on)
+    {
+        MirrorOpen = on;
+        if (on)
+        {
+            MirrorView.Height = RoomInfo.Of(Selected).PaneHeight;
+            if (_panes.TryGetValue(Selected, out var pane)) MirrorView.Height = pane.DesiredHeight;
+            MirrorView.Visibility = Visibility.Visible;
+            if (!SelfTesting) _ = Mirror.Start();
+        }
+        else
+        {
+            MirrorView.Visibility = Visibility.Collapsed;
+            _ = Mirror.Stop();
+        }
+        RenderMirror();
+    }
+
+    private void RenderMirror()
+    {
+        if (!MirrorOpen) return;
+        var grid = new Grid();
+        if (Mirror.Frame is { } frame)
+            grid.Children.Add(new Image
+            {
+                Source = frame,
+                Stretch = Stretch.UniformToFill,
+                // A mirror, not a camera: left is left.
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new ScaleTransform(-1, 1),
+            });
+        else
+        {
+            var text = Mirror.State switch
+            {
+                CameraMirror.Status.NoCamera => L("No camera found"),
+                CameraMirror.Status.Denied => L("Camera access is off · Settings › Privacy › Camera"),
+                _ => L("Starting the camera…"),
+            };
+            var label = Ui.Label(text, Ui.Secondary, Ui.Mist);
+            label.HorizontalAlignment = HorizontalAlignment.Center;
+            grid.Children.Add(label);
+        }
+        var close = Ui.IconButton("\uE711", L("Close Mirror"), () => SetMirror(false), 26, Ui.Ink);
+        close.Background = new SolidColorBrush(Color.FromArgb(0x99, 0, 0, 0));
+        close.HorizontalAlignment = HorizontalAlignment.Right;
+        close.VerticalAlignment = VerticalAlignment.Top;
+        close.Margin = new Thickness(0, 8, 8, 0);
+        grid.Children.Add(close);
+        var note = Ui.Label(L("Only you see this · nothing is recorded"), Ui.Caption, Brushes.White);
+        note.HorizontalAlignment = HorizontalAlignment.Center;
+        note.VerticalAlignment = VerticalAlignment.Bottom;
+        note.Margin = new Thickness(0, 0, 0, 8);
+        note.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 6, ShadowDepth = 0, Opacity = 0.8 };
+        grid.Children.Add(note);
+        MirrorView.Child = grid;
     }
 
     // MARK: Presentation
@@ -239,6 +385,8 @@ public partial class IslandWindow : Window
     {
         _peekTimer?.Stop();
         Presentation = Presentation.Expanded;
+        _liveShown = false;
+        Fade(LiveView, 0, 0.08);
         ShowRoom(Selected);
         Apply(ExpandedShape(Selected), animate: true, bouncy: true);
         Fade(PeekView, 0, 0.08);
@@ -260,7 +408,15 @@ public partial class IslandWindow : Window
         }
         Fade(ExpandedView, 0, 0.1);
         Fade(PeekView, 0, 0.1);
-        Apply(Hovering ? LipHoverShape : LipShape, animate: true, bouncy: false);
+        if (MirrorOpen) SetMirror(false);
+        _liveShown = IsLive;
+        _liveKey = "";
+        Apply(ClosedShape(), animate: true, bouncy: false);
+        if (_liveShown)
+        {
+            UpdateLive();
+            Fade(LiveView, 1, 0.22, delay: 0.15);
+        }
         UpdateHiddenState();
     }
 
@@ -271,7 +427,7 @@ public partial class IslandWindow : Window
 
     /// <summary>A short message under the top edge. While something is fullscreen only urgent ones show.
     /// Clicking it opens its room.</summary>
-    public void ShowPeek(string title, string subtitle, double seconds = 3.4, bool urgent = false, Room? room = null, string? app = null, string? file = null)
+    public void ShowPeek(string title, string subtitle, double seconds = 3.4, bool urgent = false, Room? room = null, string? app = null, string? file = null, string? link = null)
     {
         if (FullscreenActive && Model.Settings.HideInFullscreen && !urgent) return;
         if (Presentation == Presentation.Expanded) return;
@@ -288,12 +444,16 @@ public partial class IslandWindow : Window
             PeekActions.Children.Add(Ui.TextButton("Stash", () => { Model.AddToShelf([file]); Collapse(); }, Accent.Stash.LightBrush));
             PeekActions.Children.Add(Ui.TextButton(L("Show"), () => { Files.Reveal(file); Collapse(); }, Accent.Stash.LightBrush));
         }
+        if (link is not null)
+            PeekActions.Children.Add(Ui.Pill(L("Join"), () => { Files.Open(link); Collapse(); }, Accent.Rally, prominent: true, glyph: "\uE714"));
         _peekRoom = room;
         PeekView.Cursor = room is null ? null : Cursors.Hand;
         Presentation = Presentation.Peek;
+        _liveShown = false;
+        Fade(LiveView, 0, 0.08);
         Root.Opacity = 1;
         Root.IsHitTestVisible = true;
-        Apply(file is null ? PeekShape : PeekWideShape, animate: true, bouncy: true);
+        Apply(file is null && link is null ? PeekShape : PeekWideShape, animate: true, bouncy: true);
         Fade(PeekView, 1, 0.2, delay: 0.1);
         _peekTimer?.Stop();
         _peekTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(urgent ? Math.Max(seconds, 6) : seconds) };
@@ -503,7 +663,7 @@ public partial class IslandWindow : Window
             if (!Hovering)
             {
                 Hovering = true;
-                if (Presentation == Presentation.Lip) Apply(LipHoverShape, animate: true, bouncy: true);
+                if (Presentation == Presentation.Lip) Apply(ClosedShape(), animate: true, bouncy: true);
             }
             // Open after a short, deliberate rest, so passing by on the way to a tab doesn't open it.
             var delay = TimeSpan.FromSeconds(Math.Max(0.05, Model.Settings.HoverDelay));
@@ -516,7 +676,7 @@ public partial class IslandWindow : Window
             if (Hovering)
             {
                 Hovering = false;
-                if (Presentation == Presentation.Lip) Apply(LipShape, animate: true);
+                if (Presentation == Presentation.Lip) Apply(ClosedShape(), animate: true);
             }
             // While you type, the island waits (an idle field still lets go after 20 s outside).
             var grace = Typing ? TimeSpan.FromSeconds(20) : TimeSpan.FromMilliseconds(500);
@@ -591,16 +751,17 @@ public partial class IslandWindow : Window
         pane = room switch
         {
             Room.Den => new DenPane(Model),
-            Room.Hunt => new HuntPane(Model),
+            Room.Hunt => new HuntPane(Model, Rally, () => SetMirror(true)),
             Room.Scratch => new ScratchPane(Model),
             Room.Oasis => new OasisPane(Model),
-            Room.Settings => new SettingsPane(Model),
+            Room.Settings => new SettingsPane(Model) { WeatherSource = () => Weather },
             Room.Purr => new PurrPane(Model, Media, Lyrics),
             Room.Roar => new RoarPane(Model),
             Room.Stash => new StashPane(Model),
             _ => new ComingPane(Model, room),
         };
         if (pane is RoarPane roar) roar.OpenSettings += () => Select(Room.Settings);
+        if (pane is HuntPane hunt) hunt.OpenSettings += () => Select(Room.Settings);
         if (pane is StashPane stash)
         {
             stash.ShareFiles += files =>
@@ -651,6 +812,7 @@ public partial class IslandWindow : Window
 
     public void Select(Room room)
     {
+        if (MirrorOpen && room != Selected) SetMirror(false);
         Selected = room;
         var info = RoomInfo.Of(room);
         TabTitle.Text = info.Name;
@@ -680,13 +842,14 @@ public partial class IslandWindow : Window
             foreach (var r in _panes.Keys) _stale.Add(r);
             BuildTabs();
             Clock.Text = Lang.Time(DateTime.Now);
+            UpdateWeatherChip();
             if (Presentation == Presentation.Expanded) ShowRoom(Selected);
             return;
         }
         if (room == Room.Settings)
         {
-            Roar.SetEnabled(Model.Settings.Roar && !SelfTesting);
-            if (!SelfTesting) Pounce.Configure(Model.Settings.PounceScreenshots, Model.Settings.PounceDownloads);
+            ConfigureSources();
+            UpdateWeatherChip();
             // Settings feed Den, Oasis and the rest; the Settings room redraws itself.
             foreach (var r in _panes.Keys) if (r != Room.Settings) _stale.Add(r);
             if (Presentation == Presentation.Expanded && Selected != Room.Settings) ShowRoom(Selected);

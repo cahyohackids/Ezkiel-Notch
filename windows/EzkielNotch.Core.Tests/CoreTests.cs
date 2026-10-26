@@ -577,3 +577,90 @@ public class StashTests
         Assert.Contains("\"bookmark\": \"Ym9vaw==\"", d.ToJson());
     }
 }
+
+public class CalendarTests
+{
+    private const string Ics = """
+        BEGIN:VCALENDAR
+        BEGIN:VEVENT
+        UID:standup
+        SUMMARY:Daily standup
+        DTSTART;TZID=Asia/Jakarta:20261019T093000
+        DTEND;TZID=Asia/Jakarta:20261019T094500
+        RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR
+        EXDATE;TZID=Asia/Jakarta:20261028T093000
+        LOCATION:https://meet.google.com/abc-defg-hij
+        END:VEVENT
+        BEGIN:VEVENT
+        UID:standup
+        RECURRENCE-ID;TZID=Asia/Jakarta:20261030T093000
+        SUMMARY:Daily standup (moved)
+        DTSTART;TZID=Asia/Jakarta:20261030T110000
+        DTEND;TZID=Asia/Jakarta:20261030T111500
+        END:VEVENT
+        BEGIN:VEVENT
+        UID:review
+        SUMMARY:Design review
+        DTSTART:20261026T070000Z
+        DURATION:PT1H
+        DESCRIPTION:Join: https://teams.microsoft.com/l/meetup-join/19%3ameeting_x/0?context=y\, thanks
+        END:VEVENT
+        BEGIN:VEVENT
+        UID:cancelled
+        SUMMARY:Cancelled thing
+        DTSTART:20261026T080000Z
+        DTEND:20261026T090000Z
+        STATUS:CANCELLED
+        END:VEVENT
+        BEGIN:VEVENT
+        UID:allday
+        SUMMARY:Holiday
+        DTSTART;VALUE=DATE:20261026
+        END:VEVENT
+        END:VCALENDAR
+        """;
+
+    private static DateTime Jkt(int day, int h, int m) => new DateTime(2026, 10, day, h, m, 0, DateTimeKind.Utc).AddHours(-7);
+
+    [Fact]
+    public void ExpandsWeeklyMeetingsInTheirOwnZone()
+    {
+        var week = ICal.Occurrences(Ics, Jkt(26, 0, 0), Jkt(31, 0, 0)).Where(m => m.Title.StartsWith("Daily")).OrderBy(m => m.Start).ToList();
+        // Mon 26, (Wed 28 excluded), Fri 30 moved to 11:00.
+        Assert.Equal([Jkt(26, 9, 30), Jkt(30, 11, 0)], week.Select(m => m.Start));
+        Assert.Equal("Daily standup (moved)", week[1].Title);
+        Assert.Equal("https://meet.google.com/abc-defg-hij", week[0].Link);
+    }
+
+    [Fact]
+    public void SkipsCancelledAndAllDayAndFindsTeamsLinks()
+    {
+        var day = ICal.Occurrences(Ics, new DateTime(2026, 10, 26, 0, 0, 0, DateTimeKind.Utc), new DateTime(2026, 10, 27, 0, 0, 0, DateTimeKind.Utc));
+        Assert.DoesNotContain(day, m => m.Title is "Cancelled thing" or "Holiday");
+        var review = day.Single(m => m.Title == "Design review");
+        Assert.Equal(TimeSpan.FromHours(1), review.End - review.Start);
+        Assert.StartsWith("https://teams.microsoft.com/l/meetup-join/", review.Link);
+        Assert.DoesNotContain("thanks", review.Link);
+    }
+
+    [Theory]
+    [InlineData("webcal://p01-caldav.icloud.com/x.ics", "https://p01-caldav.icloud.com/x.ics")]
+    [InlineData("  https://calendar.google.com/calendar/ical/x/basic.ics ", "https://calendar.google.com/calendar/ical/x/basic.ics")]
+    [InlineData("not a link", null)]
+    public void AcceptsCalendarAddresses(string input, string? expected) => Assert.Equal(expected, RallyClient.Normalize(input));
+}
+
+public class WeatherTests
+{
+    [Fact]
+    public void ReadsOpenMeteo()
+    {
+        var now = WeatherClient.ParseForecast("""{"current":{"temperature_2m":29.4,"weather_code":61,"is_day":1},"daily":{"temperature_2m_max":[32.1],"temperature_2m_min":[24.0],"precipitation_probability_max":[80]}}""")!;
+        Assert.Equal((29.4, 61, 80, true), (now.Temperature, now.Code, now.RainChance, now.IsDay));
+        Assert.Equal("Rain", WeatherClient.Word(now.Code));
+        var places = WeatherClient.ParsePlaces("""{"results":[{"name":"Jakarta","latitude":-6.2,"longitude":106.8,"admin1":"DKI Jakarta","country":"Indonesia"}]}""");
+        Assert.Equal("DKI Jakarta, Indonesia", places.Single().Detail);
+        Assert.Empty(WeatherClient.ParsePlaces("{}"));
+        Assert.Equal(86, WeatherClient.Display(30, true), 3);
+    }
+}

@@ -6,7 +6,7 @@ namespace EzkielNotch.Core;
 public enum Room { Den, Hunt, Roar, Scratch, Purr, Stash, Oasis, Settings }
 
 /// <summary>A short message under the top edge. Sound is a Mac sound name; Windows maps it.</summary>
-public sealed record PeekRequest(string Title, string Subtitle, Room Room, string Sound, bool Urgent, string? App = null, string? Value = null);
+public sealed record PeekRequest(string Title, string Subtitle, Room Room, string Sound, bool Urgent, string? App = null, string? Value = null, string? Link = null);
 
 /// <summary>A capsule at the bottom of the open island, optionally with an action (Undo).</summary>
 public sealed record ToastRequest(string Text, string? ActionTitle = null, Action? Action = null);
@@ -83,6 +83,7 @@ public sealed class NotchModel
             CheckTasks(now);
             CheckWater(now);
             ExpireAgents(now);
+            CheckMeetings(now);
         }
         if (_dirty)
         {
@@ -209,6 +210,26 @@ public sealed class NotchModel
             Data.Tasks[i] = t with { Reminded = true };
             Peek?.Invoke(new PeekRequest(L("Task due"), t.Title, Room.Hunt, "Ping", Urgent: true));
             Touch(Room.Hunt);
+            break;
+        }
+    }
+
+    // MARK: Rally
+
+    /// <summary>Set by the window: today's next meetings.</summary>
+    public Func<IReadOnlyList<Meeting>> Meetings { get; set; } = () => [];
+    private readonly HashSet<string> _notifiedMeetings = [];
+
+    /// <summary>A peek 5 minutes before a meeting (once), with Join when it has a link.</summary>
+    private void CheckMeetings(DateTime now)
+    {
+        if (!Settings.Rally) return;
+        foreach (var m in Meetings())
+        {
+            var lead = m.Start - now;
+            if (lead <= TimeSpan.Zero || lead > TimeSpan.FromMinutes(5) || !_notifiedMeetings.Add(m.Id)) continue;
+            Peek?.Invoke(new PeekRequest(m.Title, L("Starts %@ · in %d min", Lang.Time(m.Start), (int)Math.Ceiling(lead.TotalMinutes)),
+                                         Room.Hunt, "Glass", Urgent: true, Link: m.Link));
             break;
         }
     }
