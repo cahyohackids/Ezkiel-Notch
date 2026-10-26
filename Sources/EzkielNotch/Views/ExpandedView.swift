@@ -12,7 +12,7 @@ struct ExpandedView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-                .frame(height: NotchMetrics.barHeight(model.geometry))
+                .frame(height: model.rowHeight)
             tabStrip
                 .frame(height: NotchMetrics.tabStripHeight)
                 .padding(.top, NotchMetrics.tabStripTop)
@@ -60,7 +60,7 @@ struct ExpandedView: View {
             }
             .frame(maxWidth: .infinity)
 
-            Color.clear.frame(width: model.geometry.hasNotch ? model.geometry.notchWidth + 8 : 12)
+            Color.clear.frame(width: model.geometry.hasNotch && !model.isIsland ? model.geometry.notchWidth + 8 : 12)
 
             HStack(spacing: 4) {
                 Spacer(minLength: 0)

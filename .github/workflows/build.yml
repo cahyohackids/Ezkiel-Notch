@@ -28,7 +28,10 @@ jobs:
 
       - name: Toolchain
         run: |
-          sudo xcode-select -s /Applications/Xcode_16.4.app || true
+          # Newest Xcode 26 on the runner (macOS 26 SDK: real Liquid Glass for the island), else 16.4.
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          sudo xcode-select -s "${XCODE:-/Applications/Xcode_16.4.app}" || true
+          xcodebuild -version || true
           swift --version
           sw_vers
 

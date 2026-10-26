@@ -359,6 +359,32 @@ enum Indonesian {
         "It's kept as data.broken-….json in the data folder": "Disimpan sebagai data.broken-….json di folder data",
         "Prompt copied · paste it in Claude": "Prompt disalin · tempel di Claude",
 
+        // MARK: Style (Notch or Island)
+        "Notch": "Notch",
+        "Island": "Island",
+        "Hangs from the top edge": "Menempel di tepi atas",
+        "Floats like the Dynamic Island": "Melayang seperti Dynamic Island",
+        "Size": "Ukuran",
+        "Gap": "Jarak",
+        "Small": "Kecil",
+        "Medium": "Sedang",
+        "Large": "Besar",
+        "Tight": "Rapat",
+        "Roomy": "Lega",
+        "Liquid Glass": "Liquid Glass",
+        "Apple's see-through glass, tinted dark so text stays readable": "Kaca tembus pandang ala Apple, diberi gelap supaya teks tetap terbaca",
+        "A dark blur (real Liquid Glass needs macOS 26)": "Blur gelap (Liquid Glass asli butuh macOS 26)",
+        "Shadow": "Bayangan",
+        "A soft shadow under the floating island": "Bayangan lembut di bawah island",
+
+        "Closed face": "Wajah saat tertutup",
+        "Apps that aren't open": "App yang sedang tidak dibuka",
+        "Reads the Dock's badges, so WhatsApp, Teams and others count while closed. Needs Accessibility; only the numbers are read.":
+            "Membaca badge di Dock, jadi WhatsApp, Teams, dan lainnya tetap terhitung walau sedang tertutup. Butuh izin Aksesibilitas; hanya angkanya yang dibaca.",
+        "Allow Ezkiel Notch under Accessibility, then come back": "Izinkan Ezkiel Notch di Aksesibilitas, lalu kembali ke sini",
+        "Eyes": "Mata",
+        "Lion": "Singa",
+
         // MARK: One-click update
         "Click to update in one step": "Klik untuk update sekali jalan",
         "Update now": "Update sekarang",

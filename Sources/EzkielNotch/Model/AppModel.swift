@@ -53,7 +53,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 /// wrapped in one spring, so the shape and the content always move together.
 @MainActor
 final class AppModel: ObservableObject {
-    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.5.0"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.6.0"
 
     // Presentation
     @Published private(set) var presentation: Presentation = .compact
@@ -242,7 +242,9 @@ final class AppModel: ObservableObject {
         pounce.setScreenshots(s.pounceScreenshots)
         pounce.setDownloads(s.pounceDownloads)
         calendar.setEnabled(s.rally)
+        badges.readDock = s.roarFromDock
         badges.setEnabled(s.roar)
+        if s.roarFromDock && old?.roarFromDock == false && !AXIsProcessTrusted() { DockBadges.requestAccess() }
         prowl.setEnabled(s.prowl)
         Lang.choice = s.language
         weather.configure(latitude: s.weatherCity.isEmpty ? nil : s.weatherLatitude,
@@ -258,11 +260,43 @@ final class AppModel: ObservableObject {
 
     // MARK: - Geometry
 
-    var shape: (radius: CGFloat, ear: CGFloat) {
+    // MARK: Style (Notch or Island)
+
+    var isIsland: Bool { settings.style == .island }
+
+    /// Height of the top row: the menu-bar strip for a notch, the user's size for an island.
+    var rowHeight: CGFloat { isIsland ? NotchMetrics.islandHeight(settings.islandSize) : NotchMetrics.barHeight(geometry) }
+
+    /// The middle of the top row: the camera housing for a notch, a small centre for an island.
+    var centerWidth: CGFloat { isIsland ? NotchMetrics.islandCenter(settings.islandSize) : geometry.notchWidth }
+
+    /// An island floats: just under the top edge, or under the camera housing on a notched display.
+    var topInset: CGFloat {
+        guard isIsland else { return 0 }
+        return (geometry.hasNotch ? geometry.barHeight : 0) + CGFloat(settings.islandGap.points)
+    }
+
+    var expandedWidth: CGFloat { isIsland ? NotchMetrics.islandExpandedWidth(settings.islandSize) : NotchMetrics.expandedWidth }
+
+    var expandedSize: CGSize {
+        CGSize(width: expandedWidth, height: rowHeight + NotchMetrics.tabStripTop + NotchMetrics.tabStripHeight
+                   + NotchMetrics.pageTop + paneHeight + NotchMetrics.pageBottom)
+    }
+
+    var shape: (radius: CGFloat, ear: CGFloat, top: CGFloat) {
+        if isIsland {
+            switch presentation {
+            case .compact:
+                let round = min(bodySize.height / 2, rowHeight / 2 + 4)
+                return (round, 0, round)
+            case .peek: return (20, 0, 20)
+            case .expanded: return (26, 0, 26)
+            }
+        }
         switch presentation {
-        case .compact: return NotchMetrics.compactShape
-        case .peek: return NotchMetrics.peekShape
-        case .expanded: return NotchMetrics.expandedShape
+        case .compact: return (NotchMetrics.compactShape.radius, NotchMetrics.compactShape.ear, 0)
+        case .peek: return (NotchMetrics.peekShape.radius, NotchMetrics.peekShape.ear, 0)
+        case .expanded: return (NotchMetrics.expandedShape.radius, NotchMetrics.expandedShape.ear, 0)
         }
     }
 
@@ -283,7 +317,8 @@ final class AppModel: ObservableObject {
     var inFullscreenCalm: Bool { settings.hideInFullscreen && fullscreenActive }
 
     /// On a display without a notch, a fullscreen app gets the whole top edge: the closed pill steps away.
-    var hiddenForFullscreen: Bool { inFullscreenCalm && !geometry.hasNotch && presentation == .compact }
+    /// The pill has no camera housing to hide behind on a display without a notch, nor as a floating island.
+    var hiddenForFullscreen: Bool { inFullscreenCalm && (!geometry.hasNotch || isIsland) && presentation == .compact }
 
     /// Den is running a focus block and the user wants quiet.
     var focusQuiet: Bool { settings.quietDuringFocus && focus.isRunning && focus.mode == .focus }
@@ -306,10 +341,10 @@ final class AppModel: ObservableObject {
     var paneHeight: CGFloat { NotchMetrics.paneHeight(tab, lyrics: tab == .purr && purrShowsLyrics) }
 
     var bodySize: CGSize {
-        let bar = NotchMetrics.barHeight(geometry)
+        let bar = rowHeight
         switch presentation {
         case .compact:
-            var w = geometry.notchWidth + (showsWings ? NotchMetrics.wing * 2 : 0)
+            var w = centerWidth + (showsWings ? NotchMetrics.wing * 2 : 0)
             var h = bar
             if showsClosedLyrics {
                 w = max(w, 340)
@@ -323,20 +358,60 @@ final class AppModel: ObservableObject {
         case .peek:
             return peekSize(peek)
         case .expanded:
-            return NotchMetrics.expandedSize(geometry, pane: paneHeight)
+            return expandedSize
         }
     }
 
+    /// Ezkiel's eyes follow what's going on: an agent waiting or working, a focus block, a nap, a happy moment.
+    var eyesState: EzkielEyes.State {
+        if let agent = liveAgents.first { return agent.kind == .needsYou ? .waiting : .working }
+        switch displayedMood {
+        case .sleeping: return .sleeping
+        case .happy: return .happy
+        case .focused: return .focused
+        case .awake: return .awake
+        }
+    }
+
+    /// The closed notch has a free middle (no camera there): an island, or a display without a notch.
+    var centerIsFree: Bool { isIsland || !geometry.hasNotch }
+
+    /// A one-row peek is as wide as what it says: icon, text, then the value or ring, with even margins.
+    static func inlineCardWidth(_ p: Peek) -> CGFloat {
+        func width(_ text: String, _ size: CGFloat, _ weight: NSFont.Weight) -> CGFloat {
+            (L(text) as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: size, weight: weight)]).width
+        }
+        let text = max(width(p.title, Theme.Size.body, .semibold), p.subtitle.isEmpty ? 0 : width(p.subtitle, Theme.Size.secondary, .regular))
+        let trailing: CGFloat
+        if p.progress != nil { trailing = 32 }
+        else if let value = p.value { trailing = width(value, 15, .semibold) + 4 }
+        else if p.artwork { trailing = 26 }
+        else if p.showsLion { trailing = 18 }
+        else { trailing = 0 }
+        // Padding 14 + icon 28 + gap 10 + text + (gap 10 + spacer 6 + gap 10 + trailing) + padding 14, plus 4 to breathe.
+        let content = 28 + 28 + 10 + ceil(text) + (trailing > 0 ? 26 + trailing : 6) + 4
+        return min(380, max(180, content))
+    }
+
+    /// Peeks split around the camera only when there is one; an island or a plain display gets one tidy row.
+    var peeksInline: Bool { isIsland || !geometry.hasNotch }
+
     func peekSize(_ p: Peek?) -> CGSize {
-        let bar = NotchMetrics.barHeight(geometry)
-        guard let p else { return CGSize(width: geometry.notchWidth, height: bar) }
+        let bar = rowHeight
+        let middle = centerWidth
+        if peeksInline, let p {
+            if p.isHUD { return CGSize(width: 280, height: bar + 8) }
+            if p.isRich { return CGSize(width: 372, height: 64) }
+            return CGSize(width: Self.inlineCardWidth(p), height: max(bar + 14, 46))
+        }
+        guard let p else { return CGSize(width: middle, height: bar) }
         if p.isHUD {
-            return CGSize(width: max(geometry.notchWidth + 104, 260), height: bar + (p.level != nil ? 18 : 24))
+            return CGSize(width: max(middle + 104, 260), height: bar + (p.level != nil ? 18 : 24))
         }
         if p.isRich {
-            return CGSize(width: max(geometry.notchWidth + 150, 340), height: bar + 56)
+            return CGSize(width: max(middle + 150, 340), height: bar + 56)
         }
-        return CGSize(width: max(geometry.notchWidth + 128, 300), height: bar + 26)
+        return CGSize(width: max(middle + 128, 300), height: bar + 26)
     }
 
     var panelSize: CGSize { NotchMetrics.panelSize(geometry) }
@@ -345,23 +420,24 @@ final class AppModel: ObservableObject {
     var shapeRect: CGRect {
         let size = bodySize
         let w = size.width + shape.ear * 2
-        return CGRect(x: (panelSize.width - w) / 2, y: 0, width: w, height: size.height)
+        return CGRect(x: (panelSize.width - w) / 2, y: topInset, width: w, height: size.height)
     }
 
     /// Rect that counts as "on the notch" for hover. A little forgiving around the closed notch.
     var hotRect: CGRect {
         let r = shapeRect
         switch presentation {
-        case .compact: return r.insetBy(dx: -8, dy: 0).union(CGRect(x: r.minX - 8, y: 0, width: r.width + 16, height: r.height + 6))
-        case .peek: return r.insetBy(dx: -4, dy: 0)
-        case .expanded: return r.insetBy(dx: -10, dy: 0).union(CGRect(x: r.minX - 10, y: 0, width: r.width + 20, height: r.height + 12))
+        // From the very top edge down: pushing the pointer to the top always reaches it, even an island.
+        case .compact: return CGRect(x: r.minX - 8, y: 0, width: r.width + 16, height: r.maxY + 6)
+        case .peek: return CGRect(x: r.minX - 4, y: 0, width: r.width + 8, height: r.maxY)
+        case .expanded: return CGRect(x: r.minX - 10, y: 0, width: r.width + 20, height: r.maxY + 12)
         }
     }
 
     /// While a file is being dragged, a larger zone around the notch attracts it.
     var dragAttractRect: CGRect {
         let r = shapeRect
-        return CGRect(x: r.minX - 70, y: 0, width: r.width + 140, height: r.height + 80)
+        return CGRect(x: r.minX - 70, y: 0, width: r.width + 140, height: r.maxY + 80)
     }
 
     // MARK: - Opening and closing
@@ -481,7 +557,8 @@ final class AppModel: ObservableObject {
     }
 
     func fileDrag(near: Bool) {
-        guard near != fileDragNear else { return }
+        // Self-test: a real drag elsewhere on screen mustn't open or close anything.
+        guard !ignoresPointer, near != fileDragNear else { return }
         withAnimation(Theme.smooth) { fileDragNear = near }
         if near {
             expand(.stash)

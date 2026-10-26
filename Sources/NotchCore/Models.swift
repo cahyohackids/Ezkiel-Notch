@@ -155,6 +155,8 @@ public struct NotchSettings: Codable, Equatable {
     public var roarPeeks: Bool = true
     /// Roar: bundle IDs the user muted.
     public var roarMuted: [String] = []
+    /// Roar: also read the Dock's badges, so apps that aren't open count too (needs Accessibility).
+    public var roarFromDock: Bool = false
     /// Scout: notifications from AI agents and scripts (Claude Code, Codex, ezkiel-notify).
     public var scout: Bool = true
     /// While an app is fullscreen on the notch's display: no wings, no pill on displays without a notch,
@@ -178,6 +180,15 @@ public struct NotchSettings: Codable, Equatable {
     public var fahrenheit: Bool = false
     /// UI language: follow macOS, English or Indonesian.
     public var language: AppLanguage = .auto
+    /// Notch (hangs from the top edge) or Island (a floating pill, like the Dynamic Island).
+    public var style: NotchStyle = .notch
+    public var islandSize: IslandSize = .medium
+    public var islandGap: IslandGap = .medium
+    /// Island in Liquid Glass (macOS 26; a blur on older macOS).
+    public var islandGlass: Bool = false
+    public var islandShadow: Bool = true
+    /// What the closed notch shows of Ezkiel: blinking eyes, the lion, or nothing.
+    public var closedFace: ClosedFace = .eyes
     /// Bumped when defaults change in a way existing users should get too (see the decoder).
     public var defaultsRevision: Int = NotchSettings.currentRevision
     public static let currentRevision = 2
@@ -218,6 +229,7 @@ public struct NotchSettings: Codable, Equatable {
         roar = (try? c.decode(Bool.self, forKey: .roar)) ?? d.roar
         roarPeeks = (try? c.decode(Bool.self, forKey: .roarPeeks)) ?? d.roarPeeks
         roarMuted = (try? c.decode([String].self, forKey: .roarMuted)) ?? d.roarMuted
+        roarFromDock = (try? c.decode(Bool.self, forKey: .roarFromDock)) ?? d.roarFromDock
         scout = (try? c.decode(Bool.self, forKey: .scout)) ?? d.scout
         hideInFullscreen = (try? c.decode(Bool.self, forKey: .hideInFullscreen)) ?? d.hideInFullscreen
         quietDuringFocus = (try? c.decode(Bool.self, forKey: .quietDuringFocus)) ?? d.quietDuringFocus
@@ -230,6 +242,13 @@ public struct NotchSettings: Codable, Equatable {
         weatherLongitude = (try? c.decode(Double.self, forKey: .weatherLongitude)) ?? d.weatherLongitude
         fahrenheit = (try? c.decode(Bool.self, forKey: .fahrenheit)) ?? d.fahrenheit
         language = (try? c.decode(AppLanguage.self, forKey: .language)) ?? d.language
+        style = (try? c.decode(NotchStyle.self, forKey: .style)) ?? d.style
+        islandSize = (try? c.decode(IslandSize.self, forKey: .islandSize)) ?? d.islandSize
+        islandGap = (try? c.decode(IslandGap.self, forKey: .islandGap)) ?? d.islandGap
+        islandGlass = (try? c.decode(Bool.self, forKey: .islandGlass)) ?? d.islandGlass
+        islandShadow = (try? c.decode(Bool.self, forKey: .islandShadow)) ?? d.islandShadow
+        // Before 1.6 there was only "show the lion": hidden stays hidden, shown becomes the eyes.
+        closedFace = (try? c.decode(ClosedFace.self, forKey: .closedFace)) ?? (showMascot ? .eyes : .off)
         let revision = (try? c.decode(Int.self, forKey: .defaultsRevision)) ?? 1
         if revision < 2 {
             // 1.3.1: calmer defaults. Only values still at the old default move; choices the user made stay.
@@ -321,4 +340,33 @@ public enum AppLanguage: String, Codable, CaseIterable, Identifiable {
         case .id: return "Indonesia"
         }
     }
+}
+
+/// The shape of the notch: hanging from the top edge, or a floating island.
+public enum NotchStyle: String, Codable, CaseIterable, Identifiable {
+    case notch, island
+    public var id: String { rawValue }
+}
+
+public enum IslandSize: String, Codable, CaseIterable, Identifiable {
+    case small, medium, large
+    public var id: String { rawValue }
+}
+
+/// Space between the island and the top of the screen (or the camera housing).
+public enum IslandGap: String, Codable, CaseIterable, Identifiable {
+    case tight, medium, roomy
+    public var id: String { rawValue }
+    public var points: Double {
+        switch self {
+        case .tight: return 3
+        case .medium: return 6
+        case .roomy: return 10
+        }
+    }
+}
+
+public enum ClosedFace: String, Codable, CaseIterable, Identifiable {
+    case eyes, lion, off
+    public var id: String { rawValue }
 }
