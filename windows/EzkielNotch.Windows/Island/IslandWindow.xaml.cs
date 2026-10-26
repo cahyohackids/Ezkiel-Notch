@@ -61,6 +61,7 @@ public partial class IslandWindow : Window
     private nint _winEventHook;
     private Win32.WinEventProc? _winEventProc;   // kept alive: the hook calls back into it
     private nint _previousForeground;
+    private bool _simulatingFullscreen;
     private readonly Dictionary<Room, Pane> _panes = [];
     private readonly HashSet<Room> _stale = [];
     private const int HotKeyId = 0xE21;
@@ -445,7 +446,7 @@ public partial class IslandWindow : Window
 
     public void CheckFullscreen()
     {
-        if (_hwnd == 0) return;
+        if (_hwnd == 0 || _simulatingFullscreen) return;
         var active = Fullscreen.Active(Screen, _hwnd);
         if (active == FullscreenActive) return;
         FullscreenActive = active;
@@ -455,6 +456,8 @@ public partial class IslandWindow : Window
     /// <summary>Self-test: pretend something is fullscreen.</summary>
     public void SimulateFullscreen(bool active)
     {
+        // While simulated, the real check (poll and foreground hook) must not undo it.
+        _simulatingFullscreen = active;
         FullscreenActive = active;
         UpdateHiddenState();
     }
