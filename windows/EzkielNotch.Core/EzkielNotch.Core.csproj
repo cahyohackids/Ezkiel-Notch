@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Plain .NET (no Windows APIs): the data format, timers and text, testable on any OS. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>EzkielNotch.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- indonesian.json is exported from the Mac app's Indonesian.swift (tools/export_strings.py). -->
+    <EmbeddedResource Include="Strings\*.json" LogicalName="%(Filename).json" />
+  </ItemGroup>
+
+</Project>
