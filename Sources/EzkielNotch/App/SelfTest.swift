@@ -287,23 +287,30 @@ enum SelfTest {
             model.settings = saved
         }))
 
+        // One step after another: a slow capture must never let the next step run before it.
         let interval = snapshotDir == nil ? 0.7 : 1.4
-        for (i, step) in steps.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8 + Double(i) * interval) {
-                print("▶︎ \(step.0)")
-                step.1()
-            }
-            if let snapshotDir {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8 + Double(i) * interval + 1.0) {
-                    capture(controller.panel, name: String(format: "%02d-", i) + step.0.replacingOccurrences(of: " ", with: "-"), dir: snapshotDir)
+        func run(_ i: Int) {
+            guard i < steps.count else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+                    print(failures.isEmpty ? "SELF-TEST PASSED" : "SELF-TEST FAILED: \(failures.count) check(s)")
+                    fflush(stdout)
+                    exit(failures.isEmpty ? 0 : 1)
                 }
+                return
+            }
+            let step = steps[i]
+            print("▶︎ \(step.0)")
+            step.1()
+            guard let snapshotDir else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + interval) { run(i + 1) }
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                capture(controller.panel, name: String(format: "%02d-", i) + step.0.replacingOccurrences(of: " ", with: "-"), dir: snapshotDir)
+                DispatchQueue.main.asyncAfter(deadline: .now() + interval - 1.0) { run(i + 1) }
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2 + Double(steps.count) * interval) {
-            print(failures.isEmpty ? "SELF-TEST PASSED" : "SELF-TEST FAILED: \(failures.count) check(s)")
-            fflush(stdout)
-            exit(failures.isEmpty ? 0 : 1)
-        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { run(0) }
     }
 
     /// Real screenshot of the panel area (needs a GUI session, e.g. a CI macOS runner).
