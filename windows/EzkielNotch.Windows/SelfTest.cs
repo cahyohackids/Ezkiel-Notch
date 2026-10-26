@@ -287,8 +287,10 @@ internal static class SelfTest
             }),
             ("island", () =>
             {
+                // Nothing live, so the closed island is its resting size.
                 m.FocusReset();
                 m.UpdateBadges([]);
+                foreach (var agent in m.LiveAgents) m.DismissAgent(agent);
                 m.Settings.Style = "island";
                 m.SettingsChanged();
             }),
