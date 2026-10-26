@@ -683,7 +683,7 @@ public class UpdateTests
             [
               {"tag_name":"v1.7.0","draft":false,"prerelease":false,"html_url":"p17","assets":[{"name":"Ezkiel-Notch-1.7.0.dmg","browser_download_url":"d"}]},
               {"tag_name":"v1.6.5","draft":false,"prerelease":false,"html_url":"p165","assets":[
-                {"name":"EzkielNotch-windows-win-arm64.zip","browser_download_url":"z"},{"name":"SHA256SUMS.txt","browser_download_url":"s"}]},
+                {"name":"EzkielNotch-windows-win-arm64.zip","browser_download_url":"z"},{"name":"SHA256SUMS-windows.txt","browser_download_url":"s"}]},
               {"tag_name":"v1.6.9","draft":true,"prerelease":false,"html_url":"draft","assets":[
                 {"name":"EzkielNotch-windows-win-arm64.zip","browser_download_url":"z2"},{"name":"SHA256SUMS.txt","browser_download_url":"s2"}]}
             ]

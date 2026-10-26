@@ -1,0 +1,69 @@
+name: Release Ezkiel Notch for Windows
+
+# On a version tag (the same tags as the Mac release), build the Windows app with that version and add
+# EzkielNotch-windows-win-x64.zip, -win-arm64.zip and SHA256SUMS-windows.txt to the GitHub release.
+# The Mac job creates the release; this one waits for it, then uploads beside it.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to add the Windows build to (e.g. v1.7.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: windows/EzkielNotch.Windows
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Core tests
+        run: dotnet test ../EzkielNotch.Core.Tests -c Release
+
+      - name: Publish x64 and ARM64 with the release's version
+        run: |
+          $version = $env:TAG.TrimStart('v')
+          foreach ($rid in "win-x64", "win-arm64") {
+            dotnet publish -c Release -r $rid --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=$version -o "out/$rid"
+            Remove-Item "out/$rid/*.pdb" -ErrorAction SilentlyContinue
+            Compress-Archive -Path "out/$rid/*" -DestinationPath "out/EzkielNotch-windows-$rid.zip" -Force
+          }
+          Push-Location out
+          Get-ChildItem -Filter *.zip | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.Name -Algorithm SHA256).Hash.ToLower(), $_.Name } | Set-Content -Encoding ascii SHA256SUMS-windows.txt
+          Get-Content SHA256SUMS-windows.txt
+          Pop-Location
+
+      - name: Self-test the release build
+        run: |
+          $snap = Join-Path $PWD "snapshots"
+          $p = Start-Process -FilePath "out/win-x64/EzkielNotch.exe" -ArgumentList "--self-test","--snapshots",$snap -PassThru -RedirectStandardOutput "selftest.log"
+          if (-not $p.WaitForExit(240000)) { $p.Kill(); Write-Error "self-test timed out"; exit 1 }
+          Get-Content (Join-Path $snap "self-test-result.txt")
+          exit $p.ExitCode
+
+      - name: Wait for the release, then add the Windows build
+        run: |
+          for ($i = 0; $i -lt 60; $i++) {
+            gh release view $env:TAG *> $null
+            if ($LASTEXITCODE -eq 0) { break }
+            Start-Sleep -Seconds 30
+          }
+          gh release upload $env:TAG out/EzkielNotch-windows-win-x64.zip out/EzkielNotch-windows-win-arm64.zip out/SHA256SUMS-windows.txt --clobber

@@ -55,7 +55,8 @@ public static class UpdateVerify
     }
 
     /// <summary>From GET /repos/…/releases: the newest non-draft, non-prerelease release that carries
-    /// EzkielNotch-windows-&lt;rid&gt;.zip and SHA256SUMS.txt.</summary>
+    /// EzkielNotch-windows-&lt;rid&gt;.zip and its checksums (SHA256SUMS-windows.txt, written by the Windows release
+    /// job so it never races the Mac's SHA256SUMS.txt; that one is accepted too).</summary>
     public static WindowsRelease? Pick(string releasesJson, string rid)
     {
         try
@@ -68,7 +69,7 @@ public static class UpdateVerify
                 if (Json.Bool(r["draft"]) == true || Json.Bool(r["prerelease"]) == true) continue;
                 var assets = (r["assets"] as JsonArray ?? []).OfType<JsonObject>().ToList();
                 string? Url(string name) => assets.FirstOrDefault(a => Json.String(a["name"]) == name) is { } a ? Json.String(a["browser_download_url"]) : null;
-                if (Url(zipName) is not { } zip || Url("SHA256SUMS.txt") is not { } sums) continue;
+                if (Url(zipName) is not { } zip || (Url("SHA256SUMS-windows.txt") ?? Url("SHA256SUMS.txt")) is not { } sums) continue;
                 var tag = Json.String(r["tag_name"]) ?? "";
                 var candidate = new WindowsRelease(tag, Json.String(r["html_url"]) ?? "", zip, zipName, sums);
                 if (best is null || AppVersion.IsNewer(tag, best.Version)) best = candidate;
