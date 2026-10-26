@@ -289,7 +289,8 @@ final class AppModel: ObservableObject {
     var showsWings: Bool {
         if inFullscreenCalm { return chrome.hovering }
         if !settings.minimalClosed { return true }
-        return chrome.hovering || hasLiveActivity || showsClosedLyrics
+        // Unread messages are what Roar is for: the count stays visible in the calm closed notch.
+        return chrome.hovering || hasLiveActivity || showsClosedLyrics || (settings.roar && unreadTotal > 0)
     }
 
     /// The closed notch grows a line underneath and sings along (Chorus).

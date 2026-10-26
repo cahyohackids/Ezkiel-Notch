@@ -29,10 +29,11 @@ final class WeatherService: ObservableObject {
 
     private var place: (lat: Double, lon: Double)?
     private var loading = false
+    private var simulated = false
 
     func configure(latitude: Double?, longitude: Double?) {
         let next = latitude.flatMap { lat in longitude.map { (lat, $0) } }
-        guard next?.0 != place?.lat || next?.1 != place?.lon else { return }
+        guard !simulated, next?.0 != place?.lat || next?.1 != place?.lon else { return }
         place = next
         now = nil
         refresh(force: true)
@@ -40,7 +41,7 @@ final class WeatherService: ObservableObject {
 
     /// Every 30 minutes is plenty for a glance.
     func refresh(force: Bool = false) {
-        guard let place, !loading else { return }
+        guard let place, !loading, !simulated else { return }
         if !force, let now, Date().timeIntervalSince(now.fetched) < 1800 { return }
         var c = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
         c.queryItems = [
@@ -84,7 +85,10 @@ final class WeatherService: ObservableObject {
     func clearResults() { results = [] }
 
     /// Self-test snapshots.
-    func simulate(_ value: Now?) { now = value }
+    func simulate(_ value: Now?) {
+        simulated = value != nil
+        now = value
+    }
 
     nonisolated static func parseForecast(_ data: Data) -> Now? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

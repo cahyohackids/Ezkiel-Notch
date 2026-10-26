@@ -210,7 +210,7 @@ enum SelfTest {
         }))
         steps.append(("roar closed notch", {
             model.dismissPeek()
-            check(model.presentation == .compact && model.unreadTotal > 0, "closed notch shows the unread count")
+            check(model.presentation == .compact && model.unreadTotal > 0 && model.showsWings, "closed notch shows the unread count")
         }))
 
         // Scout: an agent session, as Claude Code's hook would send it.
@@ -331,8 +331,8 @@ enum SelfTest {
             check(now?.temperature == 30.6 && now?.rainChance == 73, "reads an Open-Meteo forecast")
             check(WeatherService.parsePlaces(Data(#"{"results":[{"name":"Jakarta","admin1":"Jakarta","country":"Indonesia","latitude":-6.2,"longitude":106.8}]}"#.utf8))?.first?.name == "Jakarta",
                   "reads an Open-Meteo place")
-            model.settings.weatherCity = "Jakarta"
             model.weather.simulate(now)
+            model.settings.weatherCity = "Jakarta"
             model.expand(.den)
         }))
         steps.append(("purr outputs", {
@@ -359,6 +359,7 @@ enum SelfTest {
             model.settings.language = .en
             check(L("Settings") == "Settings", "back to English")
             model.settings.weatherCity = ""
+            model.weather.simulate(nil)
         }))
 
         steps.append(("settings about", {
