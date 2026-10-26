@@ -389,7 +389,9 @@ final class AppModel: ObservableObject {
         else if p.showsLion { trailing = 18 }
         else { trailing = 0 }
         // Padding 14 + icon 28 + gap 10 + text + (gap 10 + spacer 6 + gap 10 + trailing) + padding 14, plus 4 to breathe.
-        let content = 28 + 28 + 10 + ceil(text) + (trailing > 0 ? 26 + trailing : 6) + 4
+        let fixed: CGFloat = 28 + 28 + 10 + 4
+        let tail: CGFloat = trailing > 0 ? 26 + trailing : 6
+        let content: CGFloat = fixed + ceil(text) + tail
         return min(380, max(180, content))
     }
 
