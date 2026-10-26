@@ -53,6 +53,10 @@ hdiutil create -volname "Ezkiel Notch $VERSION" -srcfolder "$STAGING" -ov -forma
 hdiutil verify "$DMG" >/dev/null
 rm -rf "$STAGING"
 
+# The in-app updater only installs a DMG whose SHA-256 matches this file from the same release.
+(cd "$DIST" && shasum -a 256 "$(basename "$DMG")" "$(basename "$ZIP")" > SHA256SUMS.txt)
+
 echo "✓ $APP"
 echo "✓ $ZIP"
 echo "✓ $DMG"
+echo "✓ $DIST/SHA256SUMS.txt"
