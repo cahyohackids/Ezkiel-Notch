@@ -45,6 +45,29 @@ struct SettingsPane: View {
 
     @ViewBuilder
     private var general: some View {
+        StyleCard(model: model)
+        if model.isIsland {
+            OptionRow(title: "Size", icon: "capsule") {
+                ForEach(IslandSize.allCases) { size in
+                    Chip(title: Self.sizeLabel(size), selected: model.settings.islandSize == size) {
+                        withAnimation(Theme.bouncy) { model.settings.islandSize = size }
+                    }
+                }
+            }
+            OptionRow(title: "Gap", icon: "arrow.up.and.down") {
+                ForEach(IslandGap.allCases) { gap in
+                    Chip(title: Self.gapLabel(gap), selected: model.settings.islandGap == gap) {
+                        withAnimation(Theme.bouncy) { model.settings.islandGap = gap }
+                    }
+                }
+            }
+            ToggleRow(title: "Liquid Glass", subtitle: Self.glassSubtitle, icon: "drop.halffull",
+                      isOn: Binding(get: { model.settings.islandGlass },
+                                    set: { v in withAnimation(Theme.smooth) { model.settings.islandGlass = v } }))
+            ToggleRow(title: "Shadow", subtitle: "A soft shadow under the floating island", icon: "shadow",
+                      isOn: Binding(get: { model.settings.islandShadow },
+                                    set: { v in withAnimation(Theme.smooth) { model.settings.islandShadow = v } }))
+        }
         OptionRow(title: L("Language"), icon: "globe") {
             ForEach(AppLanguage.allCases) { lang in
                 Chip(title: lang == .auto ? L("Auto") : lang.label, selected: model.settings.language == lang) {
@@ -68,7 +91,13 @@ struct SettingsPane: View {
         }
         ToggleRow(title: "Launch at login", subtitle: model.loginItemError ?? "Start with your Mac", icon: "arrow.right.circle",
                   isOn: Binding(get: { model.settings.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
-        ToggleRow(title: "Ezkiel the lion", subtitle: "In the closed notch", icon: "pawprint", isOn: $model.settings.showMascot)
+        OptionRow(title: "Closed face", icon: "eyes") {
+            ForEach(ClosedFace.allCases) { face in
+                Chip(title: face == .eyes ? "Eyes" : face == .lion ? "Lion" : "Off", selected: model.settings.closedFace == face) {
+                    withAnimation(Theme.smooth) { model.settings.closedFace = face }
+                }
+            }
+        }
         ToggleRow(title: "Lion naps when idle", subtitle: "Wakes up when you're back", icon: "moon.zzz", isOn: $model.settings.mascotSleeps)
         ToggleRow(title: "Minimal closed notch", subtitle: "Hide the wings until something is live", icon: "rectangle.compress.vertical",
                   isOn: $model.settings.minimalClosed)
@@ -94,6 +123,27 @@ struct SettingsPane: View {
         }
     }
 
+    static func sizeLabel(_ size: IslandSize) -> String {
+        switch size {
+        case .small: return "Small"
+        case .medium: return "Medium"
+        case .large: return "Large"
+        }
+    }
+
+    static func gapLabel(_ gap: IslandGap) -> String {
+        switch gap {
+        case .tight: return "Tight"
+        case .medium: return "Medium"
+        case .roomy: return "Roomy"
+        }
+    }
+
+    static var glassSubtitle: String {
+        if #available(macOS 26.0, *) { return "Apple's see-through glass, tinted dark so text stays readable" }
+        return "A dark blur (real Liquid Glass needs macOS 26)"
+    }
+
     // MARK: Whiskers (small notifications)
 
     @ViewBuilder
@@ -117,6 +167,7 @@ struct SettingsPane: View {
         if model.settings.roar {
             ToggleRow(title: "Peek on new messages", subtitle: "Not while that app is in front", icon: "bubble.left",
                       accent: .roar, isOn: $model.settings.roarPeeks)
+            DockBadgesRow(model: model, badges: model.badges)
             if !model.settings.roarMuted.isEmpty {
                 OptionRow(title: "Muted", icon: "bell.slash") {
                     ForEach(model.settings.roarMuted, id: \.self) { id in
@@ -446,6 +497,83 @@ private struct AgentRow: View {
         .padding(.vertical, 7)
         .frame(minHeight: 36)
         .cardSurface()
+    }
+}
+
+/// Roar can also read the Dock's badges, so WhatsApp or Teams count even while they're closed.
+private struct DockBadgesRow: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var badges: BadgeWatcher
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ToggleRow(title: "Apps that aren't open", subtitle: subtitle, icon: "dock.rectangle", accent: .roar,
+                      isOn: $model.settings.roarFromDock)
+            if model.settings.roarFromDock && !badges.dockAccess {
+                HStack(spacing: 8) {
+                    Text(L("Allow Ezkiel Notch under Accessibility, then come back"))
+                        .font(Theme.font(Theme.Size.caption)).foregroundStyle(Accent.den.light)
+                    Spacer(minLength: 0)
+                    TextButton(title: "Open Settings", tint: Accent.roar.light) {
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+                    }
+                }
+                .padding(.horizontal, 10)
+            }
+        }
+    }
+
+    private var subtitle: String {
+        "Reads the Dock's badges, so WhatsApp, Teams and others count while closed. Needs Accessibility; only the numbers are read."
+    }
+}
+
+/// Notch or Island, as two little pictures of the top of a screen.
+private struct StyleCard: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            tile(.notch, title: "Notch", subtitle: "Hangs from the top edge")
+            tile(.island, title: "Island", subtitle: "Floats like the Dynamic Island")
+        }
+    }
+
+    private func tile(_ style: NotchStyle, title: String, subtitle: String) -> some View {
+        let selected = model.settings.style == style
+        return Button {
+            withAnimation(Theme.bouncy) { model.settings.style = style }
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack(alignment: .top) {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(LinearGradient(colors: [Color(hex: 0x3A2F4F), Color(hex: 0x1B2236)], startPoint: .top, endPoint: .bottom))
+                    if style == .notch {
+                        NotchShape(bottomRadius: 5, ear: 3).fill(Color.black).frame(width: 52, height: 11)
+                    } else {
+                        NotchShape(bottomRadius: 6, ear: 0, topRadius: 6).fill(Color.black)
+                            .overlay(NotchShape(bottomRadius: 6, ear: 0, topRadius: 6).stroke(Color.white.opacity(0.15), lineWidth: 0.5))
+                            .frame(width: 44, height: 12)
+                            .padding(.top, 3)
+                            .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
+                    }
+                }
+                .frame(height: 34)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(L(title)).font(Theme.font(Theme.Size.body, .semibold)).foregroundStyle(Theme.ink)
+                    Text(L(subtitle)).font(Theme.font(Theme.Size.caption)).foregroundStyle(Theme.mist).lineLimit(1)
+                }
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .cardSurface()
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                .strokeBorder(selected ? Theme.gold : Color.clear, lineWidth: 1.5))
+        }
+        .buttonStyle(PressableStyle(scale: 0.97))
+        .accessibilityLabel(L(title))
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import NotchCore
 import SwiftUI
 
 /// Owns the panel, places it on the right display and turns raw pointer
@@ -281,6 +282,14 @@ final class NotchWindowController {
         let minimal = ActionMenuItem("Minimal Closed Notch") { [weak self] in self?.model.settings.minimalClosed.toggle() }
         minimal.state = model.settings.minimalClosed ? .on : .off
         menu.addItem(minimal)
+        menu.addItem(.separator())
+        for style in NotchStyle.allCases {
+            let item = ActionMenuItem(style == .notch ? "Notch" : "Island") { [weak self] in
+                withAnimation(Theme.bouncy) { self?.model.settings.style = style }
+            }
+            item.state = model.settings.style == style ? .on : .off
+            menu.addItem(item)
+        }
         menu.addItem(.separator())
         menu.addItem(ActionMenuItem("Settings…") { [weak self] in self?.model.expand(.settings) })
         menu.addItem(ActionMenuItem("Quit Ezkiel Notch") { NSApp.terminate(nil) })
