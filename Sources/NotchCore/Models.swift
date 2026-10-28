@@ -189,6 +189,8 @@ public struct NotchSettings: Codable, Equatable {
     public var islandShadow: Bool = true
     /// What the closed notch shows of Ezkiel: blinking eyes, the lion, or nothing.
     public var closedFace: ClosedFace = .eyes
+    /// Which eyes: Ezkiel's lion eyes, sparkly anime eyes, a cat's, cute round ones or robot LEDs.
+    public var eyeStyle: EyeStyle = .lion
     /// Bumped when defaults change in a way existing users should get too (see the decoder).
     public var defaultsRevision: Int = NotchSettings.currentRevision
     public static let currentRevision = 2
@@ -249,6 +251,8 @@ public struct NotchSettings: Codable, Equatable {
         islandShadow = (try? c.decode(Bool.self, forKey: .islandShadow)) ?? d.islandShadow
         // Before 1.6 there was only "show the lion": hidden stays hidden, shown becomes the eyes.
         closedFace = (try? c.decode(ClosedFace.self, forKey: .closedFace)) ?? (showMascot ? .eyes : .off)
+        // An eye style from a newer version that this one doesn't know falls back to the lion's.
+        eyeStyle = (try? c.decode(EyeStyle.self, forKey: .eyeStyle)) ?? d.eyeStyle
         let revision = (try? c.decode(Int.self, forKey: .defaultsRevision)) ?? 1
         if revision < 2 {
             // 1.3.1: calmer defaults. Only values still at the old default move; choices the user made stay.
@@ -369,4 +373,19 @@ public enum IslandGap: String, Codable, CaseIterable, Identifiable {
 public enum ClosedFace: String, Codable, CaseIterable, Identifiable {
     case eyes, lion, off
     public var id: String { rawValue }
+}
+
+public enum EyeStyle: String, Codable, CaseIterable, Identifiable {
+    case lion, anime, cat, cute, robot
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .lion: return "Lion"
+        case .anime: return "Sparkly"
+        case .cat: return "Cat"
+        case .cute: return "Cute"
+        case .robot: return "Robot"
+        }
+    }
 }

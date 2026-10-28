@@ -98,6 +98,7 @@ struct SettingsPane: View {
                 }
             }
         }
+        if model.settings.closedFace == .eyes { EyeStyleCard(model: model) }
         ToggleRow(title: "Lion naps when idle", subtitle: "Wakes up when you're back", icon: "moon.zzz", isOn: $model.settings.mascotSleeps)
         ToggleRow(title: "Minimal closed notch", subtitle: "Hide the wings until something is live", icon: "rectangle.compress.vertical",
                   isOn: $model.settings.minimalClosed)
@@ -573,6 +574,47 @@ private struct StyleCard: View {
         }
         .buttonStyle(PressableStyle(scale: 0.97))
         .accessibilityLabel(L(title))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// The five eye styles, each a small live preview that blinks like the real thing.
+private struct EyeStyleCard: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(EyeStyle.allCases) { style in tile(style) }
+        }
+    }
+
+    private func tile(_ style: EyeStyle) -> some View {
+        let selected = model.settings.eyeStyle == style
+        return Button {
+            withAnimation(Theme.smooth) { model.settings.eyeStyle = style }
+        } label: {
+            VStack(spacing: 5) {
+                ZStack {
+                    Capsule().fill(Color.black)
+                    if style == .anime {
+                        // A hint of the sparkly eyes' ambient glow.
+                        Capsule().stroke(AmbientGlow.colors[1].opacity(0.5), lineWidth: 1).blur(radius: 2)
+                    }
+                    EzkielEyes(state: .awake, hovering: selected, height: 8, style: style)
+                }
+                .frame(height: 22)
+                .padding(.horizontal, 4)
+                Text(L(style.title)).font(Theme.font(Theme.Size.caption, .medium))
+                    .foregroundStyle(selected ? Theme.ink : Theme.mist).lineLimit(1)
+            }
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .cardSurface()
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                .strokeBorder(selected ? Theme.gold : Color.clear, lineWidth: 1.5))
+        }
+        .buttonStyle(PressableStyle(scale: 0.95))
+        .accessibilityLabel(L(style.title))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

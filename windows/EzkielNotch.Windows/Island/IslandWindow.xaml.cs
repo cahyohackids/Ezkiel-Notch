@@ -76,6 +76,9 @@ public partial class IslandWindow : Window
     private readonly DispatcherTimer _second = new(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(1) };
     private readonly DispatcherTimer _fullscreenPoll = new(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(3) };
     private DateTime _insideSince = DateTime.MaxValue, _outsideSince = DateTime.MaxValue;
+    private DateTime _lastKey = DateTime.MinValue;
+    /// <summary>Opened with the keyboard (shortcut, tray, menu): the pointer being elsewhere doesn't close it.</summary>
+    private bool _openedByKeyboard;
     private DispatcherTimer? _peekTimer, _toastTimer;
     private Room? _peekRoom;
     private nint _winEventHook;
@@ -137,7 +140,21 @@ public partial class IslandWindow : Window
         Clock.Text = Lang.Time(DateTime.Now);
         Island.MouseRightButtonUp += (_, e) => { ShowMenu(); e.Handled = true; };
         PeekView.MouseLeftButtonUp += (_, _) => OpenFromPeek();
-        Body.PreviewMouseLeftButtonDown += (_, _) => { if (Presentation == Presentation.Expanded) EngageKeyboard(); };
+        // A click on the closed lip opens it. The pointer poll can miss a quick click or a touchpad tap, this can't.
+        Island.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (Presentation != Presentation.Lip) return;
+            Expand();
+            e.Handled = true;
+        };
+        Body.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (Presentation != Presentation.Expanded) return;
+            EngageKeyboard("click");
+            // The field you clicked gets the caret once the window really has the keyboard.
+            if (FieldUnder(e.OriginalSource as DependencyObject) is { } field)
+                Dispatcher.BeginInvoke(DispatcherPriority.Input, () => { if (!field.IsKeyboardFocused) field.Focus(); });
+        };
         PreviewKeyDown += OnKey;
 
         // Drop files on the island: it opens Stash and keeps them there.
@@ -296,13 +313,14 @@ public partial class IslandWindow : Window
             Toggle();
             handled = true;
         }
-        else if (msg == Win32.WM_MOUSEACTIVATE && Presentation == Presentation.Expanded)
+        else if ((msg == Win32.WM_MOUSEACTIVATE || msg == Win32.WM_POINTERACTIVATE) && Presentation == Presentation.Expanded)
         {
-            // A click into the open island activates it, so typing goes to its fields, not the app behind.
+            // A click (or a tap, or a pen) into the open island activates it, so typing goes to its fields,
+            // not the app behind.
             RememberForeground();
             SetNoActivate(false);
             handled = true;
-            return Win32.MA_ACTIVATE;
+            return msg == Win32.WM_MOUSEACTIVATE ? Win32.MA_ACTIVATE : Win32.PA_ACTIVATE;
         }
         return 0;
     }
@@ -455,6 +473,8 @@ public partial class IslandWindow : Window
     public void Expand()
     {
         _peekTimer?.Stop();
+        // "The pointer left" counts from now, not from whenever it last left the closed lip.
+        if (Presentation != Presentation.Expanded) _outsideSince = Hovering ? DateTime.MaxValue : DateTime.UtcNow;
         Presentation = Presentation.Expanded;
         _liveShown = false;
         Fade(LiveView, 0, 0.08);
@@ -471,6 +491,7 @@ public partial class IslandWindow : Window
         _peekTimer?.Stop();
         bool wasOpen = Presentation == Presentation.Expanded;
         Presentation = Presentation.Lip;
+        _openedByKeyboard = false;
         if (wasOpen)
         {
             CurrentPane?.Shown(false);
@@ -487,9 +508,28 @@ public partial class IslandWindow : Window
         UpdateHiddenState();
     }
 
+    /// <summary>The shortcut, the tray and the menu: opening this way means you're about to type, so the island
+    /// takes the keyboard straight away (hovering open doesn't, until you click).</summary>
     public void Toggle()
     {
-        if (Presentation == Presentation.Expanded) Collapse(); else Expand();
+        if (Presentation == Presentation.Expanded) Collapse();
+        else
+        {
+            Expand();
+            TakeKeyboard();
+        }
+    }
+
+    /// <summary>Takes the keyboard once the open room is laid out, and puts the caret in its first field.</summary>
+    public void TakeKeyboard()
+    {
+        _openedByKeyboard = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
+        {
+            if (Presentation != Presentation.Expanded) return;
+            EngageKeyboard("open");
+            CurrentPane?.FocusFirstField();
+        });
     }
 
     /// <summary>A short message under the top edge. While something is fullscreen only urgent ones show.
@@ -624,20 +664,50 @@ public partial class IslandWindow : Window
 
     /// <summary>Clicking into the open island lets it take the keyboard (to type a task or a note);
     /// closing gives it back to the app you were in.</summary>
-    public void EngageKeyboard()
+    public void EngageKeyboard(string why = "click")
     {
-        if (_hwnd == 0 || IsActive) return;
+        if (_hwnd == 0) return;
+        if (IsActive && Win32.GetForegroundWindow() == _hwnd) return;
         RememberForeground();
+        // Without this the window can't be activated at all.
         SetNoActivate(false);
-        var fg = Win32.GetForegroundWindow();
-        if (Win32.SetForegroundWindow(_hwnd) && fg == _hwnd) return;
-        // Windows only lets the foreground app hand over focus: borrow its input queue for a moment.
-        uint mine = Win32.GetCurrentThreadId(), theirs = fg == 0 ? 0 : Win32.GetWindowThreadProcessId(fg, out _);
-        bool attached = theirs != 0 && theirs != mine && Win32.AttachThreadInput(theirs, mine, true);
-        Win32.BringWindowToTop(_hwnd);
-        Win32.SetForegroundWindow(_hwnd);
+        string how = "direct";
+        bool ok = TryForeground();
+        if (!ok)
+        {
+            // Windows' foreground lock: a key press of our own (Alt, which types nothing) unlocks it.
+            how = "alt";
+            Win32.keybd_event(Win32.VK_MENU, 0, 0, 0);
+            ok = TryForeground();
+            Win32.keybd_event(Win32.VK_MENU, 0, Win32.KEYEVENTF_KEYUP, 0);
+        }
+        if (!ok)
+        {
+            // Last resort: borrow the foreground app's input queue for a moment.
+            how = "attach";
+            var fg = Win32.GetForegroundWindow();
+            uint mine = Win32.GetCurrentThreadId(), theirs = fg == 0 ? 0 : Win32.GetWindowThreadProcessId(fg, out _);
+            bool attached = theirs != 0 && theirs != mine && Win32.AttachThreadInput(theirs, mine, true);
+            Win32.BringWindowToTop(_hwnd);
+            ok = TryForeground();
+            if (attached) Win32.AttachThreadInput(theirs, mine, false);
+        }
         Activate();
-        if (attached) Win32.AttachThreadInput(theirs, mine, false);
+        FocusLog.Write($"{why}: {(ok ? "ok" : "FAILED")} via {how}, active={IsActive}, focus={Keyboard.FocusedElement?.GetType().Name ?? "none"}");
+    }
+
+    private bool TryForeground()
+    {
+        Win32.SetForegroundWindow(_hwnd);
+        return Win32.GetForegroundWindow() == _hwnd;
+    }
+
+    /// <summary>The text box a click landed in (or on its rounded frame), if any.</summary>
+    private static TextBox? FieldUnder(DependencyObject? d)
+    {
+        for (; d is not null; d = d is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d))
+            if (d is TextBox t) return t;
+        return null;
     }
 
     private void RememberForeground()
@@ -669,9 +739,11 @@ public partial class IslandWindow : Window
     private void OnKey(object sender, KeyEventArgs e)
     {
         if (Presentation != Presentation.Expanded) return;
+        _lastKey = DateTime.UtcNow;
         if (e.Key == Key.Escape)
         {
-            if (Keyboard.FocusedElement is TextBox && CurrentPane is ScratchPane) Keyboard.ClearFocus();
+            // Esc leaves the field first (what you typed stays); a second Esc closes.
+            if (Keyboard.FocusedElement is TextBox) Focus();
             else Collapse();
             e.Handled = true;
         }
@@ -718,11 +790,12 @@ public partial class IslandWindow : Window
         PointerMoved(inside);
 
         // A click on the lip opens it even with hover-to-open off.
-        if (Presentation == Presentation.Lip && inside && (Win32.GetAsyncKeyState(0x01) & 0x8000) != 0) Expand();
+        bool pressed = (Win32.GetAsyncKeyState(Win32.PrimaryButton) & 0x8000) != 0;
+        if (Presentation == Presentation.Lip && inside && pressed) Expand();
         // A click anywhere else closes the open island (clicks there go to other apps, so we look).
         // Not while a file is being dragged out of Stash or over the island.
         if (StashPane.DraggingOut || _dragInside) return;
-        if (Presentation == Presentation.Expanded && !inside && (Win32.GetAsyncKeyState(0x01) & 0x8000) != 0) Collapse();
+        if (Presentation == Presentation.Expanded && !inside && pressed) Collapse();
     }
 
     /// <summary>Hover state machine (also driven by the self-test).</summary>
@@ -732,6 +805,8 @@ public partial class IslandWindow : Window
         if (inside)
         {
             NoteInteraction();
+            // Once the pointer has come to the island, the usual hover rules apply again.
+            if (Presentation == Presentation.Expanded) _openedByKeyboard = false;
             _outsideSince = DateTime.MaxValue;
             if (_insideSince == DateTime.MaxValue) _insideSince = now;
             if (!Hovering)
@@ -752,8 +827,11 @@ public partial class IslandWindow : Window
                 Hovering = false;
                 if (Presentation == Presentation.Lip) UpdateLive();
             }
-            // While you type, the island waits (an idle field still lets go after 20 s outside).
+            // While you type, the island waits: it stays as long as you typed in the last minute, and an
+            // idle field still lets go 20 s after the pointer left. A click elsewhere always closes it.
             var grace = Typing ? TimeSpan.FromSeconds(20) : TimeSpan.FromMilliseconds(500);
+            if (Typing && now - _lastKey < TimeSpan.FromSeconds(60)) return;
+            if (_openedByKeyboard) return;
             if (StashPane.DraggingOut || _dragInside) return;
             if (Presentation == Presentation.Expanded && now - _outsideSince > grace) Collapse();
         }
@@ -832,7 +910,7 @@ public partial class IslandWindow : Window
             Room.Purr => new PurrPane(Model, Media, Lyrics),
             Room.Roar => new RoarPane(Model),
             Room.Stash => new StashPane(Model),
-            _ => new ComingPane(Model, room),
+            _ => throw new ArgumentOutOfRangeException(nameof(room)),
         };
         if (pane is RoarPane roar) roar.OpenSettings += () => Select(Room.Settings);
         if (pane is HuntPane hunt) hunt.OpenSettings += () => Select(Room.Settings);
@@ -948,6 +1026,7 @@ public partial class IslandWindow : Window
         {
             Select(Room.Settings);
             if (Presentation != Presentation.Expanded) Expand();
+            TakeKeyboard();
         };
         var quit = new MenuItem { Header = L("Quit Ezkiel Notch") };
         quit.Click += (_, _) => Application.Current.Shutdown();

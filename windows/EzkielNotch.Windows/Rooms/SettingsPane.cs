@@ -15,10 +15,33 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
 {
     private ScrollViewer? _scroll;
     private bool _confirmQuit;
+    /// <summary>This build's text fields by name, and what's typed in them but not saved yet.</summary>
+    private readonly Dictionary<string, TextBox> _fields = [];
+    private readonly Dictionary<string, string> _drafts = [];
+    private bool _rebuilding;
 
+    /// <summary>Rebuilds every row (a city search result, an update, a chip). A field you're typing in comes back
+    /// with its text, caret and keyboard, so a refresh never eats what you typed.</summary>
     public override void Refresh()
     {
+        if (_rebuilding) return;
+        var focused = _fields.FirstOrDefault(f => f.Value.IsKeyboardFocused);
+        int caret = focused.Value?.CaretIndex ?? 0;
+        _rebuilding = true;
+        try { Build(); }
+        finally { _rebuilding = false; }
+        if (focused.Key is { } key && _fields.TryGetValue(key, out var again))
+            Dispatcher.BeginInvoke(() =>
+            {
+                again.Focus();
+                again.CaretIndex = Math.Min(caret, again.Text.Length);
+            });
+    }
+
+    private void Build()
+    {
         double offset = _scroll?.VerticalOffset ?? 0;
+        _fields.Clear();
         Children.Clear();
         var s = Model.Settings;
         var list = new StackPanel { Margin = new Thickness(0, 0, 0, 4) };
@@ -41,6 +64,7 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
         }
         list.Children.Add(Option(L("Closed face"), [.. new[] { ("eyes", "Eyes"), ("lion", "Lion"), ("off", "Off") }.Select(o =>
             Ui.Chip(L(o.Item2), s.ClosedFace == o.Item1, Accent.Den, () => { s.ClosedFace = o.Item1; Changed(); }))]));
+        if (s.ClosedFace == "eyes") list.Children.Add(EyeStyleCard());
         list.Children.Add(Toggle(L("Lion naps when idle"), L("Wakes up when you're back"), s.MascotSleeps, v => s.MascotSleeps = v, Accent.Den));
         list.Children.Add(Toggle(L("Open on hover"), L("Click always works too"), s.ExpandOnHover, v => s.ExpandOnHover = v));
         list.Children.Add(Option(L("Hover delay"), [.. new[] { 0.05, 0.12, 0.25, 0.45 }.Select(d =>
@@ -129,6 +153,55 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
         g.Children.Add(At(StyleTile("notch", L("Notch"), L("Hangs from the top edge")), 0));
         g.Children.Add(At(StyleTile("island", L("Island"), L("Floats like the Dynamic Island")), 2));
         return g;
+    }
+
+    /// <summary>The five eye styles, each a small live preview that blinks like the real thing.</summary>
+    private Grid EyeStyleCard()
+    {
+        var styles = new[] { ("lion", "Lion"), ("anime", "Sparkly"), ("cat", "Cat"), ("cute", "Cute"), ("robot", "Robot") };
+        var g = new Grid { Margin = new Thickness(0, 0, 0, 3) };
+        for (int i = 0; i < styles.Length; i++)
+        {
+            if (i > 0) g.ColumnDefinitions.Add(new ColumnDefinition { Width = Px(5) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = Star });
+            g.Children.Add(At(EyeTile(styles[i].Item1, L(styles[i].Item2)), i * 2));
+        }
+        return g;
+    }
+
+    private Border EyeTile(string style, string title)
+    {
+        bool on = Model.Settings.EyeStyle == style;
+        var capsule = new Border
+        {
+            Height = 22,
+            CornerRadius = new CornerRadius(11),
+            Background = Brushes.Black,
+            Margin = new Thickness(2, 0, 2, 5),
+            Child = new EzkielEyes(8, style) { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+        };
+        // A hint of the sparkly eyes' ambient glow.
+        if (style == "anime")
+            capsule.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 8, ShadowDepth = 0, Opacity = 0.8, Color = StyledEyes.AnimeMagenta };
+        var s = new StackPanel();
+        s.Children.Add(capsule);
+        var label = Ui.Label(title, Ui.Caption, on ? Ui.Ink : Ui.Mist, FontWeights.Medium);
+        label.HorizontalAlignment = HorizontalAlignment.Center;
+        s.Children.Add(label);
+        var tile = new Border
+        {
+            Child = s,
+            Padding = new Thickness(4, 7, 4, 6),
+            CornerRadius = new CornerRadius(12),
+            Background = on ? Accent.Den.Tint(0x22) : Ui.Surface,
+            BorderBrush = on ? Accent.Den.DeepBrush : Brushes.Transparent,
+            BorderThickness = new Thickness(1),
+        };
+        return Ui.Clickable(tile, () =>
+        {
+            Model.Settings.EyeStyle = style;
+            Changed();
+        }, tip: title, pressScale: 0.95);
     }
 
     private Border StyleTile(string style, string title, string subtitle)
@@ -221,15 +294,25 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
         var helpText = Ui.Label(help, Ui.Caption, Ui.Mist, trim: false);
         helpText.TextWrapping = TextWrapping.Wrap;
         s.Children.Add(helpText);
-        var (box, input) = Ui.Field(placeholder, i => save(i.Text), 28);
-        input.Text = value;
-        input.LostKeyboardFocus += (_, _) => { if (input.Text.Trim() != value) save(input.Text); };
+        var (box, input) = Ui.Field(placeholder, i => Save(i.Text), 28);
+        input.Text = _drafts.TryGetValue(title, out var draft) ? draft : value;
+        input.TextChanged += (_, _) => { if (!_rebuilding) _drafts[title] = input.Text; };
+        // Leaving the field saves it, but a rebuild taking the field away isn't leaving (the draft carries over).
+        input.LostKeyboardFocus += (_, _) => { if (!_rebuilding && input.Text.Trim() != value) Save(input.Text); };
+        _fields[title] = input;
+        void Save(string text)
+        {
+            _drafts.Remove(title);
+            save(text);
+        }
         box.Margin = new Thickness(0, 6, 0, 0);
         s.Children.Add(box);
         return Row(s);
     }
 
     private string _weatherQuery = "";
+    /// <summary>The City field, so the self-test can type into it.</summary>
+    public TextBox? CityField => _fields.GetValueOrDefault("city");
 
     /// <summary>Weather: type a city, pick it from the results (no location permission).</summary>
     private Border WeatherRow()
@@ -249,14 +332,23 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
                 Changed();
             }), 1));
         stack.Children.Add(head);
-        var (box, input) = Ui.Field(L("City"), i =>
+        void Search(string q)
         {
-            _weatherQuery = i.Text;
-            if (weather is not null) _ = weather.Search(i.Text, Lang.IsIndonesian);
-        }, 28);
+            _weatherQuery = q;
+            if (weather is not null && q.Trim().Length > 0) _ = weather.Search(q.Trim(), Lang.IsIndonesian);
+        }
+        var (box, input) = Ui.Field(L("City"), i => Search(i.Text), 28);
         input.Text = _weatherQuery;
-        box.Margin = new Thickness(0, 6, 0, 0);
-        stack.Children.Add(box);
+        input.TextChanged += (_, _) => { if (!_rebuilding) _weatherQuery = input.Text; };
+        _fields["city"] = input;
+        // Return searches, and so does the button (for anyone who doesn't think to press Return).
+        var field = Columns(Star, Px(6), Auto);
+        field.Margin = new Thickness(0, 6, 0, 0);
+        field.Children.Add(At(box, 0));
+        var go = Ui.Pill(L("Search"), () => Search(input.Text), Accent.Oasis, prominent: true, glyph: "\uE721");
+        go.VerticalAlignment = VerticalAlignment.Center;
+        field.Children.Add(At(go, 2));
+        stack.Children.Add(field);
         if (weather is { Results.Count: > 0 })
         {
             var results = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };

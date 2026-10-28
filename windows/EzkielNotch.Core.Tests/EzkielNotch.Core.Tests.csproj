@@ -19,6 +19,8 @@
 
   <ItemGroup>
     <None Include="Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Shared with the Mac's Swift tests: both apps read typed times the same way. -->
+    <None Include="..\..\Tests\fixtures\due-phrases.json" Link="Fixtures\due-phrases.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

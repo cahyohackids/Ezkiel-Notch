@@ -46,6 +46,7 @@ public sealed class NotchModel
     {
         Data = data;
         Store = store;
+        if (store is not null) store.SaveFailed += _ => _saveFailed = true;
         _launch = launch ?? DateTime.UtcNow;
         var now = launch ?? DateTime.UtcNow;
         Data.Water = WaterLog.Pruned(Data.Water, now);
@@ -91,7 +92,17 @@ public sealed class NotchModel
             Data.FocusState = Focus.Snapshot;
             Store?.Save(Data);
         }
+        // Said once a minute at most, on the UI thread (the write happens on another).
+        if (_saveFailed && now - _saveWarned > TimeSpan.FromMinutes(1))
+        {
+            _saveFailed = false;
+            _saveWarned = now;
+            Toast?.Invoke(new ToastRequest(L("Couldn't save your data · check disk space")));
+        }
     }
+
+    private volatile bool _saveFailed;
+    private DateTime _saveWarned = DateTime.MinValue;
 
     // MARK: Den
 

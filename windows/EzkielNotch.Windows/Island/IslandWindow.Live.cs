@@ -27,7 +27,7 @@ public partial class IslandWindow
     private string _liveKey = "";
     private TextBlock? _liveTimer;
     private Shape? _closedShape;
-    private LionEyes? _eyes;
+    private EzkielEyes? _eyes;
     private DateTime _happyUntil, _lastInteraction = DateTime.UtcNow;
 
     // MARK: Style (Notch or Island, the Mac's 1.6 choice)
@@ -38,13 +38,35 @@ public partial class IslandWindow
     private double IslandExpandedWidth => Model.Settings.IslandSize switch { "small" => 400, "large" => 480, _ => 440 };
     private double IslandGap => Model.Settings.IslandGap switch { "tight" => 3, "roomy" => 10, _ => 6 };
     private bool ShowsFace => Model.Settings.ClosedFace != "off";
+    /// <summary>The sparkly eyes bring their "ambient mode" with them.</summary>
+    private bool Ambient => Model.Settings.ClosedFace == "eyes" && Model.Settings.EyeStyle == "anime";
+
+    /// <summary>The sparkly eyes' ambient light: their pink, magenta and violet spill softly around the island and
+    /// breathe, like a video's colours glowing around its player. Still under Reduce Motion.</summary>
+    private static System.Windows.Media.Effects.DropShadowEffect AmbientGlow()
+    {
+        var glow = new System.Windows.Media.Effects.DropShadowEffect
+        {
+            BlurRadius = 34, ShadowDepth = 0, Opacity = 0.9, Color = StyledEyes.AnimeMagenta, RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance,
+        };
+        if (SpringEase.ReduceMotion) return glow;
+        var breathe = new System.Windows.Media.Animation.DoubleAnimation(0.55, 1, TimeSpan.FromSeconds(3.4))
+        { AutoReverse = true, RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever, EasingFunction = new System.Windows.Media.Animation.SineEase() };
+        var drift = new System.Windows.Media.Animation.ColorAnimationUsingKeyFrames { RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever };
+        foreach (var (color, s) in new[] { (StyledEyes.AnimeMagenta, 0.0), (StyledEyes.AnimeViolet, 4.0), (StyledEyes.AnimePink, 8.0), (StyledEyes.AnimeMagenta, 12.0) })
+            drift.KeyFrames.Add(new System.Windows.Media.Animation.EasingColorKeyFrame(color, System.Windows.Media.Animation.KeyTime.FromTimeSpan(TimeSpan.FromSeconds(s)), new System.Windows.Media.Animation.SineEase()));
+        glow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, breathe);
+        glow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.ColorProperty, drift);
+        return glow;
+    }
 
     /// <summary>Island: a floating pill with a gap above and an optional shadow. Notch: hangs from the top edge.</summary>
     public void ApplyStyle(bool animate)
     {
         Island.Floating = IsIsland;
         Island.Gap = IsIsland ? IslandGap : 0;
-        Island.Effect = IsIsland && Model.Settings.IslandShadow
+        Island.Effect = Ambient ? AmbientGlow()
+            : IsIsland && Model.Settings.IslandShadow
             ? new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 18, ShadowDepth = 3, Direction = 270, Opacity = 0.45 }
             : null;
         _eyes = null;
@@ -120,14 +142,14 @@ public partial class IslandWindow
     }
 
     /// <summary>Ezkiel's mood, as on the Mac: an agent working or waiting first, then happy, napping, focusing.</summary>
-    private LionEyes.Mood EyesMood()
+    private EzkielEyes.Mood EyesMood()
     {
-        if (Model.LiveAgents.FirstOrDefault() is { } agent) return agent.Kind == ScoutKind.NeedsYou ? LionEyes.Mood.Waiting : LionEyes.Mood.Working;
+        if (Model.LiveAgents.FirstOrDefault() is { } agent) return agent.Kind == ScoutKind.NeedsYou ? EzkielEyes.Mood.Waiting : EzkielEyes.Mood.Working;
         var now = DateTime.UtcNow;
-        if (now < _happyUntil) return LionEyes.Mood.Happy;
-        if (Model.Focus.IsRunning && Model.Focus.Mode == FocusMode.Focus) return LionEyes.Mood.Focused;
-        if (Model.Settings.MascotSleeps && !IsLive && !Hovering && now - _lastInteraction > TimeSpan.FromMinutes(2)) return LionEyes.Mood.Sleeping;
-        return LionEyes.Mood.Awake;
+        if (now < _happyUntil) return EzkielEyes.Mood.Happy;
+        if (Model.Focus.IsRunning && Model.Focus.Mode == FocusMode.Focus) return EzkielEyes.Mood.Focused;
+        if (Model.Settings.MascotSleeps && !IsLive && !Hovering && now - _lastInteraction > TimeSpan.FromMinutes(2)) return EzkielEyes.Mood.Sleeping;
+        return EzkielEyes.Mood.Awake;
     }
 
     /// <summary>A task done, a drink, a file stashed: Ezkiel smiles for a moment.</summary>
@@ -139,7 +161,7 @@ public partial class IslandWindow
     private string LiveKey()
     {
         var np = Media.Current;
-        return string.Join("|", IsLive, Model.Settings.ClosedFace, IsIsland, Model.Focus.IsRunning, Model.Focus.Mode,
+        return string.Join("|", IsLive, Model.Settings.ClosedFace, Model.Settings.EyeStyle, IsIsland, Model.Focus.IsRunning, Model.Focus.Mode,
             np?.IsPlaying == true ? np.TrackKey : "", Media.Artwork is not null,
             Prowl.MicInUse, Prowl.CameraInUse, Model.Settings.Prowl, MeetingSoon?.Title, MeetingMinutes, Model.LiveAgents.Count,
             Model.LiveAgents.FirstOrDefault()?.Kind, Model.UnreadTotal, Power.Charging, Power.Percent, Lang.IsIndonesian);
@@ -158,7 +180,8 @@ public partial class IslandWindow
         // Middle: Ezkiel's eyes (the closed island has no camera to make room for).
         if (face == "eyes")
         {
-            _eyes ??= new LionEyes(IsIsland ? 10 : 9);
+            _eyes ??= new EzkielEyes(IsIsland ? 10 : 9, Model.Settings.EyeStyle);
+            _eyes.Style = Model.Settings.EyeStyle;
             LiveCenter.Content = _eyes;
         }
         else if (face == "lion" && !live)

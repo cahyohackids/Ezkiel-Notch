@@ -27,6 +27,12 @@ struct NotchRootView: View {
             Color.clear
 
             ZStack(alignment: .top) {
+                // The sparkly eyes' ambient light, under everything.
+                if model.settings.closedFace == .eyes && model.settings.eyeStyle == .anime {
+                    AmbientGlow(shape: notch, expanded: expanded)
+                        .transition(.opacity)
+                }
+
                 // Body and its shadow sit under the content: the shadow re-renders with the shape,
                 // never with the live content on top.
                 IslandBody(shape: notch, island: island, glass: island && model.settings.islandGlass)
@@ -147,7 +153,7 @@ struct CompactView: View {
                 .transition(.scale.combined(with: .opacity))
         } else if model.settings.closedFace == .eyes && !model.centerIsFree {
             // A notched display: the camera owns the middle, so the eyes sit beside it.
-            EzkielEyes(state: model.eyesState, hovering: chrome.hovering, height: 9)
+            EzkielEyes(state: model.eyesState, hovering: chrome.hovering, height: 9, style: model.settings.eyeStyle)
                 .transition(.scale.combined(with: .opacity))
         } else {
             Color.clear
@@ -157,7 +163,7 @@ struct CompactView: View {
     @ViewBuilder
     private var center: some View {
         if model.settings.closedFace == .eyes && model.centerIsFree {
-            EzkielEyes(state: model.eyesState, hovering: chrome.hovering, height: model.isIsland ? 10 : 9)
+            EzkielEyes(state: model.eyesState, hovering: chrome.hovering, height: model.isIsland ? 10 : 9, style: model.settings.eyeStyle)
         } else if !model.geometry.hasNotch && !model.isIsland {
             // No hardware notch: show a clock in the middle.
             TimelineView(.everyMinute) { tl in
@@ -553,6 +559,31 @@ struct ProwlDots: View {
 
 /// The notch's body: pure black for a notch; an island adds a hairline edge, or Liquid Glass when asked
 /// (macOS 26), with a dark blur on older macOS. The dark tint keeps white text readable on any wallpaper.
+/// The sparkly eyes' "ambient mode": their pink, magenta and violet spill softly around the notch and breathe,
+/// like a video's colours glowing around its player. Still under Reduce Motion.
+struct AmbientGlow: View {
+    var shape: NotchShape
+    var expanded: Bool
+    @State private var breathe = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    static let colors = [Color(red: 1, green: 0.55, blue: 0.82), Color(red: 0.88, green: 0.24, blue: 0.68),
+                         Color(red: 0.55, green: 0.3, blue: 0.95)]
+
+    var body: some View {
+        shape
+            .fill(AngularGradient(colors: Self.colors + [Self.colors[0]], center: .center))
+            .blur(radius: expanded ? 24 : 14)
+            .opacity((expanded ? 0.55 : 1) * (breathe ? 1 : 0.6))
+            .hueRotation(.degrees(breathe ? 14 : -8))
+            .allowsHitTesting(false)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 3.4).repeatForever(autoreverses: true)) { breathe = true }
+            }
+    }
+}
+
 struct IslandBody: View {
     var shape: NotchShape
     var island: Bool

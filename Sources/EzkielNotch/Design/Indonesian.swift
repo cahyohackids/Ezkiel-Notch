@@ -416,5 +416,16 @@ enum Indonesian {
         "System Settings › Privacy & Security › Camera": "Pengaturan Sistem › Privasi & Keamanan › Kamera",
         "No camera found": "Kamera tidak ditemukan",
         "Connect one, or open the lid": "Sambungkan kamera, atau buka layar laptop",
+        // 1.7: exact-time reminders and eye styles
+        "Pick time…": "Pilih jam…",
+        "Today": "Hari ini",
+        "Set": "Pasang",
+        "Hour": "Jam",
+        "Minute": "Menit",
+        "Keep these words in the task": "Biarkan kata-kata ini di tugas",
+        "Sparkly": "Berkilau",
+        "Cat": "Kucing",
+        "Cute": "Imut",
+        "Search": "Cari",
     ]
 }

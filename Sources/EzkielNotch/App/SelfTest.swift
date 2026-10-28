@@ -402,7 +402,14 @@ enum SelfTest {
             if let e = hook("SessionEnd", "") { model.scout.receive(e) }
             check(model.eyesState != .working, "and settle when it ends")
         }))
+        for style in EyeStyle.allCases where style != .lion {
+            steps.append(("island eyes \(style.rawValue)", {
+                model.settings.eyeStyle = style
+                check(model.settings.eyeStyle == style, "the \(style.rawValue) eyes are chosen")
+            }))
+        }
         steps.append(("island den", {
+            model.settings.eyeStyle = .lion
             model.dismissPeek()
             model.expand(.den)
             check(abs(model.shapeRect.height - model.expandedSize.height) < 0.5, "the open island is as tall as its tab")
