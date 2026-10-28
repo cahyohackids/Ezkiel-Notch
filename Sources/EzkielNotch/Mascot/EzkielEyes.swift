@@ -33,7 +33,8 @@ struct EzkielEyes: View {
 
     var body: some View {
         canvas
-            .frame(width: height * 3.2, height: height * 1.5)
+            // Anime eyes are big; the rest share the lion's frame.
+            .frame(width: height * (style == .anime ? 4.2 : 3.2), height: height * (style == .anime ? 2.3 : 1.5))
             .animation(.spring(response: 0.42, dampingFraction: 0.82), value: state)
             .animation(.spring(response: 0.3, dampingFraction: 0.8), value: hovering)
             .task(id: TaskKey(state: state, style: style)) { await life() }
@@ -148,114 +149,157 @@ private struct StyledEyesCanvas: View, Animatable {
         }
     }
 
-    // MARK: Anime: a big pink-to-plum iris, a twinkling white star, lashes, blush
+    // MARK: Anime: the clip's eyes. A round iris, black under the lid, violet, then glowing hot pink at the
+    // bottom; a big white ✕ star with a pink halo; glitter; a heavy black lash line; a pink glow underneath.
 
-    private static let animePink = Color(red: 1.0, green: 0.62, blue: 0.86)
-    private static let animeMagenta = Color(red: 0.86, green: 0.2, blue: 0.66)
-    private static let animePlum = Color(red: 0.33, green: 0.07, blue: 0.3)
-    private static let lash = Color(red: 0.16, green: 0.05, blue: 0.12)
+    private static let animePink = Color(red: 1.0, green: 0.4, blue: 0.6)
+    private static let animeRose = Color(red: 0.95, green: 0.22, blue: 0.45)
+    private static let animeMagenta = Color(red: 0.86, green: 0.16, blue: 0.56)
+    private static let animeViolet = Color(red: 0.42, green: 0.14, blue: 0.62)
+    private static let animeNight = Color(red: 0.07, green: 0.02, blue: 0.1)
+    /// Lashes a shade lighter than black, as the clip's catch the light (pure black would vanish in the notch).
+    private static let lash = Color(red: 0.13, green: 0.08, blue: 0.15)
+    /// Where the glitter sits in the iris (fractions of its radius), and how big each speck is.
+    private static let glitter: [(x: CGFloat, y: CGFloat, r: CGFloat)] = [
+        (-0.55, -0.4, 0.05), (0.48, -0.55, 0.045), (0.66, 0.08, 0.04), (-0.4, 0.58, 0.035),
+        (0.3, 0.64, 0.045), (-0.7, 0.12, 0.03), (0.08, -0.72, 0.04), (-0.18, -0.5, 0.03),
+        (0.58, 0.42, 0.03), (-0.62, -0.08, 0.025),
+    ]
 
     private func anime(_ ctx: GraphicsContext, _ c: CGPoint, side: CGFloat, o: CGFloat, h: CGFloat, w: CGFloat) {
-        let eyeW = w * 0.36, eyeH = h * 0.8
-        let left = CGPoint(x: c.x - eyeW / 2, y: c.y + eyeH * 0.1)
-        let right = CGPoint(x: c.x + eyeW / 2, y: c.y + eyeH * 0.1)
-        let outer = side < 0 ? left : right
-        let top = eyeH * 0.78 * o
-        let bottom = eyeH * (0.42 * o + 0.04) * (1 - smile * 0.85)
+        // Drawn in the eye's own frame: u runs from the inner corner (-) to the outer one (+), v downward,
+        // so the same drawing mirrors for the other eye.
+        let W = w * 0.36, H = h * 0.62
+        let centre = CGPoint(x: c.x, y: c.y + h * 0.02)
+        func p(_ u: CGFloat, _ v: CGFloat) -> CGPoint { CGPoint(x: centre.x + side * u * W, y: centre.y + v * H) }
+        let lift = o   // how open: the upper lid comes down as it falls
+        let lower = 1 - smile * 0.8
 
-        // Blush under each eye, warmer when happy.
-        let blush = CGRect(x: c.x - eyeW * 0.45 + side * eyeW * 0.12, y: c.y + eyeH * 0.42, width: eyeW * 0.9, height: eyeH * 0.32)
+        // The pink glow under each eye.
         ctx.drawLayer { layer in
-            layer.addFilter(.blur(radius: h * 0.08))
-            layer.fill(Path(ellipseIn: blush), with: .color(Self.animePink.opacity(0.28 + 0.25 * smile)))
+            layer.addFilter(.blur(radius: h * 0.09))
+            let a = p(-0.45, 0.45), b = p(0.55, 0.95)
+            layer.fill(Path(ellipseIn: CGRect(x: min(a.x, b.x), y: a.y, width: abs(b.x - a.x), height: b.y - a.y)),
+                       with: .color(Self.animeMagenta.opacity(0.5 + 0.2 * smile)))
         }
 
+        let inner = p(-0.5, 0.12), outer = p(0.5, 0.06)
         guard o > 0.12 else {
-            // Shut: a soft downward curve with three little lashes.
-            var line = Path()
-            line.move(to: left)
-            line.addQuadCurve(to: right, control: CGPoint(x: c.x, y: c.y + eyeH * 0.42))
-            ctx.stroke(line, with: .color(Self.lash), style: StrokeStyle(lineWidth: max(1, h * 0.09), lineCap: .round))
-            for t in [0.3, 0.55, 0.8] as [CGFloat] {
-                let x = side < 0 ? c.x - eyeW / 2 + eyeW * (1 - t) : c.x - eyeW / 2 + eyeW * t
-                let y = c.y + eyeH * 0.05 + eyeH * 0.37 * (1 - pow(2 * t - 1, 2)) * 0.5
+            // Shut: the lash band curves down to a point, lashes pointing down.
+            var band = Path()
+            band.move(to: inner)
+            band.addCurve(to: p(0.62, 0.14), control1: p(-0.2, 0.62), control2: p(0.3, 0.6))
+            band.addCurve(to: inner, control1: p(0.3, 0.42), control2: p(-0.2, 0.44))
+            ctx.fill(band, with: .color(Self.lash))
+            for u in [-0.1, 0.12, 0.34] as [CGFloat] {
                 var l = Path()
-                l.move(to: CGPoint(x: x, y: y))
-                l.addLine(to: CGPoint(x: x + side * eyeW * 0.06, y: y + eyeH * 0.18))
-                ctx.stroke(l, with: .color(Self.lash), style: StrokeStyle(lineWidth: max(0.7, h * 0.05), lineCap: .round))
+                l.move(to: p(u, 0.5))
+                l.addLine(to: p(u + 0.06, 0.78))
+                ctx.stroke(l, with: .color(Self.lash), style: StrokeStyle(lineWidth: max(0.6, h * 0.04), lineCap: .round))
             }
             return
         }
 
+        // The opening: a sharp inner corner, the upper lid high and wide, the lower lid a gentle curve.
+        let upperC1 = p(-0.3, 0.12 - 0.58 * lift), upperC2 = p(0.3, 0.06 - 0.64 * lift)
+        let lowerC1 = p(0.3, 0.06 + 0.46 * lift * lower), lowerC2 = p(-0.25, 0.12 + 0.4 * lift * lower)
         var eye = Path()
-        eye.move(to: left)
-        eye.addCurve(to: right, control1: CGPoint(x: left.x + eyeW * 0.08, y: c.y - top), control2: CGPoint(x: right.x - eyeW * 0.08, y: c.y - top))
-        eye.addQuadCurve(to: left, control: CGPoint(x: c.x, y: c.y + bottom * 1.35 - smile * eyeH * 0.4))
+        eye.move(to: inner)
+        eye.addCurve(to: outer, control1: upperC1, control2: upperC2)
+        eye.addCurve(to: inner, control1: lowerC1, control2: lowerC2)
         eye.closeSubpath()
 
-        let irisR = eyeH * 0.48
-        let irisC = CGPoint(x: c.x + look * eyeW * 0.14, y: c.y + eyeH * 0.02)
+        // A tall oval iris; its top hides under the lid.
+        let irisC = p(0.04 + look * 0.12 * side, 0.08)
+        let rx = W * 0.31, ry = H * 0.48
+        let iris = Path(ellipseIn: CGRect(x: irisC.x - rx, y: irisC.y - ry, width: rx * 2, height: ry * 2))
+        let glowC = CGPoint(x: irisC.x, y: irisC.y + ry * 0.35)
         ctx.drawLayer { layer in
             layer.clip(to: eye)
-            layer.fill(Path(eye.boundingRect.insetBy(dx: -2, dy: -2)), with: .color(.white.opacity(0.92)))
-            let iris = Path(ellipseIn: CGRect(x: irisC.x - irisR * 0.9, y: irisC.y - irisR, width: irisR * 1.8, height: irisR * 2))
-            // Darker at the top under the lashes, glowing pink at the bottom, as anime irises are.
-            layer.fill(iris, with: .linearGradient(Gradient(colors: [Self.animePlum, Self.animeMagenta, Self.animePink]),
-                                                   startPoint: CGPoint(x: irisC.x, y: irisC.y - irisR),
-                                                   endPoint: CGPoint(x: irisC.x, y: irisC.y + irisR)))
-            layer.stroke(iris, with: .color(Self.animePlum.opacity(0.9)), lineWidth: max(0.6, h * 0.04))
-            let pupil = CGRect(x: irisC.x - irisR * 0.3, y: irisC.y - irisR * 0.38, width: irisR * 0.6, height: irisR * 0.76)
-            layer.fill(Path(ellipseIn: pupil), with: .color(Self.animePlum))
-            // The four-point star, flaring and turning when it twinkles, and a small round catchlight.
-            let starR = irisR * (0.5 + 0.22 * twinkle)
-            let star = Self.star(center: CGPoint(x: irisC.x - irisR * 0.18, y: irisC.y - irisR * 0.22), radius: starR,
-                                 angle: .degrees(Double(twinkle) * 20))
-            layer.fill(star, with: .color(.white))
-            let dot = irisR * 0.13
-            layer.fill(Path(ellipseIn: CGRect(x: irisC.x + irisR * 0.32 - dot, y: irisC.y + irisR * 0.42 - dot, width: dot * 2, height: dot * 2)),
-                       with: .color(.white.opacity(0.85)))
+            // Lavender whites in the lid's shadow, darker under it.
+            layer.fill(Path(eye.boundingRect.insetBy(dx: -2, dy: -2)),
+                       with: .linearGradient(Gradient(colors: [Color(red: 0.42, green: 0.36, blue: 0.5), Color(red: 0.8, green: 0.75, blue: 0.88)]),
+                                             startPoint: p(0, -0.5), endPoint: p(0, 0.5)))
+            // The iris glows past its edge at the bottom.
+            layer.fill(Path(ellipseIn: CGRect(x: glowC.x - rx * 1.6, y: glowC.y - ry * 0.6, width: rx * 3.2, height: ry * 1.4)),
+                       with: .radialGradient(Gradient(colors: [Self.animePink.opacity(0.75), Self.animePink.opacity(0)]),
+                                             center: glowC, startRadius: 0, endRadius: rx * 1.6))
+            layer.fill(iris, with: .color(Self.animeNight))
+            layer.fill(iris, with: .radialGradient(Gradient(stops: [
+                .init(color: Self.animePink, location: 0),
+                .init(color: Self.animeRose, location: 0.4),
+                .init(color: Self.animeMagenta, location: 0.65),
+                .init(color: Self.animeViolet, location: 0.85),
+                .init(color: Self.animeViolet.opacity(0), location: 1),
+            ]), center: glowC, startRadius: 0, endRadius: ry * 1.1))
+            layer.fill(iris, with: .linearGradient(Gradient(colors: [Self.animeNight.opacity(0.95), Self.animeNight.opacity(0)]),
+                                                   startPoint: CGPoint(x: irisC.x, y: irisC.y - ry),
+                                                   endPoint: CGPoint(x: irisC.x, y: irisC.y + ry * 0.1)))
+            layer.stroke(iris, with: .color(Self.animeNight), lineWidth: max(0.5, h * 0.03))
+            for (i, g) in Self.glitter.enumerated() {
+                let phase = i.isMultiple(of: 2) ? twinkle : 1 - twinkle
+                let r = rx * g.r * 1.2 * (0.8 + 0.5 * phase)
+                let q = CGPoint(x: irisC.x + g.x * rx, y: irisC.y + g.y * ry)
+                layer.fill(Path(ellipseIn: CGRect(x: q.x - r, y: q.y - r, width: r * 2, height: r * 2)),
+                           with: .color(.white.opacity(0.45 + 0.5 * phase)))
+            }
+            // The big ✕ star with its pink halo, flaring and turning as it twinkles.
+            let starC = CGPoint(x: irisC.x, y: irisC.y + ry * 0.12)
+            let starR = rx * (0.78 + 0.22 * twinkle)
+            let angle = Angle.degrees(45 + Double(twinkle) * 12)
+            layer.drawLayer { halo in
+                halo.addFilter(.blur(radius: h * 0.07))
+                halo.fill(Self.star(center: starC, radius: starR * 1.15, angle: angle, pinch: 0.3), with: .color(Color(red: 1, green: 0.7, blue: 0.85)))
+            }
+            layer.fill(Self.star(center: starC, radius: starR, angle: angle, pinch: 0.12), with: .color(.white))
         }
         if glow > 0.01 {
             ctx.drawLayer { layer in
-                layer.addFilter(.blur(radius: h * 0.16))
-                layer.stroke(eye, with: .color(Self.animePink.opacity(0.8 * glow)), lineWidth: h * 0.12)
+                layer.addFilter(.blur(radius: h * 0.14))
+                layer.stroke(eye, with: .color(Self.animePink.opacity(0.8 * glow)), lineWidth: h * 0.1)
             }
         }
-        // The thick upper lash line, with two flicks at the outer corner; a fine line below.
-        var upper = Path()
-        upper.move(to: left)
-        upper.addCurve(to: right, control1: CGPoint(x: left.x + eyeW * 0.08, y: c.y - top), control2: CGPoint(x: right.x - eyeW * 0.08, y: c.y - top))
-        ctx.stroke(upper, with: .color(Self.lash), style: StrokeStyle(lineWidth: max(1.2, h * 0.14), lineCap: .round))
-        for (dx, dy) in [(0.16, -0.32), (0.2, -0.08)] as [(CGFloat, CGFloat)] {
-            var flick = Path()
-            flick.move(to: CGPoint(x: outer.x - side * eyeW * 0.04, y: outer.y - eyeH * 0.1))
-            flick.addQuadCurve(to: CGPoint(x: outer.x + side * eyeW * dx, y: outer.y + eyeH * dy * o),
-                               control: CGPoint(x: outer.x + side * eyeW * dx * 0.4, y: outer.y - eyeH * 0.08))
-            ctx.stroke(flick, with: .color(Self.lash), style: StrokeStyle(lineWidth: max(0.8, h * 0.07), lineCap: .round))
-        }
-        var lower = Path()
-        lower.move(to: CGPoint(x: left.x + eyeW * 0.12, y: left.y + bottom * 0.5))
-        lower.addQuadCurve(to: CGPoint(x: right.x - eyeW * 0.12, y: right.y + bottom * 0.5),
-                           control: CGPoint(x: c.x, y: c.y + bottom * 1.3 - smile * eyeH * 0.4))
-        ctx.stroke(lower, with: .color(Self.animeMagenta.opacity(0.55)), style: StrokeStyle(lineWidth: max(0.5, h * 0.035), lineCap: .round))
 
-        // A tiny sparkle off the outer corner, brightest as the star twinkles.
-        let sparkle = Self.star(center: CGPoint(x: outer.x + side * eyeW * 0.2, y: c.y - eyeH * 0.55), radius: h * (0.09 + 0.07 * twinkle))
-        ctx.fill(sparkle, with: .color(.white.opacity(0.35 + 0.6 * twinkle)))
+        // The lash band: thin at the inner corner, thick over the eye, ending in a flick past the outer corner,
+        // with a few spiky lashes on top.
+        var band = Path()
+        band.move(to: inner)
+        band.addCurve(to: outer, control1: upperC1, control2: upperC2)
+        band.addQuadCurve(to: p(0.74, 0.16), control: p(0.66, 0.0))          // the flick
+        band.addQuadCurve(to: p(0.6, -0.2 * lift - 0.02), control: p(0.7, -0.08))
+        band.addCurve(to: p(-0.54, 0.04), control1: p(0.32, 0.02 - 0.84 * lift), control2: p(-0.32, 0.02 - 0.72 * lift))
+        band.closeSubpath()
+        ctx.fill(band, with: .color(Self.lash))
+        // Short lashes sweeping out from the outer half of the band.
+        for (u, len) in [(0.3, 0.18), (0.45, 0.24), (0.58, 0.2)] as [(CGFloat, CGFloat)] {
+            let base = 0.06 - (1 - pow(u / 0.62, 2)) * 0.62 * lift
+            var spike = Path()
+            spike.move(to: p(u - 0.04, base + 0.03))
+            spike.addQuadCurve(to: p(u + 0.12, base - len * lift), control: p(u + 0.02, base - len * 0.5 * lift))
+            spike.addQuadCurve(to: p(u + 0.05, base + 0.05), control: p(u + 0.07, base - len * 0.35 * lift))
+            spike.closeSubpath()
+            ctx.fill(spike, with: .color(Self.lash))
+        }
+        // The lower lid: a fine line along the outer two thirds of it.
+        var lowerLid = Path()
+        lowerLid.move(to: outer)
+        lowerLid.addCurve(to: inner, control1: lowerC1, control2: lowerC2)
+        ctx.stroke(lowerLid.trimmedPath(from: 0, to: 0.68), with: .color(Self.lash.opacity(0.9)),
+                   style: StrokeStyle(lineWidth: max(0.5, h * 0.035), lineCap: .round))
     }
 
-    /// A four-point star with concave sides.
-    static func star(center: CGPoint, radius r: CGFloat, angle: Angle = .zero) -> Path {
+    /// A four-point star with concave sides. `pinch` is how far the waist between two points sits from the
+    /// middle (a fraction of the radius): small for the clip's thin ✕, larger for a plump sparkle.
+    static func star(center: CGPoint, radius r: CGFloat, angle: Angle = .zero, pinch: CGFloat = 0.3) -> Path {
+        func at(_ a: Double, _ d: CGFloat) -> CGPoint { CGPoint(x: center.x + d * CGFloat(cos(a)), y: center.y + d * CGFloat(sin(a))) }
         var p = Path()
         for k in 0..<4 {
             let a = angle.radians + Double(k) * .pi / 2 - .pi / 2
-            let tip = CGPoint(x: center.x + r * CGFloat(cos(a)), y: center.y + r * CGFloat(sin(a)))
-            let mid = a + .pi / 4
-            let pinch = CGPoint(x: center.x + r * 0.16 * CGFloat(cos(mid)), y: center.y + r * 0.16 * CGFloat(sin(mid)))
-            let next = a + .pi / 2
-            let nextTip = CGPoint(x: center.x + r * CGFloat(cos(next)), y: center.y + r * CGFloat(sin(next)))
+            let tip = at(a, r), waist = at(a + .pi / 4, r * pinch), next = at(a + .pi / 2, r)
             if k == 0 { p.move(to: tip) }
-            p.addQuadCurve(to: nextTip, control: pinch)
+            // Each side bows in toward the middle, so the points come out long and sharp.
+            p.addQuadCurve(to: waist, control: at(a + .pi / 10, r * (pinch + 0.12)))
+            p.addQuadCurve(to: next, control: at(a + .pi / 2 - .pi / 10, r * (pinch + 0.12)))
         }
         p.closeSubpath()
         return p

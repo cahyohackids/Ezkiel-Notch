@@ -47,10 +47,19 @@ public sealed class EzkielEyes : FrameworkElement
         {
             if (value == _style) return;
             _style = value;
+            Size();
             InvalidateVisual();
         }
     }
     private string _style = "lion";
+    private readonly double _height;
+
+    /// <summary>Anime eyes are big; the rest share the lion's frame.</summary>
+    private void Size()
+    {
+        Width = _height * (_style == "anime" ? 4.2 : 3.2);
+        Height = _height * (_style == "anime" ? 2.3 : 1.5);
+    }
 
     private Mood _mood = Mood.Awake;
     private bool _hovering;
@@ -66,8 +75,8 @@ public sealed class EzkielEyes : FrameworkElement
     public EzkielEyes(double height = 10, string style = "lion")
     {
         _style = style;
-        Width = height * 3.2;
-        Height = height * 1.5;
+        _height = height;
+        Size();
         IsHitTestVisible = false;
         _life.Tick += (_, _) => Beat();
         Loaded += (_, _) => { Apply(); Schedule(); };

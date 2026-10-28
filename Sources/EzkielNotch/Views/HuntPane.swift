@@ -74,7 +74,10 @@ struct HuntPane: View {
                 }
                 Spacer(minLength: 0)
                 if doneCount > 0 {
-                    TextButton(title: L("Clear %d done", doneCount), tint: Theme.mist) { model.clearDoneTasks() }
+                    // An icon, so the reminder chips keep their room (the tip says what it does).
+                    IconButton(icon: "checkmark.circle.badge.xmark", label: L("Clear %d done", doneCount), size: 24, tint: Theme.mist) {
+                        model.clearDoneTasks()
+                    }
                 }
                 IconButton(icon: "person.crop.square", label: L("Mirror: check your camera"), size: 24, tint: Theme.mist) {
                     model.setMirror(true)

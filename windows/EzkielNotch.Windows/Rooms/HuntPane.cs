@@ -71,7 +71,8 @@ public sealed class HuntPane(NotchModel model, RallyClient rally, Action openMir
         RenderDue();
         due.Children.Add(At(_dueRow, 0));
         var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        if (doneCount > 0) right.Children.Add(Ui.TextButton(L("Clear %d done", doneCount), Model.ClearDoneTasks));
+        // An icon, so the reminder chips keep their room (the tip says what it does).
+        if (doneCount > 0) right.Children.Add(Ui.IconButton("\uE74D", L("Clear %d done", doneCount), Model.ClearDoneTasks, 24, Ui.Mist));
         right.Children.Add(Ui.IconButton("\uE8B8", L("Mirror: check your camera"), openMirror, 24, Ui.Mist));
         due.Children.Add(At(right, 2));
         Children.Add(At(due, 0, 2));

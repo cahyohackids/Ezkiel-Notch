@@ -37,120 +37,168 @@ internal static class StyledEyes
         dc.DrawEllipse(b, null, center, rx, ry);
     }
 
-    // MARK: Anime: a big pink-to-plum iris, a twinkling white star, lashes, blush
+    // MARK: Anime: the clip's eyes. A tall iris, black under the lid, violet, then glowing hot pink at the
+    // bottom; a big white ✕ star with a pink halo; glitter; a black lash band with a flick and spiky lashes.
 
-    public static readonly Color AnimePink = Color.FromRgb(0xFF, 0x9E, 0xDB);
-    public static readonly Color AnimeMagenta = Color.FromRgb(0xDB, 0x33, 0xA8);
-    public static readonly Color AnimePlum = Color.FromRgb(0x54, 0x12, 0x4D);
-    public static readonly Color AnimeViolet = Color.FromRgb(0x8C, 0x4D, 0xF2);
-    private static readonly Color Lash = Color.FromRgb(0x29, 0x0D, 0x1F);
+    public static readonly Color AnimePink = Color.FromRgb(0xFF, 0x66, 0x99);
+    private static readonly Color AnimeRose = Color.FromRgb(0xF2, 0x38, 0x73);
+    public static readonly Color AnimeMagenta = Color.FromRgb(0xDB, 0x29, 0x8F);
+    public static readonly Color AnimeViolet = Color.FromRgb(0x6B, 0x24, 0x9E);
+    private static readonly Color AnimeNight = Color.FromRgb(0x12, 0x05, 0x1A);
+    private static readonly Color Lash = Color.FromRgb(0x21, 0x14, 0x26);
+    /// <summary>Where the glitter sits in the iris (fractions of its radii), and how big each speck is.</summary>
+    private static readonly (double X, double Y, double R)[] Glitter =
+    [
+        (-0.55, -0.4, 0.05), (0.48, -0.55, 0.045), (0.66, 0.08, 0.04), (-0.4, 0.58, 0.035),
+        (0.3, 0.64, 0.045), (-0.7, 0.12, 0.03), (0.08, -0.72, 0.04), (-0.18, -0.5, 0.03),
+        (0.58, 0.42, 0.03), (-0.62, -0.08, 0.025),
+    ];
 
     private static void Anime(DrawingContext dc, Point c, double side, double o, double h, double w, double look, double glow, double smile, double twinkle)
     {
-        double eyeW = w * 0.36, eyeH = h * 0.8;
-        var left = new Point(c.X - eyeW / 2, c.Y + eyeH * 0.1);
-        var right = new Point(c.X + eyeW / 2, c.Y + eyeH * 0.1);
-        var outer = side < 0 ? left : right;
-        double top = eyeH * 0.78 * o;
-        double bottom = eyeH * (0.42 * o + 0.04) * (1 - smile * 0.85);
+        // Drawn in the eye's own frame: u runs from the inner corner (-) to the outer one (+), v downward,
+        // so the same drawing mirrors for the other eye.
+        double W = w * 0.36, H = h * 0.62;
+        var centre = new Point(c.X, c.Y + h * 0.02);
+        Point P(double u, double v) => new(centre.X + side * u * W, centre.Y + v * H);
+        double lift = o, lower = 1 - smile * 0.8;
 
-        // Blush under each eye, warmer when happy.
-        Soft(dc, AnimePink, 0.32 + 0.25 * smile, new Point(c.X + side * eyeW * 0.12, c.Y + eyeH * 0.58), eyeW * 0.5, eyeH * 0.2);
+        // The pink glow under each eye.
+        Soft(dc, AnimeMagenta, 0.55 + 0.2 * smile, P(0.05, 0.7), W * 0.62, H * 0.32);
 
+        var inner = P(-0.5, 0.12);
+        var outer = P(0.5, 0.06);
         if (o <= 0.12)
         {
-            // Shut: a soft downward curve with three little lashes.
+            // Shut: the lash band curves down to a point, lashes pointing down.
             var shut = new StreamGeometry();
             using (var g = shut.Open())
             {
-                g.BeginFigure(left, false, false);
-                g.QuadraticBezierTo(new Point(c.X, c.Y + eyeH * 0.42), right, true, true);
+                g.BeginFigure(inner, true, true);
+                g.BezierTo(P(-0.2, 0.62), P(0.3, 0.6), P(0.62, 0.14), true, true);
+                g.BezierTo(P(0.3, 0.42), P(-0.2, 0.44), inner, true, true);
             }
-            dc.DrawGeometry(null, RoundPen(Brush(Lash), Math.Max(1, h * 0.09)), shut);
-            foreach (var t in new[] { 0.3, 0.55, 0.8 })
-            {
-                double x = side < 0 ? c.X - eyeW / 2 + eyeW * (1 - t) : c.X - eyeW / 2 + eyeW * t;
-                double y = c.Y + eyeH * 0.1 + eyeH * 0.37 * (1 - Math.Pow(2 * t - 1, 2)) * 0.5;
-                dc.DrawLine(RoundPen(Brush(Lash), Math.Max(0.7, h * 0.05)), new Point(x, y), new Point(x + side * eyeW * 0.06, y + eyeH * 0.18));
-            }
+            dc.DrawGeometry(Brush(Lash), null, shut);
+            foreach (var u in new[] { -0.1, 0.12, 0.34 })
+                dc.DrawLine(RoundPen(Brush(Lash), Math.Max(0.6, h * 0.04)), P(u, 0.5), P(u + 0.06, 0.78));
             return;
         }
 
-        var cp1 = new Point(left.X + eyeW * 0.08, c.Y - top);
-        var cp2 = new Point(right.X - eyeW * 0.08, c.Y - top);
+        // The opening: a sharp inner corner, the upper lid high and wide, the lower lid a gentle curve.
+        var upperC1 = P(-0.3, 0.12 - 0.58 * lift);
+        var upperC2 = P(0.3, 0.06 - 0.64 * lift);
+        var lowerC1 = P(0.3, 0.06 + 0.46 * lift * lower);
+        var lowerC2 = P(-0.25, 0.12 + 0.4 * lift * lower);
         var eye = new StreamGeometry();
         using (var g = eye.Open())
         {
-            g.BeginFigure(left, true, true);
-            g.BezierTo(cp1, cp2, right, true, true);
-            g.QuadraticBezierTo(new Point(c.X, c.Y + bottom * 1.35 - smile * eyeH * 0.4), left, true, true);
+            g.BeginFigure(inner, true, true);
+            g.BezierTo(upperC1, upperC2, outer, true, true);
+            g.BezierTo(lowerC1, lowerC2, inner, true, true);
         }
         eye.Freeze();
 
-        if (glow > 0.01) dc.DrawGeometry(null, new Pen(Brush(AnimePink, 0.7 * glow), h * 0.22), eye);
-        double irisR = eyeH * 0.48;
-        var irisC = new Point(c.X + look * eyeW * 0.14, c.Y + eyeH * 0.02);
+        // A tall oval iris; its top hides under the lid.
+        var irisC = P(0.04 + look * 0.12 * side, 0.08);
+        double rx = W * 0.31, ry = H * 0.48;
+        var glowC = new Point(irisC.X, irisC.Y + ry * 0.35);
         dc.PushClip(eye);
-        dc.DrawRectangle(Brush(Colors.White, 0.92), null, new Rect(c.X - eyeW, c.Y - eyeH * 1.5, eyeW * 2, eyeH * 3));
-        // Darker at the top under the lashes, glowing pink at the bottom, as anime irises are.
-        var irisBrush = new LinearGradientBrush(new GradientStopCollection
+        // Lavender whites in the lid's shadow, darker under it.
+        dc.DrawRectangle(new LinearGradientBrush(Color.FromRgb(0x6B, 0x5C, 0x80), Color.FromRgb(0xCC, 0xBF, 0xE0), 90), null,
+                         new Rect(c.X - W, centre.Y - H, W * 2, H * 2));
+        // The iris glows past its edge at the bottom.
+        Soft(dc, AnimePink, 0.75, glowC, rx * 1.6, ry * 0.7);
+        dc.DrawEllipse(Brush(AnimeNight), null, irisC, rx, ry);
+        var irisBrush = new RadialGradientBrush(new GradientStopCollection
         {
-            new GradientStop(AnimePlum, 0), new GradientStop(AnimeMagenta, 0.5), new GradientStop(AnimePink, 1),
-        }, 90);
-        dc.DrawEllipse(irisBrush, new Pen(Brush(AnimePlum, 0.9), Math.Max(0.6, h * 0.04)), irisC, irisR * 0.9, irisR);
-        dc.DrawEllipse(Brush(AnimePlum), null, irisC, irisR * 0.3, irisR * 0.38);
-        // The four-point star, flaring and turning when it twinkles, and a small round catchlight.
-        dc.DrawGeometry(Brushes.White, null, Star(new Point(irisC.X - irisR * 0.18, irisC.Y - irisR * 0.22), irisR * (0.5 + 0.22 * twinkle), twinkle * 20));
-        dc.DrawEllipse(Brush(Colors.White, 0.85), null, new Point(irisC.X + irisR * 0.32, irisC.Y + irisR * 0.42), irisR * 0.13, irisR * 0.13);
+            new GradientStop(AnimePink, 0), new GradientStop(AnimeRose, 0.4), new GradientStop(AnimeMagenta, 0.65),
+            new GradientStop(AnimeViolet, 0.85), new GradientStop(A(AnimeViolet, 0), 1),
+        })
+        { MappingMode = BrushMappingMode.Absolute, Center = glowC, GradientOrigin = glowC, RadiusX = ry * 1.1, RadiusY = ry * 1.1 };
+        dc.DrawEllipse(irisBrush, null, irisC, rx, ry);
+        // The lid's shadow darkens the top of the iris.
+        var shade = new LinearGradientBrush(A(AnimeNight, 0.95), A(AnimeNight, 0), 90)
+        { MappingMode = BrushMappingMode.Absolute, StartPoint = new Point(irisC.X, irisC.Y - ry), EndPoint = new Point(irisC.X, irisC.Y + ry * 0.1) };
+        dc.DrawEllipse(shade, new Pen(Brush(AnimeNight), Math.Max(0.5, h * 0.03)), irisC, rx, ry);
+        // Glitter: specks that catch the light in turn as the star twinkles.
+        for (int i = 0; i < Glitter.Length; i++)
+        {
+            var g = Glitter[i];
+            double phase = i % 2 == 0 ? twinkle : 1 - twinkle;
+            double r = rx * g.R * 1.2 * (0.8 + 0.5 * phase);
+            dc.DrawEllipse(Brush(Colors.White, 0.45 + 0.5 * phase), null, new Point(irisC.X + g.X * rx, irisC.Y + g.Y * ry), r, r);
+        }
+        // The big ✕ star with its pink halo, flaring and turning as it twinkles.
+        var starC = new Point(irisC.X, irisC.Y + ry * 0.12);
+        double starR = rx * (0.78 + 0.22 * twinkle), angle = 45 + twinkle * 12;
+        dc.DrawGeometry(Brush(Color.FromRgb(0xFF, 0xB3, 0xD9), 0.35), null, Star(starC, starR * 1.3, angle, 0.34));
+        dc.DrawGeometry(Brush(Color.FromRgb(0xFF, 0xB3, 0xD9), 0.6), null, Star(starC, starR * 1.12, angle, 0.24));
+        dc.DrawGeometry(Brushes.White, null, Star(starC, starR, angle, 0.12));
         dc.Pop();
+        if (glow > 0.01) dc.DrawGeometry(null, new Pen(Brush(AnimePink, 0.7 * glow), h * 0.2), eye);
 
-        // The thick upper lash line, with two flicks at the outer corner; a fine line below.
-        var upper = new StreamGeometry();
-        using (var g = upper.Open())
+        // The lash band: thin at the inner corner, thick over the eye, ending in a flick past the outer corner.
+        var band = new StreamGeometry();
+        using (var g = band.Open())
         {
-            g.BeginFigure(left, false, false);
-            g.BezierTo(cp1, cp2, right, true, true);
+            g.BeginFigure(inner, true, true);
+            g.BezierTo(upperC1, upperC2, outer, true, true);
+            g.QuadraticBezierTo(P(0.66, 0.0), P(0.74, 0.16), true, true);
+            g.QuadraticBezierTo(P(0.7, -0.08), P(0.6, -0.2 * lift - 0.02), true, true);
+            g.BezierTo(P(0.32, 0.02 - 0.84 * lift), P(-0.32, 0.02 - 0.72 * lift), P(-0.54, 0.04), true, true);
         }
-        dc.DrawGeometry(null, RoundPen(Brush(Lash), Math.Max(1.2, h * 0.14)), upper);
-        foreach (var (dx, dy) in new[] { (0.16, -0.32), (0.2, -0.08) })
+        dc.DrawGeometry(Brush(Lash), null, band);
+        // Short lashes sweeping out from the outer half of the band.
+        foreach (var (u, len) in new[] { (0.3, 0.18), (0.45, 0.24), (0.58, 0.2) })
         {
-            var flick = new StreamGeometry();
-            using (var g = flick.Open())
+            double baseV = 0.06 - (1 - Math.Pow(u / 0.62, 2)) * 0.62 * lift;
+            var spike = new StreamGeometry();
+            using (var g = spike.Open())
             {
-                g.BeginFigure(new Point(outer.X - side * eyeW * 0.04, outer.Y - eyeH * 0.1), false, false);
-                g.QuadraticBezierTo(new Point(outer.X + side * eyeW * dx * 0.4, outer.Y - eyeH * 0.08),
-                                    new Point(outer.X + side * eyeW * dx, outer.Y + eyeH * dy * o), true, true);
+                g.BeginFigure(P(u - 0.04, baseV + 0.03), true, true);
+                g.QuadraticBezierTo(P(u + 0.02, baseV - len * 0.5 * lift), P(u + 0.12, baseV - len * lift), true, true);
+                g.QuadraticBezierTo(P(u + 0.07, baseV - len * 0.35 * lift), P(u + 0.05, baseV + 0.05), true, true);
             }
-            dc.DrawGeometry(null, RoundPen(Brush(Lash), Math.Max(0.8, h * 0.07)), flick);
+            dc.DrawGeometry(Brush(Lash), null, spike);
         }
-        var lower = new StreamGeometry();
-        using (var g = lower.Open())
+        // The lower lid: a fine line along the outer two thirds of it.
+        var (q1, q2, q3) = SplitBezier(outer, lowerC1, lowerC2, inner, 0.68);
+        var lowerLid = new StreamGeometry();
+        using (var g = lowerLid.Open())
         {
-            g.BeginFigure(new Point(left.X + eyeW * 0.12, left.Y + bottom * 0.5), false, false);
-            g.QuadraticBezierTo(new Point(c.X, c.Y + bottom * 1.3 - smile * eyeH * 0.4), new Point(right.X - eyeW * 0.12, right.Y + bottom * 0.5), true, true);
+            g.BeginFigure(outer, false, false);
+            g.BezierTo(q1, q2, q3, true, true);
         }
-        dc.DrawGeometry(null, RoundPen(Brush(AnimeMagenta, 0.55), Math.Max(0.5, h * 0.035)), lower);
-
-        // A tiny sparkle off the outer corner, brightest as the star twinkles.
-        dc.DrawGeometry(Brush(Colors.White, 0.35 + 0.6 * twinkle), null,
-                        Star(new Point(outer.X + side * eyeW * 0.2, c.Y - eyeH * 0.55), h * (0.09 + 0.07 * twinkle), 0));
+        dc.DrawGeometry(null, RoundPen(Brush(Lash, 0.9), Math.Max(0.5, h * 0.035)), lowerLid);
     }
 
-    /// <summary>A four-point star with concave sides.</summary>
-    public static Geometry Star(Point center, double r, double degrees)
+    /// <summary>The first part of a cubic Bézier, up to t (de Casteljau): its two controls and end point.</summary>
+    private static (Point, Point, Point) SplitBezier(Point p0, Point p1, Point p2, Point p3, double t)
     {
+        static Point L(Point a, Point b, double t) => new(a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t);
+        var a = L(p0, p1, t);
+        var b = L(p1, p2, t);
+        var c = L(p2, p3, t);
+        var d = L(a, b, t);
+        var e = L(b, c, t);
+        return (a, d, L(d, e, t));
+    }
+
+    /// <summary>A four-point star with concave sides. Pinch is how far the waist between two points sits from the
+    /// middle (a fraction of the radius): small for the clip's thin ✕, larger for a plump sparkle.</summary>
+    public static Geometry Star(Point center, double r, double degrees, double pinch = 0.3)
+    {
+        Point At(double a, double d) => new(center.X + d * Math.Cos(a), center.Y + d * Math.Sin(a));
         var g = new StreamGeometry();
         using (var ctx = g.Open())
         {
             for (int k = 0; k < 4; k++)
             {
                 double a = degrees * Math.PI / 180 + k * Math.PI / 2 - Math.PI / 2;
-                double mid = a + Math.PI / 4, next = a + Math.PI / 2;
-                var tip = new Point(center.X + r * Math.Cos(a), center.Y + r * Math.Sin(a));
-                var pinch = new Point(center.X + r * 0.16 * Math.Cos(mid), center.Y + r * 0.16 * Math.Sin(mid));
-                var nextTip = new Point(center.X + r * Math.Cos(next), center.Y + r * Math.Sin(next));
-                if (k == 0) ctx.BeginFigure(tip, true, true);
-                ctx.QuadraticBezierTo(pinch, nextTip, true, true);
+                if (k == 0) ctx.BeginFigure(At(a, r), true, true);
+                // Each side bows in toward the middle, so the points come out long and sharp.
+                ctx.QuadraticBezierTo(At(a + Math.PI / 10, r * (pinch + 0.12)), At(a + Math.PI / 4, r * pinch), true, true);
+                ctx.QuadraticBezierTo(At(a + Math.PI / 2 - Math.PI / 10, r * (pinch + 0.12)), At(a + Math.PI / 2, r), true, true);
             }
         }
         g.Freeze();
