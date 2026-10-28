@@ -317,6 +317,19 @@ internal static class SelfTest
                 Check(w.Island.Floating && r.Top >= 5 && Math.Abs(r.Height - 34) < 1 && Math.Abs(r.Width - 96) < 1,
                       $"Island style floats below the top edge as a 96×34 pill ({r.Left:0},{r.Top:0} {r.Width:0}×{r.Height:0})");
             }),
+            ("island glass", () =>
+            {
+                m.Settings.IslandGlass = true;
+                m.Settings.EyeStyle = "anime";
+                m.SettingsChanged();
+                Check(w.Island.Glass, "Liquid Glass makes the island see-through");
+            }),
+            ("island glass off", () =>
+            {
+                m.Settings.IslandGlass = false;
+                m.SettingsChanged();
+                Check(!w.Island.Glass, "and off again");
+            }),
             .. new[] { "anime", "cat", "cute", "robot", "lion" }.Select(style => ($"eyes {style}", (Action)(() =>
             {
                 m.Settings.EyeStyle = style;
