@@ -294,6 +294,8 @@ internal static class SelfTest
             {
                 // Opening with the shortcut means you're about to type: the island has the keyboard.
                 Check(w.IsActive, "opening with the shortcut takes the keyboard (focus.log says how)");
+                w.PointerMoved(false);
+                Check(w.Presentation == Presentation.Expanded, "and a pointer somewhere else doesn't close it");
                 if (w.Selected == Room.Hunt)
                     Check(Keyboard.FocusedElement == ((HuntPane)w.CurrentPane!).Input, "and the caret is in New task");
                 w.Toggle();

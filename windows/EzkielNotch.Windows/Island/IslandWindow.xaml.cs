@@ -77,6 +77,8 @@ public partial class IslandWindow : Window
     private readonly DispatcherTimer _fullscreenPoll = new(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(3) };
     private DateTime _insideSince = DateTime.MaxValue, _outsideSince = DateTime.MaxValue;
     private DateTime _lastKey = DateTime.MinValue;
+    /// <summary>Opened with the keyboard (shortcut, tray, menu): the pointer being elsewhere doesn't close it.</summary>
+    private bool _openedByKeyboard;
     private DispatcherTimer? _peekTimer, _toastTimer;
     private Room? _peekRoom;
     private nint _winEventHook;
@@ -138,6 +140,13 @@ public partial class IslandWindow : Window
         Clock.Text = Lang.Time(DateTime.Now);
         Island.MouseRightButtonUp += (_, e) => { ShowMenu(); e.Handled = true; };
         PeekView.MouseLeftButtonUp += (_, _) => OpenFromPeek();
+        // A click on the closed lip opens it. The pointer poll can miss a quick click or a touchpad tap, this can't.
+        Island.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (Presentation != Presentation.Lip) return;
+            Expand();
+            e.Handled = true;
+        };
         Body.PreviewMouseLeftButtonDown += (_, e) =>
         {
             if (Presentation != Presentation.Expanded) return;
@@ -464,6 +473,8 @@ public partial class IslandWindow : Window
     public void Expand()
     {
         _peekTimer?.Stop();
+        // "The pointer left" counts from now, not from whenever it last left the closed lip.
+        if (Presentation != Presentation.Expanded) _outsideSince = Hovering ? DateTime.MaxValue : DateTime.UtcNow;
         Presentation = Presentation.Expanded;
         _liveShown = false;
         Fade(LiveView, 0, 0.08);
@@ -480,6 +491,7 @@ public partial class IslandWindow : Window
         _peekTimer?.Stop();
         bool wasOpen = Presentation == Presentation.Expanded;
         Presentation = Presentation.Lip;
+        _openedByKeyboard = false;
         if (wasOpen)
         {
             CurrentPane?.Shown(false);
@@ -511,6 +523,7 @@ public partial class IslandWindow : Window
     /// <summary>Takes the keyboard once the open room is laid out, and puts the caret in its first field.</summary>
     public void TakeKeyboard()
     {
+        _openedByKeyboard = true;
         Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
         {
             if (Presentation != Presentation.Expanded) return;
@@ -792,6 +805,8 @@ public partial class IslandWindow : Window
         if (inside)
         {
             NoteInteraction();
+            // Once the pointer has come to the island, the usual hover rules apply again.
+            if (Presentation == Presentation.Expanded) _openedByKeyboard = false;
             _outsideSince = DateTime.MaxValue;
             if (_insideSince == DateTime.MaxValue) _insideSince = now;
             if (!Hovering)
@@ -816,6 +831,7 @@ public partial class IslandWindow : Window
             // idle field still lets go 20 s after the pointer left. A click elsewhere always closes it.
             var grace = Typing ? TimeSpan.FromSeconds(20) : TimeSpan.FromMilliseconds(500);
             if (Typing && now - _lastKey < TimeSpan.FromSeconds(60)) return;
+            if (_openedByKeyboard) return;
             if (StashPane.DraggingOut || _dragInside) return;
             if (Presentation == Presentation.Expanded && now - _outsideSince > grace) Collapse();
         }
