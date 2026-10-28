@@ -11,8 +11,9 @@ namespace EzkielNotch.Island;
 /// one brow ridge, drawn as a single face so they always move together. They blink now and then, open a little
 /// wider on hover, close for a nap, squint when happy, narrow during focus, glance side to side while an AI agent
 /// works and glow amber when it needs you. Every change is animated; between moves nothing redraws.
+/// The other styles (sparkly anime eyes, a cat's, cute round ones, robot LEDs) share all of that.
 /// </summary>
-public sealed class LionEyes : FrameworkElement
+public sealed class EzkielEyes : FrameworkElement
 {
     public enum Mood { Awake, Happy, Sleeping, Focused, Working, Waiting }
 
@@ -22,15 +23,34 @@ public sealed class LionEyes : FrameworkElement
     public static readonly DependencyProperty SmileProperty = Prop(nameof(Smile), 0);
     /// <summary>The blink: multiplies the mood's own openness.</summary>
     public static readonly DependencyProperty LidProperty = Prop(nameof(Lid), 1);
+    /// <summary>0 … 1: the anime eyes' star flaring now and then.</summary>
+    public static readonly DependencyProperty TwinkleProperty = Prop(nameof(Twinkle), 0);
+    /// <summary>0 … 1: the cat's pupil widening when you come close.</summary>
+    public static readonly DependencyProperty WideProperty = Prop(nameof(Wide), 0);
 
     private static DependencyProperty Prop(string name, double value) => DependencyProperty.Register(
-        name, typeof(double), typeof(LionEyes), new FrameworkPropertyMetadata(value, FrameworkPropertyMetadataOptions.AffectsRender));
+        name, typeof(double), typeof(EzkielEyes), new FrameworkPropertyMetadata(value, FrameworkPropertyMetadataOptions.AffectsRender));
 
     public double Open { get => (double)GetValue(OpenProperty); set => SetValue(OpenProperty, value); }
     public double Look { get => (double)GetValue(LookProperty); set => SetValue(LookProperty, value); }
     public double Glow { get => (double)GetValue(GlowProperty); set => SetValue(GlowProperty, value); }
     public double Smile { get => (double)GetValue(SmileProperty); set => SetValue(SmileProperty, value); }
     public double Lid { get => (double)GetValue(LidProperty); set => SetValue(LidProperty, value); }
+    public double Twinkle { get => (double)GetValue(TwinkleProperty); set => SetValue(TwinkleProperty, value); }
+    public double Wide { get => (double)GetValue(WideProperty); set => SetValue(WideProperty, value); }
+
+    /// <summary>"lion", "anime", "cat", "cute" or "robot" (Settings.EyeStyle).</summary>
+    public string Style
+    {
+        get => _style;
+        set
+        {
+            if (value == _style) return;
+            _style = value;
+            InvalidateVisual();
+        }
+    }
+    private string _style = "lion";
 
     private Mood _mood = Mood.Awake;
     private bool _hovering;
@@ -43,8 +63,9 @@ public sealed class LionEyes : FrameworkElement
     private static readonly Color Rim = Color.FromRgb(0x6B, 0x3D, 0x0F);
     private static readonly Color Lining = Color.FromRgb(0x1F, 0x0F, 0x05);
 
-    public LionEyes(double height = 10)
+    public EzkielEyes(double height = 10, string style = "lion")
     {
+        _style = style;
         Width = height * 3.2;
         Height = height * 1.5;
         IsHitTestVisible = false;
@@ -81,6 +102,7 @@ public sealed class LionEyes : FrameworkElement
         Animate(OpenProperty, Openness, 420, new SpringEase { Decay = 7, Frequency = 7 });
         Animate(GlowProperty, _mood == Mood.Waiting ? 1 : 0, 420);
         Animate(SmileProperty, _mood == Mood.Happy ? 1 : 0, 420);
+        Animate(WideProperty, _hovering || _mood == Mood.Waiting ? 1 : 0, 380);
     }
 
     private void Schedule()
@@ -98,6 +120,7 @@ public sealed class LionEyes : FrameworkElement
         _beats++;
         if (_mood == Mood.Working) Animate(LookProperty, Look > 0 ? -0.75 : 0.75, 900);
         else if (_beats % 3 == 0) Animate(LookProperty, _random.NextDouble() - 0.5, 700);
+        if (_style == "anime") Sparkle();
         if (_mood != Mood.Happy)
         {
             Blink();
@@ -114,10 +137,29 @@ public sealed class LionEyes : FrameworkElement
     private void Blink()
     {
         var a = new DoubleAnimationUsingKeyFrames();
+        if (_style == "anime")
+        {
+            // Anime eyes blink slowly and softly, as in the clip they come from.
+            a.KeyFrames.Add(new EasingDoubleKeyFrame(0.06, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(350)), new SineEase { EasingMode = EasingMode.EaseInOut }));
+            a.KeyFrames.Add(new EasingDoubleKeyFrame(0.06, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(470))));
+            a.KeyFrames.Add(new EasingDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(920)), new SineEase { EasingMode = EasingMode.EaseInOut }));
+            BeginAnimation(LidProperty, a);
+            return;
+        }
         a.KeyFrames.Add(new EasingDoubleKeyFrame(0.06, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(80)), new QuadraticEase { EasingMode = EasingMode.EaseIn }));
         a.KeyFrames.Add(new EasingDoubleKeyFrame(0.06, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(175))));
         a.KeyFrames.Add(new EasingDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(400)), new SpringEase { Decay = 8, Frequency = 7 }));
         BeginAnimation(LidProperty, a);
+    }
+
+    /// <summary>The star in each pupil flares and turns a little, then settles.</summary>
+    private void Sparkle()
+    {
+        var a = new DoubleAnimationUsingKeyFrames();
+        a.KeyFrames.Add(new EasingDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(350)), new QuadraticEase { EasingMode = EasingMode.EaseOut }));
+        a.KeyFrames.Add(new EasingDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(380))));
+        a.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(1080)), new SineEase { EasingMode = EasingMode.EaseInOut }));
+        BeginAnimation(TwinkleProperty, a);
     }
 
     private void Animate(DependencyProperty p, double to, int ms, IEasingFunction? ease = null)
@@ -136,6 +178,11 @@ public sealed class LionEyes : FrameworkElement
     {
         double w = ActualWidth, h = ActualHeight;
         if (w <= 0 || h <= 0) return;
+        if (_style != "lion")
+        {
+            StyledEyes.Draw(dc, _style, w, h, Math.Clamp(Open * Lid, 0, 1.15), Look, Glow, Smile, Twinkle, Wide);
+            return;
+        }
         double eyeW = w * 0.34, eyeH = h * 0.62, midY = h * 0.6;
         var centers = new[] { new Point(w * 0.27, midY), new Point(w * 0.73, midY) };
         double glow = Glow, smile = Smile, look = Look;

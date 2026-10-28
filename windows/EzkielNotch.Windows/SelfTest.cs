@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -39,8 +40,8 @@ internal static class SelfTest
         m.Settings.Language = AppLanguage.En;
         m.SettingsChanged(everything: true);
 
-        var steps = new List<(string Name, Action Act)>
-        {
+        List<(string Name, Action Act)> steps =
+        [
             ("placed", () =>
             {
                 var r = w.WindowRectPixels();
@@ -56,7 +57,7 @@ internal static class SelfTest
                 Check(w.Presentation == Presentation.Lip, "starts closed");
                 var shape = w.Island.ShapeRect;
                 Check(shape.Height <= 24 && shape.Width < 140, $"closed, it's a small tab for Ezkiel's face ({shape.Width:0}×{shape.Height:0})");
-                Check(w.LiveCenter.Content is LionEyes, "Ezkiel's eyes are in the closed island");
+                Check(w.LiveCenter.Content is EzkielEyes, "Ezkiel's eyes are in the closed island");
                 Check(w.OnIsland(new Point(shape.Left + shape.Width / 2, 2)), "the lip takes the pointer");
                 Check(!w.OnIsland(new Point(10, 200)), "everywhere else passes clicks through");
             }),
@@ -83,6 +84,15 @@ internal static class SelfTest
                 pane.Submit();
                 Check(m.Data.Tasks.Count == before + 1 && m.Data.Tasks[0].Title == "Book the venue", "typing a task and pressing Return adds it on top");
                 Check(((HuntPane)w.CurrentPane!).Input!.Text.Length == 0, "the field clears after adding");
+                // A time typed into the task becomes its reminder.
+                pane = (HuntPane)w.CurrentPane!;
+                pane.Input!.Text = "ingatkan kul 3";
+                Check(pane.Typed is { Title: "ingatkan" }, "\"kul 3\" is read as a time while typing");
+                pane.Submit();
+                var task = m.Data.Tasks[0];
+                var local = task.Due?.ToLocalTime();
+                Check(task.Title == "ingatkan" && local is { Hour: 3 or 15, Minute: 0 }, $"and becomes the reminder: \"{task.Title}\" at {local:HH:mm}");
+                m.DeleteTask(task.Id);
             }),
             ("mirror", () =>
             {
@@ -282,6 +292,10 @@ internal static class SelfTest
             }),
             ("hotkey toggle back", () =>
             {
+                // Opening with the shortcut means you're about to type: the island has the keyboard.
+                Check(w.IsActive, "opening with the shortcut takes the keyboard (focus.log says how)");
+                if (w.Selected == Room.Hunt)
+                    Check(Keyboard.FocusedElement == ((HuntPane)w.CurrentPane!).Input, "and the caret is in New task");
                 w.Toggle();
                 Check(w.Presentation == Presentation.Lip, "and closes");
             }),
@@ -301,6 +315,27 @@ internal static class SelfTest
                 Check(w.Island.Floating && r.Top >= 5 && Math.Abs(r.Height - 34) < 1 && Math.Abs(r.Width - 96) < 1,
                       $"Island style floats below the top edge as a 96×34 pill ({r.Left:0},{r.Top:0} {r.Width:0}×{r.Height:0})");
             }),
+            .. new[] { "anime", "cat", "cute", "robot", "lion" }.Select(style => ($"eyes {style}", (Action)(() =>
+            {
+                m.Settings.EyeStyle = style;
+                m.SettingsChanged();
+                Check(w.LiveCenter.Content is EzkielEyes { Style: var shown } && shown == style, $"the {style} eyes are in the closed island");
+            }))),
+            ("settings draft", () =>
+            {
+                w.Select(Room.Settings);
+                w.Expand();
+            }),
+            ("settings draft ok", () =>
+            {
+                // A refresh (a search result, an update check) never eats what you typed.
+                var pane = (SettingsPane)w.CurrentPane!;
+                pane.CityField!.Text = "Kuala Lum";
+                pane.Refresh();
+                Check(pane.CityField!.Text == "Kuala Lum", "the City field keeps what you typed through a refresh");
+                pane.CityField!.Text = "";
+                w.Collapse();
+            }),
             ("island open", () => w.Expand()),
             ("island open ok", () =>
             {
@@ -317,7 +352,7 @@ internal static class SelfTest
                 m.SettingsChanged();
                 w.Collapse();
             }),
-        };
+        ];
 
         double interval = dir is null ? 0.6 : 1.0;
         void Step(int n)

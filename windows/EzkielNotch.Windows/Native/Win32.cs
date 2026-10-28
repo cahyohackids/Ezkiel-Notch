@@ -167,4 +167,20 @@ internal static partial class Win32
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool BringWindowToTop(nint hWnd);
+
+    /// <summary>The touch and pen version of WM_MOUSEACTIVATE.</summary>
+    public const int WM_POINTERACTIVATE = 0x024B, PA_ACTIVATE = 1;
+
+    /// <summary>A synthetic Alt press: Windows lets the process that just "pressed a key" take the foreground.</summary>
+    [LibraryImport("user32.dll")]
+    public static partial void keybd_event(byte bVk, byte bScan, uint dwFlags, nint dwExtraInfo);
+    public const byte VK_MENU = 0x12;
+    public const uint KEYEVENTF_KEYUP = 0x0002;
+
+    [LibraryImport("user32.dll")]
+    public static partial int GetSystemMetrics(int index);
+    public const int SM_SWAPBUTTON = 23;
+
+    /// <summary>The primary button's virtual key: the right button for a left-handed mouse.</summary>
+    public static int PrimaryButton => GetSystemMetrics(SM_SWAPBUTTON) != 0 ? 0x02 : 0x01;
 }

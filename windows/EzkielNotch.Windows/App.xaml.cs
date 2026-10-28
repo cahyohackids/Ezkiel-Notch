@@ -66,6 +66,7 @@ public partial class App : Application
         {
             window.Select(Room.Settings);
             if (window.Presentation != Presentation.Expanded) window.Expand();
+            window.TakeKeyboard();
         }, Shutdown);
         window.Tray.Relabel(IslandWindow.HotkeyLabel(_model.Settings.Hotkey));
         if (d < 0)

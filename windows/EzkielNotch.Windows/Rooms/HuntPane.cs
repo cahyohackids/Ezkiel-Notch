@@ -14,12 +14,30 @@ public sealed class HuntPane(NotchModel model, RallyClient rally, Action openMir
     private DueChoice _due = DueChoice.None;
     private TextBox? _input;
     private string _draft = "";
+    /// <summary>A time from "Pick time…" (local; it wins over the chips), and the picker's state.</summary>
+    private DateTime? _picked;
+    private bool _picking, _pickTomorrow;
+    private int _pickHour = 9, _pickMinute;
+    /// <summary>The × on a typed time: keep those words as part of the task.</summary>
+    private bool _ignoreTyped;
+    private Grid? _dueRow;
     /// <summary>The field, so the self-test can type into it.</summary>
     public TextBox? Input => _input;
+
+    /// <summary>A time typed into the task ("kul 3", "besok jam 9"), unless you said to ignore it.</summary>
+    public DuePhrase.Result? Typed => _ignoreTyped || _input is null ? null : DuePhrase.Parse(_input.Text, DateTime.Now);
+
+    public override void FocusFirstField()
+    {
+        if (_input is null) return;
+        _input.Focus();
+        _input.CaretIndex = _input.Text.Length;
+    }
 
     public override void Refresh()
     {
         bool hadFocus = _input?.IsKeyboardFocused == true;
+        int caret = _input?.CaretIndex ?? 0;
         if (_input is not null) _draft = _input.Text;
         Children.Clear();
         RowDefinitions.Clear();
@@ -37,25 +55,21 @@ public sealed class HuntPane(NotchModel model, RallyClient rally, Action openMir
         var (box, input) = Ui.Field(L("New task"), _ => Submit());
         _input = input;
         input.Text = _draft;
+        input.CaretIndex = Math.Min(caret, _draft.Length);
+        input.TextChanged += (_, _) =>
+        {
+            _draft = input.Text;
+            if (_draft.Length == 0) _ignoreTyped = false;
+            RenderDue();
+        };
         add.Children.Add(At(box, 0));
         add.Children.Add(At(Ui.IconButton("\uE710", L("Add task (Return)"), Submit, 30, filled: Accent.Hunt), 2));
         Children.Add(At(add, 0, 1));
 
         var due = Columns(Auto, Star, Auto);
-        var chips = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        chips.Children.Add(new Border { Child = Ui.Glyph("\uEA8F", 11, Ui.Mist), Margin = new Thickness(2, 0, 6, 0) });
-        foreach (var c in Due.All)
-        {
-            var choice = c;
-            var chip = Ui.Chip(L(Due.Label(choice)), _due == choice, Accent.Hunt, () =>
-            {
-                _due = choice;
-                Refresh();
-            });
-            chip.Margin = new Thickness(0, 0, 4, 0);
-            chips.Children.Add(chip);
-        }
-        due.Children.Add(At(chips, 0));
+        _dueRow = new Grid();
+        RenderDue();
+        due.Children.Add(At(_dueRow, 0));
         var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         if (doneCount > 0) right.Children.Add(Ui.TextButton(L("Clear %d done", doneCount), Model.ClearDoneTasks));
         right.Children.Add(Ui.IconButton("\uE8B8", L("Mirror: check your camera"), openMirror, 24, Ui.Mist));
@@ -76,16 +90,114 @@ public sealed class HuntPane(NotchModel model, RallyClient rally, Action openMir
         if (hadFocus) Dispatcher.BeginInvoke(() => _input?.Focus());
     }
 
+    /// <summary>The reminder row: the chips and "Pick time…", the picker, or the time you typed (before Return).
+    /// Only this row redraws as you type, so the field keeps its caret.</summary>
+    private void RenderDue()
+    {
+        if (_dueRow is null) return;
+        var chips = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        chips.Children.Add(new Border { Child = Ui.Glyph("\uEA8F", 11, Ui.Mist), Margin = new Thickness(2, 0, 6, 0) });
+        void Add(UIElement e)
+        {
+            if (e is FrameworkElement fe) fe.Margin = new Thickness(0, 0, 4, 0);
+            chips.Children.Add(e);
+        }
+        if (Typed is { } typed)
+        {
+            Add(Ui.Chip("⏰ " + When(typed.Due), true, Accent.Hunt, () => { }));
+            Add(Ui.IconButton("\uE711", L("Keep these words in the task"), () =>
+            {
+                _ignoreTyped = true;
+                RenderDue();
+            }, 22, Ui.Mist));
+        }
+        else if (_picking)
+        {
+            Add(Ui.Chip(L("Today"), !_pickTomorrow, Accent.Hunt, () => { _pickTomorrow = false; RenderDue(); }));
+            Add(Ui.Chip(L("Tomorrow"), _pickTomorrow, Accent.Hunt, () => { _pickTomorrow = true; RenderDue(); }));
+            Add(Stepper(_pickHour.ToString("00"), L("Hour"), step => { _pickHour = (_pickHour + step + 24) % 24; RenderDue(); }));
+            Add(Ui.Label(":", Ui.Secondary, Ui.Mist, FontWeights.SemiBold));
+            Add(Stepper(_pickMinute.ToString("00"), L("Minute"), step => { _pickMinute = (_pickMinute + step * 5 + 60) % 60; RenderDue(); }));
+            Add(Ui.Chip(L("Set"), true, Accent.Hunt, () =>
+            {
+                _picked = DateTime.Today.AddDays(_pickTomorrow ? 1 : 0).AddHours(_pickHour).AddMinutes(_pickMinute);
+                _picking = false;
+                RenderDue();
+            }));
+            Add(Ui.IconButton("\uE711", L("Cancel"), () => { _picking = false; _picked = null; RenderDue(); }, 22, Ui.Mist));
+        }
+        else
+        {
+            foreach (var c in Due.All)
+            {
+                var choice = c;
+                Add(Ui.Chip(L(Due.Label(choice)), _picked is null && _due == choice, Accent.Hunt, () =>
+                {
+                    _due = choice;
+                    _picked = null;
+                    RenderDue();
+                }));
+            }
+            Add(Ui.Chip(_picked is { } p ? "⏰ " + When(p) : L("Pick time…"), _picked is not null, Accent.Hunt, StartPicking));
+        }
+        _dueRow.Children.Clear();
+        _dueRow.Children.Add(chips);
+    }
+
+    private void StartPicking()
+    {
+        // Starts at the next whole hour (or where you left it).
+        var start = _picked ?? DateTime.Now.AddHours(1);
+        _pickHour = start.Hour;
+        _pickMinute = _picked is null ? 0 : start.Minute;
+        _pickTomorrow = start.Date > DateTime.Today;
+        _picking = true;
+        RenderDue();
+    }
+
+    /// <summary>"15:00", "Tomorrow 09:00", "Fri 10:00" (local time).</summary>
+    private static string When(DateTime local)
+    {
+        var today = DateTime.Today;
+        if (local.Date == today) return Lang.Time(local);
+        if (local.Date == today.AddDays(1)) return L("Tomorrow") + " " + Lang.Time(local);
+        return local.ToString("ddd ", Lang.Culture) + Lang.Time(local);
+    }
+
+    /// <summary>‹ value › in a capsule; the wheel works too.</summary>
+    private static Border Stepper(string value, string tip, Action<int> step)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        row.Children.Add(Ui.IconButton("\uE76B", tip, () => step(-1), 20, Ui.Mist));
+        var text = Ui.Label(value, Ui.Secondary, Ui.Ink, FontWeights.SemiBold);
+        text.MinWidth = 18;
+        text.TextAlignment = TextAlignment.Center;
+        text.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(text);
+        row.Children.Add(Ui.IconButton("\uE76C", tip, () => step(1), 20, Ui.Mist));
+        var pill = new Border { Child = row, Height = 24, CornerRadius = new CornerRadius(12), Background = Ui.Surface, ToolTip = tip };
+        pill.MouseWheel += (_, e) => { step(e.Delta > 0 ? 1 : -1); e.Handled = true; };
+        return pill;
+    }
+
     /// <summary>Adds what is typed in the field (Return or the + button).</summary>
     public void Submit()
     {
         if (_input is null) return;
         var title = _input.Text.Trim();
         if (title.Length == 0) return;
-        var when = Due.Date(_due, DateTime.UtcNow);
+        var when = _picked is { } p ? p.ToUniversalTime() : Due.Date(_due, DateTime.UtcNow);
+        if (Typed is { Title.Length: > 0 } typed)
+        {
+            title = typed.Title;
+            when = typed.Due.ToUniversalTime();
+        }
+        _due = DueChoice.None;
+        _picked = null;
+        _picking = false;
+        _ignoreTyped = false;
         _draft = "";
         _input.Text = "";
-        _due = DueChoice.None;
         Model.AddTask(title, when);   // raises Changed → Refresh
     }
 

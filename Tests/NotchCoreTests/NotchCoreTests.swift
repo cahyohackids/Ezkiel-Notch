@@ -328,3 +328,27 @@ final class UpdateVerifyTests: XCTestCase {
         XCTAssertFalse(UpdateVerify.acceptable(bundleID: "store.ezkielyna.notch", version: "1.3.0", expected: "1.3.0", current: "1.4.0"))
     }
 }
+
+final class DuePhraseTests: XCTestCase {
+    /// Every case in the fixture the Windows tests read too.
+    func testSharedFixture() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../fixtures/due-phrases.json").standardized
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Asia/Jakarta")!
+        let f = DateFormatter()
+        f.calendar = cal
+        f.timeZone = cal.timeZone
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        let now = try XCTUnwrap(f.date(from: root["now"] as? String ?? ""))
+        for c in root["cases"] as? [[String: Any]] ?? [] {
+            let text = c["text"] as? String ?? "", title = c["title"] as? String ?? "", due = c["due"] as? String
+            let r = DuePhrase.parse(text, now: now, calendar: cal)
+            let got = r.map { "\($0.title) · \(f.string(from: $0.due))" } ?? "(none)"
+            let want = due.map { "\(title) · \($0)" } ?? "(none)"
+            XCTAssertEqual(got, want, text)
+        }
+    }
+}

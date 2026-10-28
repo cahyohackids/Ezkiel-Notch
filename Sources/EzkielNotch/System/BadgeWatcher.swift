@@ -92,8 +92,10 @@ final class BadgeWatcher: ObservableObject {
             }
             var running = Set(apps.map(\.id))
             if dock {
-                // The Dock knows the badges of apps that aren't open (WhatsApp, Teams…) as well.
-                for item in DockBadges.read() where !running.contains(item.id) && item.id != own {
+                // The Dock knows the badges of apps that aren't open (WhatsApp, Teams…) as well, and of open apps
+                // LaunchServices has no number for: WhatsApp keeps its count only in the Dock even while it runs.
+                let counted = Set(found.map(\.id))
+                for item in DockBadges.read() where !counted.contains(item.id) && item.id != own {
                     found.append(item)
                     running.insert(item.id)
                 }

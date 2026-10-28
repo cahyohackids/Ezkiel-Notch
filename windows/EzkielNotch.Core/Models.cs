@@ -118,6 +118,9 @@ public sealed class NotchSettings
     public bool IslandShadow { get; set; } = true;
     /// <summary>What the closed island shows of Ezkiel: "eyes", "lion" or "off".</summary>
     public string ClosedFace { get; set; } = "eyes";
+    /// <summary>Which eyes: "lion", "anime" (sparkly), "cat", "cute" or "robot" (the Mac's EyeStyle).</summary>
+    public string EyeStyle { get; set; } = "lion";
+    public static readonly string[] EyeStyles = ["lion", "anime", "cat", "cute", "robot"];
     /// <summary>Ezkiel naps when nothing is going on.</summary>
     public bool MascotSleeps { get; set; } = true;
 
@@ -167,6 +170,8 @@ public sealed class NotchSettings
         // Before 1.6 the Mac had "showMascot": off meant no face.
         s.ClosedFace = Json.String(o["closedFace"]) is "eyes" or "lion" or "off" ? Json.String(o["closedFace"])!
             : Json.Bool(o["showMascot"]) == false ? "off" : "eyes";
+        // A style from a newer version that this one doesn't know falls back to the lion's.
+        s.EyeStyle = Json.String(o["eyeStyle"]) is { } eye && EyeStyles.Contains(eye) ? eye : "lion";
         s.MascotSleeps = Json.Bool(o["mascotSleeps"]) ?? s.MascotSleeps;
         s.Hotkey = Json.String(o["hotkey"]) is "controlOptionN" or "controlOptionSpace" or "optionCommandI" ? Json.String(o["hotkey"])! : s.Hotkey;
         s.Language = Json.String(o["language"]) switch
@@ -218,6 +223,7 @@ public sealed class NotchSettings
         o["islandGap"] = IslandGap;
         o["islandShadow"] = IslandShadow;
         o["closedFace"] = ClosedFace;
+        o["eyeStyle"] = EyeStyle;
         o["mascotSleeps"] = MascotSleeps;
         o["language"] = Language switch { AppLanguage.En => "en", AppLanguage.Id => "id", _ => "auto" };
         // Without it the Mac would treat these as pre-1.3.1 settings and migrate them again.

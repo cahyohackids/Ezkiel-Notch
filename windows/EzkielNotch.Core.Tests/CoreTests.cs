@@ -714,3 +714,27 @@ public class WindowsReleaseTests
         Assert.Equal([0, 9, 0], AppVersion.Parts(r.Version));
     }
 }
+
+public class DuePhraseTests
+{
+    /// <summary>Every case in the fixture the Mac's tests read too.</summary>
+    [Fact]
+    public void ReadsTheSharedFixture()
+    {
+        var root = JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "due-phrases.json")))!;
+        var now = DateTime.Parse(root["now"]!.GetValue<string>(), System.Globalization.CultureInfo.InvariantCulture);
+        var failures = new List<string>();
+        foreach (var c in root["cases"]!.AsArray())
+        {
+            var text = c!["text"]!.GetValue<string>();
+            var title = c["title"]!.GetValue<string>();
+            var due = c["due"]?.GetValue<string>();
+            var r = DuePhrase.Parse(text, now);
+            var got = r is null ? $"{text} → (none)" : $"{r.Title} · {r.Due:yyyy-MM-ddTHH:mm}";
+            var want = due is null ? $"{title} → (none)" : $"{title} · {due}";
+            if (r is null && due is null && title == text) continue;
+            if (got != want) failures.Add($"\"{text}\": got {got}, want {want}");
+        }
+        Assert.True(failures.Count == 0, string.Join("\n", failures));
+    }
+}

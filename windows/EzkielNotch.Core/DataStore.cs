@@ -25,6 +25,9 @@ public sealed class DataStore(string path)
     private readonly object _gate = new();
     private long _queued, _written;
 
+    /// <summary>A write failed (disk full, a locked file, no permission): the message, from the writing thread.</summary>
+    public event Action<string>? SaveFailed;
+
     public static string DefaultPath() =>
         System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EzkielNotch", "data.json");
 
@@ -91,6 +94,7 @@ public sealed class DataStore(string path)
                 catch (Exception e)
                 {
                     Console.Error.WriteLine($"Ezkiel Notch: couldn't save {Path}: {e.Message}");
+                    SaveFailed?.Invoke(e.Message);
                 }
             }
         }
