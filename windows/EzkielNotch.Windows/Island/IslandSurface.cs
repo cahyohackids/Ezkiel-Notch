@@ -52,6 +52,25 @@ public sealed class IslandSurface : Decorator
     public double Ear { get => (double)GetValue(EarProperty); set => SetValue(EarProperty, value); }
     public Brush Fill { get => (Brush)GetValue(FillProperty); set => SetValue(FillProperty, value); }
 
+    /// <summary>Glass: see-through and tinted dark (Windows can't blur behind a shaped layered window), with a
+    /// soft sheen on top and a thin light rim, like the Mac's Liquid Glass.</summary>
+    public static readonly DependencyProperty GlassProperty = DependencyProperty.Register(
+        nameof(Glass), typeof(bool), typeof(IslandSurface), new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
+    public bool Glass { get => (bool)GetValue(GlassProperty); set => SetValue(GlassProperty, value); }
+
+    private static readonly Brush GlassTint = Frozen(new LinearGradientBrush(Color.FromArgb(0xA8, 0x0C, 0x0A, 0x12), Color.FromArgb(0xC4, 0x06, 0x05, 0x0A), 90));
+    private static readonly Brush GlassSheen = Frozen(new LinearGradientBrush(new GradientStopCollection
+    {
+        new GradientStop(Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF), 0), new GradientStop(Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF), 0.45),
+    }, 90));
+    private static readonly Pen GlassRim = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x2E, 0xFF, 0xFF, 0xFF)), 0.75));
+
+    private static T Frozen<T>(T f) where T : Freezable
+    {
+        f.Freeze();
+        return f;
+    }
+
     /// <summary>The outer rectangle of the island (ears included), in this element's coordinates.</summary>
     public Rect ShapeRect
     {
@@ -113,7 +132,14 @@ public sealed class IslandSurface : Decorator
     protected override void OnRender(DrawingContext dc)
     {
         if (BodyHeight <= 0.5 || BodyWidth <= 0.5) return;
-        dc.DrawGeometry(Fill, null, Shape());
+        var shape = Shape();
+        if (!Glass)
+        {
+            dc.DrawGeometry(Fill, null, shape);
+            return;
+        }
+        dc.DrawGeometry(GlassTint, null, shape);
+        dc.DrawGeometry(GlassSheen, GlassRim, shape);
     }
 
     protected override Size MeasureOverride(Size constraint)

@@ -60,6 +60,7 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
                 Ui.Chip(L(o.Item2), s.IslandSize == o.Item1, Accent.Neutral, () => { s.IslandSize = o.Item1; Changed(); }))]));
             list.Children.Add(Option(L("Gap"), [.. new[] { ("tight", "Tight"), ("medium", "Medium"), ("roomy", "Roomy") }.Select(o =>
                 Ui.Chip(L(o.Item2), s.IslandGap == o.Item1, Accent.Neutral, () => { s.IslandGap = o.Item1; Changed(); }))]));
+            list.Children.Add(Toggle("Liquid Glass", L("See-through glass, tinted dark so text stays readable"), s.IslandGlass, v => s.IslandGlass = v, Accent.Neutral));
             list.Children.Add(Toggle(L("Shadow"), L("A soft shadow under the floating island"), s.IslandShadow, v => s.IslandShadow = v, Accent.Neutral));
         }
         list.Children.Add(Option(L("Closed face"), [.. new[] { ("eyes", "Eyes"), ("lion", "Lion"), ("off", "Off") }.Select(o =>

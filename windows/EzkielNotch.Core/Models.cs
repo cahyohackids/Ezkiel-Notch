@@ -116,6 +116,8 @@ public sealed class NotchSettings
     /// <summary>"tight", "medium" or "roomy": the space above the island.</summary>
     public string IslandGap { get; set; } = "medium";
     public bool IslandShadow { get; set; } = true;
+    /// <summary>See-through island ("Liquid Glass" on the Mac; tinted, without blur, on Windows).</summary>
+    public bool IslandGlass { get; set; }
     /// <summary>What the closed island shows of Ezkiel: "eyes", "lion" or "off".</summary>
     public string ClosedFace { get; set; } = "eyes";
     /// <summary>Which eyes: "lion", "anime" (sparkly), "cat", "cute" or "robot" (the Mac's EyeStyle).</summary>
@@ -167,6 +169,7 @@ public sealed class NotchSettings
         s.IslandSize = Json.String(o["islandSize"]) is "small" or "large" ? Json.String(o["islandSize"])! : "medium";
         s.IslandGap = Json.String(o["islandGap"]) is "tight" or "roomy" ? Json.String(o["islandGap"])! : "medium";
         s.IslandShadow = Json.Bool(o["islandShadow"]) ?? s.IslandShadow;
+        s.IslandGlass = Json.Bool(o["islandGlass"]) ?? s.IslandGlass;
         // Before 1.6 the Mac had "showMascot": off meant no face.
         s.ClosedFace = Json.String(o["closedFace"]) is "eyes" or "lion" or "off" ? Json.String(o["closedFace"])!
             : Json.Bool(o["showMascot"]) == false ? "off" : "eyes";
@@ -222,6 +225,7 @@ public sealed class NotchSettings
         o["islandSize"] = IslandSize;
         o["islandGap"] = IslandGap;
         o["islandShadow"] = IslandShadow;
+        o["islandGlass"] = IslandGlass;
         o["closedFace"] = ClosedFace;
         o["eyeStyle"] = EyeStyle;
         o["mascotSleeps"] = MascotSleeps;

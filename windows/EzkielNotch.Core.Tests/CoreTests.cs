@@ -738,3 +738,18 @@ public class DuePhraseTests
         Assert.True(failures.Count == 0, string.Join("\n", failures));
     }
 }
+
+public class GlassSettingTests
+{
+    /// <summary>The Mac's islandGlass comes through to Windows and back.</summary>
+    [Fact]
+    public void IslandGlassRoundTrips()
+    {
+        var d = AppData.FromJson("""{"settings":{"islandGlass":true,"eyeStyle":"anime"}}""")!;
+        Assert.True(d.Settings.IslandGlass);
+        var again = AppData.FromJson(d.ToJson())!;
+        Assert.True(again.Settings.IslandGlass);
+        Assert.Equal("anime", again.Settings.EyeStyle);
+        Assert.False(AppData.FromJson("{}")!.Settings.IslandGlass);
+    }
+}

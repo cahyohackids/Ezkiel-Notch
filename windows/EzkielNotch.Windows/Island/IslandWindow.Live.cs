@@ -65,6 +65,7 @@ public partial class IslandWindow
     {
         Island.Floating = IsIsland;
         Island.Gap = IsIsland ? IslandGap : 0;
+        Island.Glass = IsIsland && Model.Settings.IslandGlass;
         Island.Effect = Ambient ? AmbientGlow()
             : IsIsland && Model.Settings.IslandShadow
             ? new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 18, ShadowDepth = 3, Direction = 270, Opacity = 0.45 }
