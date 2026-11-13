@@ -49,7 +49,7 @@ jobs:
         run: |
           "dist/Ezkiel Notch.app/Contents/MacOS/EzkielNotch" --self-test --snapshots "$PWD/snapshots" --fake-notch --data "$PWD/demo-data.json" &
           PID=$!
-          for i in $(seq 1 150); do
+          for i in $(seq 1 300); do
             if ! kill -0 $PID 2>/dev/null; then break; fi
             sleep 1
           done
