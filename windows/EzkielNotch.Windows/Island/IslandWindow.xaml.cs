@@ -122,7 +122,12 @@ public partial class IslandWindow : Window
         Pounce = new PounceWatcher(Dispatcher);
         Pounce.Pounced += (path, screenshot) =>
         {
-            if (!(screenshot ? Model.Settings.PounceScreenshots : Model.Settings.PounceDownloads)) return;
+            if (!screenshot)
+            {
+                AnnounceDownload(path, followed: false);
+                return;
+            }
+            if (!Model.Settings.PounceScreenshots) return;
             if (Presentation == Presentation.Expanded) return;
             ShowPeek(screenshot ? L("Screenshot") : L("Downloaded"), System.IO.Path.GetFileName(path), 6, room: Room.Stash, file: path,
                      look: PeekLooks.Of(screenshot ? PeekKind.Screenshot : PeekKind.Download));
@@ -131,6 +136,7 @@ public partial class IslandWindow : Window
         Model.ForegroundApp = AppIdentity.Foreground;
         Model.LookingAtRoar = () => Presentation == Presentation.Expanded && Selected == Room.Roar;
         InitializeComponent();
+        InitLiveActivities();
         BuildTabs();
         RenderPin();
         ApplyStyle(animate: false);
@@ -403,6 +409,7 @@ public partial class IslandWindow : Window
         Whiskers.Configure(s.SystemOverlays, s.ConnectionPeeks);
         Roar.SetEnabled(s.Roar);
         Pounce.Configure(s.PounceScreenshots, s.PounceDownloads);
+        Downloads.Configure(s.LiveDownloads);
         Prowl.SetEnabled(s.Prowl);
         Rally.Configure(s.Rally, s.RallyCalendarUrl);
         Weather.Configure(s.WeatherCity.Length > 0 ? s.WeatherLatitude : null, s.WeatherCity.Length > 0 ? s.WeatherLongitude : null);
@@ -645,12 +652,19 @@ public partial class IslandWindow : Window
         if (file is not null)
         {
             // Pounce: the file right where you need it.
-            PeekActions.Children.Add(Ui.TextButton(L("Copy"), () => { Files.Copy([file]); Collapse(); }, Accent.Stash.LightBrush));
+            if (p.OpensFile) PeekActions.Children.Add(Ui.TextButton(L("Open"), () => { Files.Open(file); Collapse(); }, Accent.Stash.LightBrush));
+            else PeekActions.Children.Add(Ui.TextButton(L("Copy"), () => { Files.Copy([file]); Collapse(); }, Accent.Stash.LightBrush));
             PeekActions.Children.Add(Ui.TextButton("Stash", () => { Model.AddToShelf([file]); Collapse(); }, Accent.Stash.LightBrush));
             PeekActions.Children.Add(Ui.TextButton(L("Show"), () => { Files.Reveal(file); Collapse(); }, Accent.Stash.LightBrush));
         }
         if (link is not null)
             PeekActions.Children.Add(Ui.Pill(L("Join"), () => { Files.Open(link); Collapse(); }, Accent.Rally, prominent: true, glyph: "\uE714"));
+        foreach (var b in p.Buttons ?? [])
+        {
+            var pill = Ui.Pill(b.Title, () => { b.Run(); Collapse(); }, b.Accent, prominent: b.Prominent);
+            pill.Margin = new Thickness(PeekActions.Children.Count > 0 ? 6 : 0, 0, 0, 0);
+            PeekActions.Children.Add(pill);
+        }
         _peekRoom = p.Room;
         PeekView.Cursor = p.Room is null ? null : Cursors.Hand;
         Presentation = Presentation.Peek;

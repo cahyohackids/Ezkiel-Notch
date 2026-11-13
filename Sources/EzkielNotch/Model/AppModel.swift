@@ -93,6 +93,8 @@ final class AppModel: ObservableObject {
     @Published var noteToFocus: UUID?
     @Published var loginItemError: String?
     @Published private(set) var stashItems: [StashItem] = []
+    /// Live activities: downloads in progress in ~/Downloads (only while "Downloads in the notch" is on).
+    @Published var downloads: [ActiveDownload] = []
 
     let chrome = NotchChrome()
     let music = MusicController()
@@ -173,7 +175,8 @@ final class AppModel: ObservableObject {
         system.onEvent = { [weak self] event in self?.systemEvent(event) }
         system.start()
         pounce.onScreenshot = { [weak self] url in self?.pounced(url, screenshot: true) }
-        pounce.onDownload = { [weak self] url in self?.pounced(url, screenshot: false) }
+        pounce.onDownload = { [weak self] url, followed in self?.downloadFinished(url, followed: followed) }
+        pounce.onProgress = { [weak self] active in self?.downloads = active }
         badges.onIncrease = { [weak self] badge, before in self?.badgeIncreased(badge, before: before) }
         scout.onEvent = { [weak self] event in self?.scoutReceived(event) }
         applySettings(old: nil)
@@ -240,7 +243,7 @@ final class AppModel: ObservableObject {
         system.setCapsLockWatching(s.systemOverlays && !screensAsleep)
         music.allowed = s.musicAllowed
         pounce.setScreenshots(s.pounceScreenshots)
-        pounce.setDownloads(s.pounceDownloads)
+        pounce.setDownloads(finished: s.pounceDownloads, live: s.liveDownloads)
         calendar.setEnabled(s.rally)
         badges.readDock = s.roarFromDock
         badges.setEnabled(s.roar)
@@ -300,17 +303,18 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// The meeting Rally counts down to in the closed notch (within 15 minutes).
+    /// The meeting Rally counts down to in the closed notch (within 10 minutes, LivePill.meetingWindow).
     var meetingSoon: CalendarService.Meeting? {
         guard settings.rally, settings.rallyCountdown else { return nil }
         let now = Date()
-        return calendar.upcoming.first { $0.start > now && $0.start.timeIntervalSince(now) <= 900 }
+        return calendar.upcoming.first { LivePill.meetingMinutes(start: $0.start, now: now) != nil }
     }
 
     /// True when the closed notch has something live to show in its wings.
     var hasLiveActivity: Bool {
         focus.isRunning || (music.nowPlaying?.isPlaying ?? false) || battery.state?.isCharging == true || meetingSoon != nil
             || !agents.isEmpty || prowl.micInUse || prowl.cameraInUse
+            || soonestTimer != nil || leadDownload != nil
     }
 
     /// Fullscreen calm: the setting is on and something is fullscreen on our display.
@@ -625,7 +629,7 @@ final class AppModel: ObservableObject {
             }
             splash(p.isHUD ? 4 : 7)
         }
-        schedulePeekDismiss(after: p.isHUD ? 1.6 : (p.isRich ? 6 : 3.4))
+        schedulePeekDismiss(after: p.isHUD ? 1.6 : p.timer != nil ? 12 : (p.isRich ? 6 : 3.4))
     }
 
     private func schedulePeekDismiss(after delay: TimeInterval) {
@@ -741,6 +745,7 @@ final class AppModel: ObservableObject {
         tickCount += 1
         let now = Date()
         if focus.isFinished(at: now) { completeFocus() }
+        checkTimers(now)
         // Nobody is looking: only the timer above (and due reminders, once back) matter.
         if screensAsleep { return }
 

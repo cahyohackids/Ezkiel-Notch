@@ -11,8 +11,9 @@ namespace EzkielNotch.Island;
 
 /// <summary>
 /// The closed island while something is live: the Mac's wings, as a small pill under the top edge.
-/// Left: the album art while music plays, else Ezkiel, plus Prowl's dots. Right, the first that applies:
-/// the Den countdown, a meeting soon, an AI agent, the equalizer, the unread count, charging, the water ring.
+/// Left: the album art while music plays, else Ezkiel, plus Prowl's dots. Right, the first that applies (Core's
+/// LiveKind order): the Den countdown, a meeting within 10 min, the soonest quick timer, a download in progress
+/// (those three put their icon on the left), an AI agent, the equalizer, the unread count, charging, the water ring.
 /// Nothing live: back to the thin lip, unless "Minimal closed island" is off (then the wings always show).
 /// </summary>
 public partial class IslandWindow
@@ -96,7 +97,8 @@ public partial class IslandWindow
             var s = Model.Settings;
             return Model.Focus.IsRunning || Media.Current?.IsPlaying == true || Power.Charging
                 || Model.LiveAgents.Count > 0 || (s.Prowl && (Prowl.MicInUse || Prowl.CameraInUse))
-                || MeetingSoon is not null || (s.Roar && Model.UnreadTotal > 0);
+                || MeetingSoon is not null || (s.Roar && Model.UnreadTotal > 0)
+                || Model.SoonestTimer is not null || LeadDownload is not null;
         }
     }
 
@@ -167,6 +169,7 @@ public partial class IslandWindow
             BuildLive();
         }
         if (_liveTimer is not null) _liveTimer.Text = FocusClock.Format(Model.Focus.Remaining(DateTime.UtcNow));
+        _liveTick?.Invoke();
         _eyes?.Set(EyesMood(), Hovering);
     }
 
@@ -208,7 +211,8 @@ public partial class IslandWindow
             np?.IsPlaying == true ? np.TrackKey : "", Media.Artwork is not null,
             Prowl.MicInUse, Prowl.CameraInUse, Model.Settings.Prowl, MeetingSoon?.Title, MeetingMinutes, Model.LiveAgents.Count,
             Model.LiveAgents.FirstOrDefault()?.Kind, Model.UnreadTotal, Power.Charging, Power.Percent, Lang.IsIndonesian,
-            Math.Round(Model.WaterProgress, 2));
+            Math.Round(Model.WaterProgress, 2), ClosedLive, Model.Data.Timers.Count, LeadDownload?.Count, LeadDownload?.Download.FinalName,
+            LeadDownload?.Download.Fraction is not null);
     }
 
     private void BuildLive()
@@ -217,7 +221,9 @@ public partial class IslandWindow
         LiveRight.Children.Clear();
         LiveCenter.Content = null;
         _liveTimer = null;
+        _liveTick = null;
         var np = Media.Current;
+        var kind = ClosedLive;
         var face = Model.Settings.ClosedFace;
         bool live = ShowsWings;
 
@@ -232,8 +238,10 @@ public partial class IslandWindow
             LiveCenter.Content = new Image { Source = PurrPane.Lion, Width = 18, Height = 18 };
         if (!live) return;
 
-        // Left: artwork while playing, else the lion when that's the face.
-        if (np?.IsPlaying == true && Media.Artwork is { } art)
+        // Left: a meeting, timer or download's own icon; else artwork while playing, else the lion when that's the face.
+        if (LiveActivityLeft(kind) is { } activity)
+            LiveLeft.Children.Add(activity);
+        else if (np?.IsPlaying == true && Media.Artwork is { } art)
             LiveLeft.Children.Add(new Border
             {
                 Width = 18,
@@ -257,11 +265,10 @@ public partial class IslandWindow
             _liveTimer = Ui.Number("", 12, accent.Vertical);
             LiveRight.Children.Add(_liveTimer);
         }
-        else if (MeetingSoon is { } meeting)
+        else if (OwnsLeftWing(kind))
         {
-            var t = Ui.Number(L("in %dm", MeetingMinutes), 12, Accent.Rally.Vertical);
-            t.ToolTip = meeting.Title;
-            LiveRight.Children.Add(t);
+            // "Meeting in 7 min", the soonest quick timer, a download: their count here, their icon on the left.
+            LiveActivityRight(kind);
         }
         else if (face != "eyes" && Model.LiveAgents.FirstOrDefault() is { } agent)
         {
@@ -315,7 +322,7 @@ public partial class IslandWindow
 
     // MARK: Rally hook (filled in by the calendar)
 
-    /// <summary>The next meeting starting within 5 minutes, when Rally is on.</summary>
-    public Meeting? MeetingSoon => !Model.Settings.Rally || !Model.Settings.RallyCountdown ? null : Rally.Upcoming.FirstOrDefault(m => m.Start > DateTime.UtcNow && m.Start - DateTime.UtcNow <= TimeSpan.FromMinutes(5));
-    private int MeetingMinutes => MeetingSoon is { } m ? Math.Max(1, (int)Math.Ceiling((m.Start - DateTime.UtcNow).TotalMinutes)) : 0;
+    /// <summary>The next meeting starting within 10 minutes (LivePill.MeetingWindow), when Rally and its countdown are on.</summary>
+    public Meeting? MeetingSoon => !Model.Settings.Rally || !Model.Settings.RallyCountdown ? null : Rally.Upcoming.FirstOrDefault(m => LivePill.MeetingMinutes(m.Start, DateTime.UtcNow) is not null);
+    private int MeetingMinutes => MeetingSoon is { } m ? LivePill.MeetingMinutes(m.Start, DateTime.UtcNow) ?? 1 : 0;
 }

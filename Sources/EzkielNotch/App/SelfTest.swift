@@ -435,6 +435,106 @@ enum SelfTest {
             check(model.shapeRect.minY == 0 && model.shape.ear > 0, "back to a notch hanging from the top")
         }))
 
+        // Live activities: a download in progress, quick timers and the meeting countdown in the closed notch.
+        let fakeDownloads = FileManager.default.temporaryDirectory.appendingPathComponent("ezkiel-live-\(UUID().uuidString.prefix(6))")
+        let chrome = fakeDownloads.appendingPathComponent("Ezkiel-stickers.zip.crdownload")
+        let safari = fakeDownloads.appendingPathComponent("Lion-pack.dmg.download")
+        steps.append(("live download", {
+            model.collapse()
+            try? FileManager.default.createDirectory(at: safari, withIntermediateDirectories: true)
+            try? Data(count: 2_500_000).write(to: chrome)
+            try? Data(count: 600_000).write(to: safari.appendingPathComponent("Lion-pack.dmg"))
+            let plist: [String: Any] = ["DownloadEntryProgressTotalToLoad": 1_000_000, "DownloadEntryProgressBytesSoFar": 600_000]
+            try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+                .write(to: safari.appendingPathComponent("Info.plist"))
+            // Both off first, so the folder is watched afresh at the fake one.
+            model.settings.pounceDownloads = false
+            model.settings.liveDownloads = false
+            PounceWatcher.folderOverride = fakeDownloads
+            model.settings.liveDownloads = true
+            check(model.downloads.count == 2, "both partial downloads are followed (got \(model.downloads.count))")
+            check(model.downloads.first { $0.finalName == "Lion-pack.dmg" }?.fraction == 0.6, "Safari's bundle gives 60%")
+            check(model.closedLive == .download && model.showsWings, "a download in progress is live in the closed notch")
+        }))
+        steps.append(("live download grows", {
+            if let h = try? FileHandle(forWritingTo: chrome) {
+                h.seekToEndOfFile()
+                h.write(Data(count: 1_500_000))
+                try? h.close()
+            }
+        }))
+        steps.append(("live download pill", {
+            let lead = model.leadDownload
+            check(lead?.count == 2 && lead?.download.finalName == "Ezkiel-stickers.zip", "the largest download leads, with the count")
+            check(lead?.download.bytes == 4_000_000, "its size follows the file (\(lead?.download.bytes ?? 0))")
+        }))
+        steps.append(("live download percent", {
+            try? FileManager.default.removeItem(at: chrome)
+        }))
+        steps.append(("live download percent read", {}))
+        steps.append(("live download ring", {
+            check(model.leadDownload?.download.fraction == 0.6, "Safari's download shows its percent")
+            // It lands: the bundle goes, the file arrives.
+            try? FileManager.default.removeItem(at: safari)
+            try? Data(count: 1_000_000).write(to: fakeDownloads.appendingPathComponent("Lion-pack.dmg"))
+        }))
+        steps.append(("live download landing", {}))
+        steps.append(("live download done", {
+            check(model.downloads.isEmpty, "nothing in progress once it lands")
+            check(model.presentation == .peek && model.peek?.opensFile == true && model.peek?.file?.lastPathComponent == "Lion-pack.dmg",
+                  "a finished download peeks with Open · Stash · Show")
+        }))
+        steps.append(("timer pill", {
+            model.dismissPeek()
+            model.settings.liveDownloads = false
+            PounceWatcher.folderOverride = nil
+            try? FileManager.default.removeItem(at: fakeDownloads)
+            check(model.startTimer("timer 25m teh"), "typed words start a timer")
+            model.startTimer("Masak", seconds: 10 * 60)
+            check(model.data.timers.count == 2 && model.soonestTimer?.label == "Masak", "two timers run; the soonest leads")
+            check(model.closedLive == .timer && model.showsWings, "the soonest timer counts down in the closed notch")
+        }))
+        steps.append(("timer island", {
+            model.settings.style = .island
+            check(model.closedLive == .timer, "the island counts down too")
+        }))
+        steps.append(("timer done peek", {
+            model.settings.style = .notch
+            model.data.timers.append(QuickTimer(label: "Workout", seconds: 30 * 60, ends: Date().addingTimeInterval(-1)))
+            model.checkTimers(Date())
+            check(model.presentation == .peek && model.peek?.timer?.label == "Workout", "a finished timer peeks with +5 min · Stop")
+            check(!model.data.timers.contains { $0.label == "Workout" }, "and leaves the running list")
+        }))
+        steps.append(("timer snooze", {
+            if let t = model.peek?.timer { model.snoozeTimer(t) }
+            let again = model.data.timers.first { $0.label == "Workout" }
+            check(again.map { abs($0.remaining() - 300) < 3 } == true, "+5 min starts it again for five minutes")
+            model.data.timers = []
+            check(model.soonestTimer == nil, "no timers left")
+        }))
+        steps.append(("den timers", {
+            model.startTimer("Masak", seconds: 10 * 60)
+            model.expand(.den)
+            check(abs(model.shapeRect.height - model.expandedSize.height) < 0.5, "Den grows for its timers row")
+        }))
+        let soon = CalendarService.Meeting(id: "selftest-soon", title: "Standup", start: Date().addingTimeInterval(7 * 60 - 5),
+                                           end: Date().addingTimeInterval(22 * 60), link: nil, color: Accent.rally.deep)
+        steps.append(("meeting pill", {
+            model.collapse()
+            model.data.timers = []
+            model.simulateMeetings([soon])
+            model.settings.rally = true
+            model.settings.rallyCountdown = true
+            check(model.meetingSoon?.id == soon.id && model.closedLive == .meeting, "a meeting in 7 min counts down in the closed notch")
+            check(LivePill.meetingMinutes(start: soon.start) == 7, "it says 7 min")
+        }))
+        steps.append(("meeting pill off", {
+            model.settings.rallyCountdown = false
+            check(model.meetingSoon == nil, "Meeting countdown off hides it")
+            model.simulateMeetings([])
+            model.settings.rally = false
+        }))
+
         steps.append(("settings about", {
             model.settingsSection = .about
             let json = #"{"tag_name":"v9.9.0","html_url":"https://github.com/cahyohackids/Ezkiel-Notch/releases/tag/v9.9.0","draft":false,"prerelease":false,"assets":[{"name":"EzkielNotch-9.9.0-macOS-universal.dmg","browser_download_url":"https://github.com/cahyohackids/Ezkiel-Notch/releases/download/v9.9.0/EzkielNotch-9.9.0-macOS-universal.dmg"},{"name":"SHA256SUMS.txt","browser_download_url":"https://github.com/cahyohackids/Ezkiel-Notch/releases/download/v9.9.0/SHA256SUMS.txt"}]}"#

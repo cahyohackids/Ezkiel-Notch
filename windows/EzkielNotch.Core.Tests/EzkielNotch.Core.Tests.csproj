@@ -23,4 +23,9 @@
     <None Include="..\..\Tests\fixtures\due-phrases.json" Link="Fixtures\due-phrases.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Shared with the Mac's Swift tests: both apps read typed timer lengths the same way. -->
+    <None Include="..\..\Tests\fixtures\timer-phrases.json" Link="Fixtures\timer-phrases.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

@@ -16,7 +16,7 @@ public sealed record ToastRequest(string Text, string? ActionTitle = null, Actio
 /// What the rooms show and do, without any UI (a port of the Mac's AppModel for Den, Hunt, Scratch and Oasis).
 /// The window listens to Changed, Peek, Toast and Sound; Tick() runs once a second.
 /// </summary>
-public sealed class NotchModel
+public sealed partial class NotchModel
 {
     public AppData Data { get; }
     public NotchSettings Settings => Data.Settings;
@@ -97,6 +97,7 @@ public sealed class NotchModel
         _tickCount++;
         var now = Now();
         if (Focus.IsFinished(now)) CompleteFocus(now);
+        CheckTimers(now);
         if (_tickCount % 5 == 0)
         {
             CheckTasks(now);
