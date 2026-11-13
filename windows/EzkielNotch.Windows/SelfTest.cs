@@ -308,6 +308,36 @@ internal static class SelfTest
                 Check(w.PeekActions.Children.Count == 3, "a Pounce peek offers Copy · Stash · Show");
             }),
             ("pounce peek fits", () => Check(FullyInside(w, w.PeekActions), "the Pounce buttons fit inside the peek")),
+            ("tinted peek", () =>
+            {
+                // The Mac's rich card: a tinted icon on the left, a big value on the right.
+                w.ShowPeek(new PeekInfo("WhatsApp", "3 new · 5 unread") { Room = Room.Roar, Look = PeekLooks.Of(PeekKind.Roar), Value = "5" });
+                Check(w.PeekLeading.Child is Border { Child: TextBlock }, "a peek with a look shows its glyph on the left");
+                Check(w.PeekTrailing.Child is TextBlock { Text: "5", Foreground: SolidColorBrush { Color: var valueColor } } && valueColor == Accent.Roar.Deep,
+                      "and its value on the right, in Roar's colour");
+            }),
+            ("tinted peek fits", () => Check(FullyInside(w, w.PeekLeading) && FullyInside(w, w.PeekTrailing, minSize: 6), "the icon and value fit inside the peek")),
+            ("charge ring peek", () =>
+            {
+                w.ShowPeek(new PeekInfo("Charging", "Charger connected") { Look = PeekLooks.Of(PeekKind.Charging), Progress = 0.8, Charging = true });
+                Check(w.PeekTrailing.Child is ChargeRing { Level: 0.8 } ring && ring.Spinning == !SpringEase.ReduceMotion,
+                      "plugging in shows the battery as a ring (its light runs round unless Reduce Motion is on)");
+            }),
+            ("charge ring fits", () => Check(FullyInside(w, w.PeekTrailing), "the ring fits inside the peek")),
+            ("track peek", () =>
+            {
+                // A new song: the album art on the left, an equalizer on the right (Purr's fake track and demo art).
+                var np = w.Media.Current!;
+                w.ShowPeek(new PeekInfo(np.Title, np.Artist) { Room = Room.Purr, Look = PeekLooks.Track(np.AppId), Artwork = true });
+                Check(w.PeekLeading.Child is Border { Background: ImageBrush }, "a new song shows its album art in the peek");
+                Check(w.PeekTrailing.Child is EqualizerBars, "and an equalizer on the right");
+            }),
+            ("track peek fits", () =>
+            {
+                Check(FullyInside(w, w.PeekLeading) && FullyInside(w, w.PeekTrailing, minSize: 6), "the art and equalizer fit inside the peek");
+                w.Collapse();
+            }),
+            ("track peek released", () => Check(w.PeekTrailing.Child is null, "a closed peek lets go of its equalizer (nothing animates unseen)")),
             ("fullscreen", () =>
             {
                 w.Collapse();

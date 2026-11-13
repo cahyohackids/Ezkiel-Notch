@@ -23,15 +23,17 @@
         <local:IslandSurface x:Name="Island" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
             <Grid x:Name="Body" ClipToBounds="True">
 
-                <!-- Peek: one line under the top edge, like a Whisker on the Mac. -->
+                <!-- Peek: one line under the top edge, like a Whisker on the Mac. Left: the tinted icon (or Ezkiel,
+                     an app's icon, a thumbnail, the album art); right: a value, the battery ring or an equalizer. -->
                 <Grid x:Name="PeekView" Opacity="0" Margin="16,0">
                     <StackPanel x:Name="PeekRow" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
-                        <Image x:Name="PeekIcon" Source="/Assets/lion.png" Width="26" Height="26" Margin="0,0,10,0"/>
+                        <Border x:Name="PeekLeading" Width="28" Height="28" Margin="0,0,10,0" VerticalAlignment="Center"/>
                         <TextBlock x:Name="PeekTitle" Text="Ezkiel Notch" FontFamily="{StaticResource Text}" FontSize="13"
                                    FontWeight="SemiBold" Foreground="{StaticResource Ink}" VerticalAlignment="Center"/>
                         <TextBlock x:Name="PeekSubtitle" Text="" FontFamily="{StaticResource Text}" FontSize="12" MaxWidth="300"
                                    TextTrimming="CharacterEllipsis" Foreground="{StaticResource Mist}" Margin="8,0,0,0" VerticalAlignment="Center"/>
                         <StackPanel x:Name="PeekActions" Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        <Border x:Name="PeekTrailing" Margin="12,0,0,0" VerticalAlignment="Center" Visibility="Collapsed"/>
                     </StackPanel>
                 </Grid>
 
