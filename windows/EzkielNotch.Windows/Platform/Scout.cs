@@ -72,13 +72,23 @@ public static class ScoutPipe
         catch (Exception) { return ""; }
     }
 
-    public static bool Send(ScoutEvent e)
+    public static bool Send(ScoutEvent e) => SendLine(ScoutWire.Encode(e));
+
+    /// <summary>A second launch: the running copy opens the island (and may take the foreground, which this
+    /// process, just started by the user, is allowed to hand over).</summary>
+    public static bool SendOpen()
+    {
+        Native.Win32.AllowSetForegroundWindow(-1);
+        return SendLine(ScoutWire.OpenCommand);
+    }
+
+    private static bool SendLine(string line)
     {
         try
         {
             using var pipe = new NamedPipeClientStream(".", Name, PipeDirection.Out);
             pipe.Connect(400);
-            var bytes = Encoding.UTF8.GetBytes(ScoutWire.Encode(e) + "\n");
+            var bytes = Encoding.UTF8.GetBytes(line + "\n");
             pipe.Write(bytes);
             pipe.Flush();
             return true;
@@ -87,8 +97,8 @@ public static class ScoutPipe
     }
 
     /// <summary>The running app's side: one line per connection, handed to the UI thread. A runaway script
-    /// can't turn the island into a strobe (12 events per 10 s).</summary>
-    public static void Listen(Dispatcher ui, Action<ScoutEvent> received)
+    /// can't turn the island into a strobe (12 events per 10 s). A second launch's open request goes to opened.</summary>
+    public static void Listen(Dispatcher ui, Action<ScoutEvent> received, Action? opened = null)
     {
         var recent = new Queue<DateTime>();
         var thread = new Thread(() =>
@@ -102,12 +112,19 @@ public static class ScoutPipe
                     using var reader = new StreamReader(server, Encoding.UTF8);
                     var buffer = new char[8193];
                     int len = reader.ReadBlock(buffer, 0, buffer.Length);
-                    if (ScoutWire.Decode(new string(buffer, 0, len).Trim()) is not { } e) continue;
+                    var line = new string(buffer, 0, len).Trim();
+                    bool open = ScoutWire.IsOpenCommand(line);
+                    var e = open ? null : ScoutWire.Decode(line);
+                    if (!open && e is null) continue;
                     var now = DateTime.UtcNow;
                     while (recent.Count > 0 && now - recent.Peek() > TimeSpan.FromSeconds(10)) recent.Dequeue();
                     if (recent.Count >= 12) continue;
                     recent.Enqueue(now);
-                    ui.BeginInvoke(() => received(e));
+                    ui.BeginInvoke(() =>
+                    {
+                        if (e is not null) received(e);
+                        else opened?.Invoke();
+                    });
                 }
                 catch (Exception)
                 {

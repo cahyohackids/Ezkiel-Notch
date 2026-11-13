@@ -77,6 +77,7 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
             s.LaunchAtLogin = Startup.Set(v);
         }));
         list.Children.Add(Toggle(L("Calm in fullscreen"), L("Videos, games and slides: the island steps away, only urgent peeks"), s.HideInFullscreen, v => s.HideInFullscreen = v));
+        list.Children.Add(Toggle(L("Quiet during focus"), L("Roar and finished agents wait while Den runs"), s.QuietDuringFocus, v => s.QuietDuringFocus = v, Accent.Den));
         list.Children.Add(Toggle(L("Sounds"), L("Chimes for timers and reminders"), s.Sounds, v => s.Sounds = v));
 
         list.Children.Add(Section("Whiskers"));

@@ -130,20 +130,27 @@ public sealed class Updater
     private sealed class UpdateException(string message) : Exception(message);
 }
 
-/// <summary>The tray lion (the Mac's menu-bar lion): click to open or close, right-click for the menu.</summary>
+/// <summary>The tray lion (the Mac's menu-bar lion): click to open or close, right-click for the menu. The menu is
+/// rebuilt each time it opens, so it follows the language, the pin and a waiting update.</summary>
 public sealed class TrayIcon : IDisposable
 {
     private readonly System.Windows.Forms.NotifyIcon _icon;
-    private readonly System.Windows.Forms.ToolStripMenuItem _open, _settings, _quit;
+    private readonly Island.IslandWindow _window;
+    private readonly Action _quit;
+    private string _hotkey = "Ctrl+Alt+N";
 
-    public TrayIcon(Action toggle, Action settings, Action quit)
+    public TrayIcon(Island.IslandWindow window, Action quit)
     {
+        _window = window;
+        _quit = quit;
         var stream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/app.ico"))?.Stream;
-        _open = new System.Windows.Forms.ToolStripMenuItem("", null, (_, _) => toggle());
-        _settings = new System.Windows.Forms.ToolStripMenuItem("", null, (_, _) => settings());
-        _quit = new System.Windows.Forms.ToolStripMenuItem("", null, (_, _) => quit());
         var menu = new System.Windows.Forms.ContextMenuStrip();
-        menu.Items.AddRange([_open, _settings, new System.Windows.Forms.ToolStripSeparator(), _quit]);
+        menu.Opening += (_, e) =>
+        {
+            Fill(menu.Items);
+            e.Cancel = false;   // an empty strip starts out cancelled
+        };
+        Fill(menu.Items);
         _icon = new System.Windows.Forms.NotifyIcon
         {
             Icon = stream is null ? System.Drawing.SystemIcons.Application : new System.Drawing.Icon(stream, 16, 16),
@@ -151,16 +158,58 @@ public sealed class TrayIcon : IDisposable
             ContextMenuStrip = menu,
             Visible = true,
         };
-        _icon.MouseClick += (_, e) => { if (e.Button == System.Windows.Forms.MouseButtons.Left) toggle(); };
-        Relabel("Ctrl+Alt+N");
+        _icon.MouseClick += (_, e) => { if (e.Button == System.Windows.Forms.MouseButtons.Left) window.Toggle(); };
     }
 
-    /// <summary>Menu text follows the language and the chosen shortcut.</summary>
-    public void Relabel(string hotkey)
+    /// <summary>The chosen shortcut, shown beside Open.</summary>
+    public void Relabel(string hotkey) => _hotkey = hotkey;
+
+    private void Fill(System.Windows.Forms.ToolStripItemCollection items)
     {
-        _open.Text = Lang.L("Open") + $"  ({hotkey})";
-        _settings.Text = Lang.L("Settings…");
-        _quit.Text = Lang.L("Quit Ezkiel Notch");
+        items.Clear();
+        foreach (var entry in Entries(_window, _hotkey, _quit))
+        {
+            if (entry is null)
+            {
+                items.Add(new System.Windows.Forms.ToolStripSeparator());
+                continue;
+            }
+            var (text, act, check) = entry.Value;
+            items.Add(new System.Windows.Forms.ToolStripMenuItem(text, null, (_, _) => act()) { Checked = check });
+        }
+    }
+
+    /// <summary>The menu's entries in order (null = a separator), like the Mac's fillMenu. Public for the self-test.</summary>
+    public static List<(string Text, Action Act, bool Checked)?> Entries(Island.IslandWindow w, string hotkey, Action quit)
+    {
+        var list = new List<(string, Action, bool)?>();
+        if (w.Updates is { State: Updater.Phase.Available, Release: { } r } u && AppVersion.IsNewer(r.Version, Updater.Current))
+        {
+            list.Add((Lang.L("Update to %@", string.Join('.', AppVersion.Parts(r.Version))), () =>
+            {
+                w.OpenRoom(Room.Settings);
+                _ = u.Install();
+            }, false));
+            list.Add(null);
+        }
+        list.Add((Lang.L("Open") + $"  ({hotkey})", w.Toggle, false));
+        list.Add((Lang.L("Keep Open"), () => w.SetPinned(!w.Pinned), w.Pinned));
+        list.Add(null);
+        foreach (var info in Island.RoomInfo.All)
+            if (info.Room != Room.Settings)
+                list.Add(($"{info.Name} · {Lang.L(info.Subtitle)}", () => w.OpenRoom(info.Room), false));
+        list.Add(null);
+        list.Add((Lang.L("Settings…"), () => w.OpenRoom(Room.Settings), false));
+        list.Add((Lang.L("Ezkiel Notch website"), () => Files.Open("https://ezkielyna.store/notch"), false));
+        list.Add(null);
+        list.Add((Lang.L("Mirror"), () =>
+        {
+            if (w.Presentation != Island.Presentation.Expanded) w.Expand();
+            w.SetMirror(true);
+        }, false));
+        list.Add(null);
+        list.Add((Lang.L("Quit Ezkiel Notch"), quit, false));
+        return list;
     }
 
     public void Dispose()
