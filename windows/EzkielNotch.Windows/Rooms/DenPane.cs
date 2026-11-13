@@ -93,7 +93,7 @@ public sealed class DenPane(NotchModel model) : Pane(model, Room.Den)
     {
         _timerTexts.Clear();
         var timers = Model.Timers;
-        var g = Columns(Auto, Px(6), Px(timers.Count == 0 ? 190 : 150), Px(6), Star);
+        var g = Columns(Auto, Px(6), Px(timers.Count switch { 0 => 190, <= 2 => 150, _ => 110 }), Px(6), Star);
         var icon = Ui.Glyph("\uE916", 12, Accent.Den.LightBrush);
         icon.ToolTip = L("Quick timers");
         g.Children.Add(At(icon, 0));
@@ -125,7 +125,22 @@ public sealed class DenPane(NotchModel model) : Pane(model, Room.Den)
             g.Children.Add(At(row, 4));
             return g;
         }
-        foreach (var t in timers) row.Children.Add(TimerChip(t));
+        // Two chips fit beside the field; the rest wait behind "+N" (soonest first), so nothing is cut off.
+        var soonest = timers.OrderBy(t => t.Ends).ToList();
+        foreach (var t in soonest.Take(2)) row.Children.Add(TimerChip(t));
+        if (soonest.Count > 2)
+        {
+            var more = Ui.Label($"+{soonest.Count - 2}", Ui.Caption + 1, Accent.Den.LightBrush, FontWeights.Medium);
+            row.Children.Add(new Border
+            {
+                Child = more,
+                Padding = new Thickness(9, 4, 9, 4),
+                CornerRadius = new CornerRadius(12),
+                Background = Accent.Den.Tint(0x33),
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = string.Join("\n", soonest.Skip(2).Select(NotchModel.TimerName)),
+            });
+        }
         var scroll = new ScrollViewer
         {
             Content = row,

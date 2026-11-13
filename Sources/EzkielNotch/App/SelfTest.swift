@@ -519,9 +519,10 @@ enum SelfTest {
             model.expand(.den)
             check(abs(model.shapeRect.height - model.expandedSize.height) < 0.5, "Den grows for its timers row")
         }))
-        let soon = CalendarService.Meeting(id: "selftest-soon", title: "Standup", start: Date().addingTimeInterval(7 * 60 - 5),
-                                           end: Date().addingTimeInterval(22 * 60), link: nil, color: Accent.rally.deep)
         steps.append(("meeting pill", {
+            // Made here, not when the steps are listed: the steps before take minutes, and "7 min" would be 6 by then.
+            let soon = CalendarService.Meeting(id: "selftest-soon", title: "Standup", start: Date().addingTimeInterval(7 * 60 - 5),
+                                               end: Date().addingTimeInterval(22 * 60), link: nil, color: Accent.rally.deep)
             model.collapse()
             model.data.timers = []
             model.simulateMeetings([soon])

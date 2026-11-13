@@ -7,6 +7,7 @@ using Xunit;
 namespace EzkielNotch.Core.Tests;
 
 /// <summary>Ask, against the fixture the Mac's tests read too, and the client with a fake transport (never the network).</summary>
+[Collection("Lang")]
 public class AskTests
 {
     private static JsonNode Fixture() =>
