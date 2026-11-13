@@ -150,6 +150,14 @@ public sealed class NotchSettings
     public bool Ask { get; set; } = true;
     /// <summary>Ask: the model on api.ezkielyna.store.</summary>
     public string AskModel { get; set; } = Core.Ask.DefaultModel;
+    /// <summary>System monitor: CPU, memory, network, battery and disk in Den (off until switched on; no sampling while off).</summary>
+    public bool Sysmon { get; set; }
+    /// <summary>System monitor: what the closed island shows while it's on ("off", "cpu" or "network", see <see cref="Core.SysPill"/>).</summary>
+    public string SysmonPill { get; set; } = Core.SysPill.Off;
+    /// <summary>System monitor peeks: CPU busy for 30 s, memory almost full, system drive under 5 GB.</summary>
+    public bool SysmonCpuAlert { get; set; } = true;
+    public bool SysmonMemoryAlert { get; set; } = true;
+    public bool SysmonDiskAlert { get; set; } = true;
 
     /// <summary>The settings object as read, Mac-only keys included.</summary>
     internal JsonObject Raw { get; set; } = [];
@@ -212,6 +220,11 @@ public sealed class NotchSettings
         s.TimerSound = TimerSounds.Normalize(Json.String(o["timerSound"]));
         s.Ask = Json.Bool(o["ask"]) ?? s.Ask;
         s.AskModel = Json.String(o["askModel"]) is { Length: > 0 } askModel ? askModel : s.AskModel;
+        s.Sysmon = Json.Bool(o["sysmon"]) ?? s.Sysmon;
+        s.SysmonPill = Core.SysPill.Normalize(Json.String(o["sysmonPill"]));
+        s.SysmonCpuAlert = Json.Bool(o["sysmonCpuAlert"]) ?? s.SysmonCpuAlert;
+        s.SysmonMemoryAlert = Json.Bool(o["sysmonMemoryAlert"]) ?? s.SysmonMemoryAlert;
+        s.SysmonDiskAlert = Json.Bool(o["sysmonDiskAlert"]) ?? s.SysmonDiskAlert;
         s.Hotkey = Json.String(o["hotkey"]) is "controlOptionN" or "controlOptionSpace" or "optionCommandI" ? Json.String(o["hotkey"])! : s.Hotkey;
         s.Language = Json.String(o["language"]) switch
         {
@@ -273,6 +286,11 @@ public sealed class NotchSettings
         o["timerSound"] = TimerSound;
         o["ask"] = Ask;
         o["askModel"] = AskModel;
+        o["sysmon"] = Sysmon;
+        o["sysmonPill"] = SysmonPill;
+        o["sysmonCpuAlert"] = SysmonCpuAlert;
+        o["sysmonMemoryAlert"] = SysmonMemoryAlert;
+        o["sysmonDiskAlert"] = SysmonDiskAlert;
         o["language"] = Language switch { AppLanguage.En => "en", AppLanguage.Id => "id", _ => "auto" };
         // Without it the Mac would treat these as pre-1.3.1 settings and migrate them again.
         o["defaultsRevision"] ??= CurrentRevision;

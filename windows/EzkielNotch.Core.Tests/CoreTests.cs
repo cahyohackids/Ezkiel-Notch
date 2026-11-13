@@ -1147,3 +1147,133 @@ public class ParityUxTests
         Assert.Equal("Ctrl+Alt+N", NotchSettings.HotkeyLabel("something else"));
     }
 }
+
+public class SysMonTests
+{
+    private static JsonNode Fixture() =>
+        JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "sysmon-alerts.json")))!;
+
+    private static double? Num(JsonNode? n) => n is JsonValue v && v.TryGetValue(out double d) ? d : null;
+
+    [Fact]
+    public void DefaultRulesMatchTheFixture()
+    {
+        var root = Fixture();
+        var rules = root["rules"]!.AsArray().Select(r => new SysAlertRule(r!["id"]!.GetValue<string>(), r["above"]!.GetValue<bool>(),
+            Num(r["on"])!.Value, Num(r["off"])!.Value, Num(r["sustain"])!.Value, Num(r["cooldown"])!.Value)).ToArray();
+        Assert.Equal(SysAlerts.DefaultRules, rules);
+        var alerts = new SysAlerts();
+        Assert.Equal(Num(root["spacing"]), alerts.Spacing);
+        Assert.Equal(Num(root["maxGap"]), alerts.MaxGap);
+    }
+
+    /// <summary>Every alert case in the fixture the Mac's tests read too.</summary>
+    [Fact]
+    public void AlertsFromTheFixture()
+    {
+        var failures = new List<string>();
+        foreach (var c in Fixture()["alerts"]!.AsArray())
+        {
+            var samples = new List<(double T, string Id, double V)>();
+            foreach (var s in c!["samples"]!.AsArray())
+            {
+                string id = s!["id"]!.GetValue<string>();
+                double v = Num(s["v"])!.Value;
+                if (Num(s["t"]) is { } t) samples.Add((t, id, v));
+                else
+                    for (double x = Num(s["from"])!.Value; x <= Num(s["to"])!.Value; x += Num(s["step"])!.Value) samples.Add((x, id, v));
+            }
+            var alerts = new SysAlerts();
+            var fired = samples.Where(s => alerts.Feed(s.Id, s.V, s.T)).Select(s => $"{(int)s.T} {s.Id}").ToList();
+            var want = c["fires"]!.AsArray().Select(f => $"{(int)Num(f!["t"])!.Value} {f["id"]!.GetValue<string>()}").ToList();
+            if (!fired.SequenceEqual(want)) failures.Add($"{c["name"]}: got [{string.Join(", ", fired)}], want [{string.Join(", ", want)}]");
+        }
+        Assert.True(failures.Count == 0, string.Join("\n", failures));
+    }
+
+    [Fact]
+    public void CountersCpuMemoryAndSeries()
+    {
+        var root = Fixture();
+        foreach (var c in root["memoryLoad"]!.AsArray())
+        {
+            MemoryPressure? p = c!["pressure"]?.GetValue<string>() switch
+            {
+                "normal" => MemoryPressure.Normal,
+                "warning" => MemoryPressure.Warning,
+                "critical" => MemoryPressure.Critical,
+                _ => null,
+            };
+            Assert.Equal(Num(c["load"]), SysMemory.AlertLoad(Num(c["used"])!.Value, p));
+        }
+        foreach (var c in root["counterDelta"]!.AsArray())
+        {
+            var d = SysCounters.Delta((ulong)Num(c!["previous"])!.Value, (ulong)Num(c["current"])!.Value, (int)Num(c["bits"])!.Value);
+            Assert.Equal(Num(c["delta"]), d is { } x ? (double?)x : null);
+        }
+        foreach (var c in root["rates"]!.AsArray())
+        {
+            static Dictionary<string, ulong> Counters(JsonNode? n) => n!.AsObject().ToDictionary(p => p.Key, p => (ulong)Num(p.Value)!.Value);
+            var r = SysCounters.Rate(Counters(c!["previous"]), Counters(c["current"]), Num(c["seconds"])!.Value, (int)Num(c["bits"])!.Value);
+            Assert.Equal(Num(c["rate"]), r);
+        }
+        foreach (var c in root["cpu"]!.AsArray())
+        {
+            var p = SysCpu.Percent((ulong)Num(c!["previousBusy"])!.Value, (ulong)Num(c["previousIdle"])!.Value,
+                                   (ulong)Num(c["busy"])!.Value, (ulong)Num(c["idle"])!.Value);
+            Assert.Equal(Num(c["percent"]), p);
+        }
+        var s = root["series"]!;
+        var series = new SysSeries((int)Num(s["capacity"])!.Value);
+        foreach (var v in s["push"]!.AsArray()) series.Append(Num(v)!.Value);
+        Assert.Equal(s["values"]!.AsArray().Select(v => Num(v)!.Value), series.Values);
+        foreach (var n in s["normalized"]!.AsArray())
+            Assert.Equal(n!["values"]!.AsArray().Select(v => Num(v)!.Value), series.Normalized(Num(n["floor"])!.Value));
+    }
+
+    [Fact]
+    public void FormatsFromTheFixture()
+    {
+        var format = Fixture()["format"]!.AsObject();
+        var fns = new Dictionary<string, Func<double, string>>
+        {
+            ["rate"] = SysFormat.Rate,
+            ["compactRate"] = SysFormat.CompactRate,
+            ["memory"] = SysFormat.Memory,
+            ["disk"] = SysFormat.Disk,
+            ["percent"] = SysFormat.Percent,
+            ["minutes"] = v => SysFormat.Minutes((int)v),
+        };
+        Assert.Equal(fns.Keys.OrderBy(k => k), format.Select(p => p.Key).OrderBy(k => k));
+        var failures = new List<string>();
+        foreach (var (key, fn) in fns)
+            foreach (var pair in format[key]!.AsArray())
+            {
+                var got = fn(Num(pair![0])!.Value);
+                var want = pair[1]!.GetValue<string>();
+                if (got != want) failures.Add($"{key}({pair[0]}): got {got}, want {want}");
+            }
+        Assert.True(failures.Count == 0, string.Join("\n", failures));
+    }
+
+    /// <summary>The Mac's system monitor settings come through to Windows and back; unknown pills fall back to off.</summary>
+    [Fact]
+    public void SettingsRoundTripAndDefaults()
+    {
+        var d = AppData.FromJson("""{"settings":{"sysmon":true,"sysmonPill":"network","sysmonCpuAlert":false,"sysmonDiskAlert":false}}""")!;
+        Assert.True(d.Settings.Sysmon);
+        Assert.Equal("network", d.Settings.SysmonPill);
+        Assert.False(d.Settings.SysmonCpuAlert);
+        Assert.True(d.Settings.SysmonMemoryAlert);
+        var again = AppData.FromJson(d.ToJson())!;
+        Assert.True(again.Settings.Sysmon);
+        Assert.Equal("network", again.Settings.SysmonPill);
+        Assert.False(again.Settings.SysmonDiskAlert);
+        var fresh = AppData.FromJson("""{"settings":{"sysmonPill":"gpu"}}""")!;
+        Assert.False(fresh.Settings.Sysmon);
+        Assert.Equal("off", fresh.Settings.SysmonPill);
+        var written = JsonNode.Parse(fresh.ToJson())!["settings"]!;
+        Assert.False(written["sysmon"]!.GetValue<bool>());
+        Assert.Equal("off", written["sysmonPill"]!.GetValue<string>());
+    }
+}

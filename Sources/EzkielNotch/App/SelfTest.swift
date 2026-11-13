@@ -614,6 +614,51 @@ enum SelfTest {
             model.setAsk(false)
             check(!model.askOn, "Esc or × puts the box away")
             model.ask.reset(keys: MemoryAskKeys(), transport: FakeAskTransport(script: []))
+        // 1.9: System monitor, with fake readings (CI has no battery and its CPU and network vary run to run).
+        steps.append(("sysmon den card", {
+            model.collapse()
+            var cpu: [Double] = [], memory: [Double] = [], down: [Double] = [], up: [Double] = []
+            for i in 0..<60 {
+                let x = Double(i)
+                cpu.append(28 + 14 * sin(x / 5) + (i % 9 == 0 ? 18 : 0))
+                memory.append(70 + x / 10)
+                down.append(300_000 + 900_000 * abs(sin(x / 7)))
+                up.append(20_000 + 30_000 * abs(cos(x / 4)))
+            }
+            model.sysmon.simulate(SysMonService.Reading(cpu: 34, memUsed: 6_549_825_126, memTotal: 8_589_934_592, pressure: .normal,
+                                                        down: 1_250_000, up: 42_000, online: true, diskFree: 120_400_000_000,
+                                                        diskTotal: 245_000_000_000, battery: 82, charging: false, onAC: false,
+                                                        batteryMinutes: 245),
+                                  cpu: cpu, memory: memory, down: down, up: up)
+            model.settings.sysmon = true
+            model.expand(.den)
+            check(model.paneHeight == NotchMetrics.paneHeight(.den) + NotchMetrics.sysmonCard, "Den grows by the system card")
+            check(abs(model.shapeRect.height - model.expandedSize.height) < 0.5, "the open notch fits Den with the card")
+            check(SysFormat.rate(1_250_000) == "1.3 MB/s" && SysFormat.memory(8_589_934_592) == "8 GB", "card numbers read as on Windows")
+        }))
+        steps.append(("sysmon pill cpu", {
+            model.settings.sysmonPill = .cpu
+            model.collapse()
+            check(model.sysmonPillShowing && model.showsWings, "the CPU pill shows in the closed notch")
+        }))
+        steps.append(("sysmon pill network", {
+            model.settings.sysmonPill = .network
+            check(model.sysmonPillShowing, "the network pill shows in the closed notch")
+        }))
+        steps.append(("sysmon cpu alert", {
+            var alerts = SysAlerts()
+            let fired = stride(from: 0.0, through: 60, by: 10).filter { alerts.feed("cpu", value: 97, at: $0) }
+            check(fired == [30], "CPU at 97% peeks once, after 30 s (got \(fired))")
+            model.showCpuPeek(97, top: "Xcode")
+            check(model.presentation == .peek && model.peek?.title == "CPU is busy" && model.peek?.tab == .den, "the CPU peek shows and opens Den")
+        }))
+        steps.append(("sysmon off", {
+            model.dismissPeek()
+            model.settings.sysmonPill = .off
+            model.settings.sysmon = false
+            model.sysmon.simulate(nil)
+            check(NotchMetrics.paneHeight(.den, sysmon: model.settings.sysmon) == NotchMetrics.paneHeight(.den), "Den is back to its own height")
+            check(!model.sysmonPillShowing, "no pill while the monitor is off")
         }))
 
         steps.append(("splash settles", {

@@ -727,6 +727,66 @@ internal static class SelfTest
                 var r = w.Island.BodyRect;
                 Check(!w.ShowsWings && r.Width < 140, $"and on again: back to the small tab ({r.Width:0}×{r.Height:0})");
             }),
+            // System monitor, with fake readings (the runner's CPU and network vary run to run, and it has no battery).
+            ("sysmon den card", () =>
+            {
+                var x = Enumerable.Range(0, 60).Select(i => (double)i).ToList();
+                w.SysMon.Simulate(new Platform.SysMonSampler.Reading
+                {
+                    Cpu = 34, MemUsed = 11_274_289_152, MemTotal = 17_179_869_184, Down = 1_250_000, Up = 42_000, Online = true,
+                    DiskFree = 120_400_000_000, DiskTotal = 255_000_000_000, DiskName = "C:", Battery = 82, OnAC = false, BatteryMinutes = 245,
+                },
+                cpu: x.Select(i => 28 + 14 * Math.Sin(i / 5) + (i % 9 == 0 ? 18 : 0)), memory: x.Select(i => 62 + i / 10),
+                down: x.Select(i => 300_000 + 900_000 * Math.Abs(Math.Sin(i / 7))), up: x.Select(i => 20_000 + 30_000 * Math.Abs(Math.Cos(i / 4))));
+                m.Settings.Sysmon = true;
+                m.SettingsChanged();
+                w.Select(Room.Den);
+                w.Expand();
+            }),
+            ("sysmon den card ok", () =>
+            {
+                RoomChecks(w, Room.Den);
+                Check(w.CurrentPane?.DesiredHeight == RoomInfo.Of(Room.Den).PaneHeight + 60, "Den grows by the system card");
+                var card = w.CurrentPane is { } pane ? Descendants<SysMonCard>(pane).FirstOrDefault() : null;
+                var texts = card is null ? new List<string>() : Descendants<TextBlock>(card).Select(t => t.Text).ToList();
+                Check(texts.Contains("34%") && texts.Contains("1.3 MB/s") && texts.Contains("10.5 GB") && texts.Contains("120 GB"),
+                      $"the card shows CPU, memory, network and disk like the Mac ({string.Join(" | ", texts)})");
+            }),
+            ("sysmon pill cpu", () =>
+            {
+                m.Settings.SysmonPill = SysPill.Cpu;
+                m.SettingsChanged();
+                w.Collapse();
+            }),
+            ("sysmon pill cpu ok", () =>
+            {
+                var texts = Descendants<TextBlock>(w.LiveRight).Select(t => t.Text).ToList();
+                Check(w.SysmonPillShowing && texts.Contains("34%"), $"the CPU pill shows in the closed island ({string.Join(" | ", texts)})");
+                m.Settings.SysmonPill = SysPill.Network;
+                m.SettingsChanged();
+            }),
+            ("sysmon pill network", () =>
+            {
+                var texts = Descendants<TextBlock>(w.LiveRight).Select(t => t.Text).ToList();
+                Check(w.SysmonPillShowing && texts.Contains("1.3M"), $"the network pill shows the busier direction ({string.Join(" | ", texts)})");
+            }),
+            ("sysmon cpu alert", () =>
+            {
+                var alerts = new SysAlerts();
+                var fired = Enumerable.Range(0, 7).Select(i => i * 10.0).Where(t => alerts.Feed("cpu", 97, t)).ToList();
+                Check(fired.SequenceEqual([30.0]), $"CPU at 97% peeks once, after 30 s (got {string.Join(", ", fired)})");
+                w.ShowCpuPeek(97, "chrome");
+                Check(w.CurrentPeek is { Title: "CPU is busy", Room: Room.Den }, "the CPU peek shows and opens Den");
+            }),
+            ("sysmon off", () =>
+            {
+                w.Collapse();
+                m.Settings.SysmonPill = SysPill.Off;
+                m.Settings.Sysmon = false;
+                m.SettingsChanged();
+                w.SysMon.Simulate(null);
+                Check(!w.SysPillOn && !w.ShowsWings, "no pill and no wings once the monitor is off");
+            }),
         ];
 
         double interval = dir is null ? 0.6 : 1.0;

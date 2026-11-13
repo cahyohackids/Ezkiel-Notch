@@ -5,7 +5,7 @@
         Title="Ezkiel Notch"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True" ShowActivated="False"
-        SizeToContent="Manual" Width="520" Height="320"
+        SizeToContent="Manual" Width="520" Height="360"
         UseLayoutRounding="True" SnapsToDevicePixels="True"
         TextOptions.TextFormattingMode="Display">
 

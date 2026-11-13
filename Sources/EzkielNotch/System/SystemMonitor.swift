@@ -31,7 +31,7 @@ final class SystemMonitor {
     private var capsOn = false
     private var inputName: String?
     private var pathMonitor: NWPathMonitor?
-    private var online: Bool?
+    private(set) var online: Bool?
     private var pendingNetwork: DispatchWorkItem?
     private var observers: [NSObjectProtocol] = []
 

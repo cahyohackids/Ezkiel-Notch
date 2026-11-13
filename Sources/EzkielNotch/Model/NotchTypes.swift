@@ -164,11 +164,14 @@ enum NotchMetrics {
     static let peekShape = (radius: CGFloat(18), ear: CGFloat(11))
     static let expandedShape = (radius: CGFloat(22), ear: CGFloat(13))
 
+    /// Height of the system monitor card in Den, with the space above it.
+    static let sysmonCard: CGFloat = 60
+
     /// Each tab is only as tall as its content.
-    static func paneHeight(_ tab: NotchTab, lyrics: Bool = false) -> CGFloat {
+    static func paneHeight(_ tab: NotchTab, lyrics: Bool = false, sysmon: Bool = false) -> CGFloat {
         switch tab {
-        // The focus timer, its stats, and the quick timers' row.
-        case .den: return 196
+        // The focus timer, its stats and the quick timers' row; the system card under them while the monitor is on.
+        case .den: return sysmon ? 196 + sysmonCard : 196
         case .hunt: return 188
         case .roar: return 176
         case .scratch: return 180
@@ -183,7 +186,7 @@ enum NotchMetrics {
     static let askHeight: CGFloat = 196
 
     static var maxPaneHeight: CGFloat {
-        NotchTab.allCases.map { paneHeight($0, lyrics: true) }.max() ?? 200
+        NotchTab.allCases.map { paneHeight($0, lyrics: true, sysmon: true) }.max() ?? 200
     }
 
     static func barHeight(_ g: NotchGeometry) -> CGFloat {

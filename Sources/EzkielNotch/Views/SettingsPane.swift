@@ -257,6 +257,25 @@ struct SettingsPane: View {
                 }
             }
         }
+        // System monitor: the Den card, the closed pill and its peeks.
+        ToggleRow(title: "System monitor", subtitle: "CPU, memory, network, battery and disk in Den. Nothing is read while it's off.",
+                  icon: "gauge", accent: .den, isOn: $model.settings.sysmon)
+        if model.settings.sysmon {
+            OptionRow(title: "Closed notch", icon: "capsule") {
+                ForEach(SysPill.allCases) { pill in
+                    Chip(title: pill == .off ? "Off" : (pill == .cpu ? "CPU" : "Network"), selected: model.settings.sysmonPill == pill,
+                         accent: .den) { model.settings.sysmonPill = pill }
+                }
+            }
+            ToggleRow(title: "CPU busy", subtitle: "A peek after 30 s above 90%, with the busiest app", icon: "cpu", accent: .den,
+                      isOn: $model.settings.sysmonCpuAlert)
+            ToggleRow(title: "Memory pressure", subtitle: "A peek when macOS runs short of memory", icon: "memorychip", accent: .den,
+                      isOn: $model.settings.sysmonMemoryAlert)
+            ToggleRow(title: "Disk almost full", subtitle: "A peek under 5 GB free on the startup disk", icon: "internaldrive", accent: .den,
+                      isOn: $model.settings.sysmonDiskAlert)
+            ToggleRow(title: "Internet lost and back", subtitle: "Same switch as Whiskers › Wi-Fi & headphones", icon: "wifi",
+                      accent: .whiskers, isOn: $model.settings.connectionPeeks)
+        }
     }
 
     private var rallySubtitle: String {

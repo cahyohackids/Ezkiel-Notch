@@ -13,7 +13,8 @@ namespace EzkielNotch.Island;
 /// The closed island while something is live: the Mac's wings, as a small pill under the top edge.
 /// Left: the album art while music plays, else Ezkiel, plus Prowl's dots. Right, the first that applies (Core's
 /// LiveKind order): the Den countdown, a meeting within 10 min, the soonest quick timer, a download in progress
-/// (those three put their icon on the left), an AI agent, the equalizer, the unread count, charging, the water ring.
+/// (those three put their icon on the left), an AI agent, the system monitor pill, the equalizer, the unread count,
+/// charging, the water ring.
 /// Nothing live: back to the thin lip, unless "Minimal closed island" is off (then the wings always show).
 /// </summary>
 public partial class IslandWindow
@@ -104,7 +105,7 @@ public partial class IslandWindow
 
     /// <summary>The closed island shows its wings (Mac: showsWings): while something is live, or always when
     /// "Minimal closed island" is off. Over a fullscreen app with "Calm in fullscreen" on, never.</summary>
-    public bool ShowsWings => IsLive || (!Model.Settings.MinimalClosed && !(FullscreenActive && Model.Settings.HideInFullscreen));
+    public bool ShowsWings => IsLive || ((!Model.Settings.MinimalClosed || SysPillOn) && !(FullscreenActive && Model.Settings.HideInFullscreen));
 
     /// <summary>Chorus sings under the closed island (the Mac's showsClosedLyrics): Chorus and "Chorus under the
     /// notch" on, a song playing with synced lyrics, and the island showing (not stepped away for fullscreen).</summary>
@@ -170,6 +171,7 @@ public partial class IslandWindow
         }
         if (_liveTimer is not null) _liveTimer.Text = FocusClock.Format(Model.Focus.Remaining(DateTime.UtcNow));
         _liveTick?.Invoke();
+        UpdateSysPill();
         _eyes?.Set(EyesMood(), Hovering);
     }
 
@@ -212,7 +214,7 @@ public partial class IslandWindow
             Prowl.MicInUse, Prowl.CameraInUse, Model.Settings.Prowl, MeetingSoon?.Title, MeetingMinutes, Model.LiveAgents.Count,
             Model.LiveAgents.FirstOrDefault()?.Kind, Model.UnreadTotal, Power.Charging, Power.Percent, Lang.IsIndonesian,
             Math.Round(Model.WaterProgress, 2), ClosedLive, Model.Data.Timers.Count, LeadDownload?.Count, LeadDownload?.Download.FinalName,
-            LeadDownload?.Download.Fraction is not null);
+            LeadDownload?.Download.Fraction is not null, SysPillKey);
     }
 
     private void BuildLive()
@@ -222,6 +224,7 @@ public partial class IslandWindow
         LiveCenter.Content = null;
         _liveTimer = null;
         _liveTick = null;
+        _sysPillText = _sysPillGlyph = null;
         var np = Media.Current;
         var kind = ClosedLive;
         var face = Model.Settings.ClosedFace;
@@ -282,6 +285,11 @@ public partial class IslandWindow
                 n.Margin = new Thickness(3, 0, 0, 0);
                 LiveRight.Children.Add(n);
             }
+        }
+        else if (SysPillOn)
+        {
+            // System monitor: CPU % or network speed, while the user asked for it here.
+            AddSysPill(LiveRight);
         }
         else if (np?.IsPlaying == true)
         {
