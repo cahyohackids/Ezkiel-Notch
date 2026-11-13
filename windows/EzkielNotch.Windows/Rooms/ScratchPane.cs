@@ -107,7 +107,7 @@ public sealed class ScratchPane : Pane
         _editing = note.Id;
         var head = Columns(Star, Auto);
         _title = Ui.StyledTextBox(Ui.Title);
-        _title.FontWeight = FontWeights.SemiBold;
+        Ui.Weight(_title, FontWeights.SemiBold);
         _title.Text = note.Title;
         var hint = Ui.Label(L("Title"), Ui.Title, Ui.Faint, FontWeights.SemiBold);
         hint.IsHitTestVisible = false;

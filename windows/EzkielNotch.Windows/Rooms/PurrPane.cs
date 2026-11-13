@@ -83,7 +83,7 @@ public sealed class PurrPane : Pane
         right.Children.Add(_progress);
         var row = Columns(Auto, Star, Auto);
         row.Children.Add(At(Transport(np, 34), 0));
-        var tools = Ui.Row(2, LyricsButton(), OpenButton(np));
+        var tools = Ui.Row(8, OutputButton(), LyricsButton(), OpenButton(np));
         tools.VerticalAlignment = VerticalAlignment.Center;
         row.Children.Add(At(tools, 2));
         right.Children.Add(row);
@@ -159,7 +159,7 @@ public sealed class PurrPane : Pane
     private StackPanel Transport(NowPlaying np, double play)
     {
         var p = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        p.Children.Add(Ui.IconButton("", L("Previous track"), _media.Previous, 28));
+        p.Children.Add(Ui.IconButton("", L("Previous track"), _media.Previous, 28, plain: true));
         var playButton = new Border
         {
             Width = play,
@@ -170,7 +170,7 @@ public sealed class PurrPane : Pane
             Child = Ui.Glyph(np.IsPlaying ? "" : "", play * 0.36, Ui.OnAccent),
         };
         p.Children.Add(Ui.Clickable(playButton, _media.PlayPause, tip: np.IsPlaying ? L("Pause") : L("Play"), pressScale: 0.86));
-        p.Children.Add(Ui.IconButton("", L("Next track"), _media.Next, 28));
+        p.Children.Add(Ui.IconButton("", L("Next track"), _media.Next, 28, plain: true));
         return p;
     }
 
@@ -201,26 +201,36 @@ public sealed class PurrPane : Pane
         try { Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true }); } catch (Exception) { }
     }
 
+    /// <summary>The Mac's empty Purr: the lion, "Open Spotify or Music", and Spotify, Music, Refresh and Sound output.
+    /// Music opens Media Player, Windows' own music app.</summary>
     private Grid EmptyState()
     {
-        var g = Columns(Auto, Px(14), Star);
+        var g = Columns(Auto, Px(12), Auto);
         g.VerticalAlignment = VerticalAlignment.Center;
         g.HorizontalAlignment = HorizontalAlignment.Center;
-        g.Children.Add(At(new Image { Source = Lion, Width = 44, Height = 44 }, 0));
+        g.Children.Add(At(new Image { Source = Lion, Width = 44, Height = 44, VerticalAlignment = VerticalAlignment.Center }, 0));
         var s = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        s.Children.Add(Ui.Label(L("Nothing playing"), Ui.Body, weight: FontWeights.SemiBold));
+        s.Children.Add(Ui.Label(L("Open Spotify or Music"), Ui.Body, weight: FontWeights.SemiBold));
         // With a Purr source chosen in Settings, other players don't count: say so.
-        var hint = Ui.Label(Model.Settings.MusicSource == MusicSource.Auto ? L("Play something in Spotify, Media Player or a browser")
-                            : L("Purr follows only %@ · Settings › Purr source", SourceName(Model.Settings.MusicSource)), Ui.Secondary, Ui.Mist);
-        hint.Margin = new Thickness(0, 1, 0, 6);
-        s.Children.Add(hint);
-        s.Children.Add(Ui.Row(6,
-            Ui.Pill("Spotify", () => Open("spotify:"), new Accent(Accent.Hex(0x7CF0A6), Accent.Hex(0x1DB954)), prominent: true),
-            Ui.Pill("Media Player", () => Open("mswindowsmusic:"), Accent.Neutral),
-            Ui.IconButton("", L("Refresh"), _media.Refresh, 26, Ui.Mist)));
+        if (Model.Settings.MusicSource != MusicSource.Auto)
+        {
+            var hint = Ui.Label(L("Purr follows only %@ · Settings › Purr source", SourceName(Model.Settings.MusicSource)), Ui.Secondary, Ui.Mist);
+            hint.Margin = new Thickness(0, 2, 0, 0);
+            s.Children.Add(hint);
+        }
+        var buttons = Ui.Row(6,
+            Ui.Pill("Spotify", () => Open("spotify:"), new Accent(Accent.Hex(0x7CF0A6), Accent.Hex(0x1ED760)), prominent: true),
+            Ui.Pill("Music", () => Open("mswindowsmusic:"), Accent.Neutral, tip: "Media Player"),
+            Ui.IconButton("\uE72C", L("Refresh"), _media.Refresh, 26, Ui.Mist),
+            OutputButton());
+        buttons.Margin = new Thickness(0, 6, 0, 0);
+        s.Children.Add(buttons);
         g.Children.Add(At(s, 2));
         return g;
     }
+
+    /// <summary>Where the sound goes (the Mac's AirPlay output button): Windows' sound output settings.</summary>
+    private static Border OutputButton() => Ui.IconButton("\uE7F5", L("Sound output"), () => Open("ms-settings:sound"), 26, Ui.Mist);
 
     /// <summary>The Purr source chips' names ("auto" is translated where it's shown).</summary>
     internal static string SourceName(string source) => source switch
@@ -230,7 +240,7 @@ public sealed class PurrPane : Pane
         _ => L("Auto"),
     };
 
-    internal static readonly System.Windows.Media.Imaging.BitmapImage Lion = new(new Uri("pack://application:,,,/Assets/lion.png"));
+    internal static System.Windows.Media.Imaging.BitmapImage Lion => Ui.Lion;
 }
 
 /// <summary>The bar with elapsed and remaining time. Drag (or click) to seek.</summary>
@@ -467,7 +477,7 @@ internal sealed class ChorusView : Grid
             var t = (TextBlock)((Border)_list.Children[i + 1]).Child;
             bool now = i == index;
             t.Foreground = now ? Ui.Ink : i < (index ?? 0) ? Ui.Faint : Ui.Mist;
-            t.FontWeight = now ? FontWeights.SemiBold : FontWeights.Normal;
+            Ui.Weight(t, now ? FontWeights.SemiBold : FontWeights.Normal);
             t.FontSize = now ? Ui.Body + 1.5 : Ui.Body;
         }
         _list.UpdateLayout();

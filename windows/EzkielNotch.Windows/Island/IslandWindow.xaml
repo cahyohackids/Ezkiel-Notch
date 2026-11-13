@@ -17,6 +17,7 @@
         <SolidColorBrush x:Key="Surface" Color="#0DFFFFFF"/>
         <FontFamily x:Key="Icons">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
         <FontFamily x:Key="Text">Segoe UI Variable Text, Segoe UI</FontFamily>
+        <FontFamily x:Key="Display">Segoe UI Variable Display, Segoe UI</FontFamily>
     </Window.Resources>
 
     <Grid x:Name="Root">
@@ -28,7 +29,7 @@
                 <Grid x:Name="PeekView" Opacity="0" Margin="16,0">
                     <StackPanel x:Name="PeekRow" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
                         <Border x:Name="PeekLeading" Width="28" Height="28" Margin="0,0,10,0" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="PeekTitle" Text="Ezkiel Notch" FontFamily="{StaticResource Text}" FontSize="13"
+                        <TextBlock x:Name="PeekTitle" Text="Ezkiel Notch" FontFamily="Segoe UI" FontSize="13"
                                    FontWeight="SemiBold" Foreground="{StaticResource Ink}" VerticalAlignment="Center"/>
                         <TextBlock x:Name="PeekSubtitle" Text="" FontFamily="{StaticResource Text}" FontSize="12" MaxWidth="300"
                                    TextTrimming="CharacterEllipsis" Foreground="{StaticResource Mist}" Margin="8,0,0,0" VerticalAlignment="Center"/>
@@ -59,34 +60,20 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
+                    <!-- The Mac's header: the lion and the room's name on the left; the weather (or the clock),
+                         Keep open and Collapse on the right. The room's subtitle lives in the tab's tooltip. -->
                     <DockPanel Grid.Row="0" LastChildFill="False">
                         <Image Source="/Assets/lion.png" Width="20" Height="20" DockPanel.Dock="Left" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="TabTitle" Text="Den" Margin="8,0,0,0" FontFamily="{StaticResource Text}" FontSize="13"
+                        <TextBlock x:Name="TabTitle" Text="Den" Margin="7,0,0,0" FontFamily="Segoe UI" FontSize="13"
                                    FontWeight="SemiBold" Foreground="{StaticResource Ink}" VerticalAlignment="Center" DockPanel.Dock="Left"/>
-                        <TextBlock x:Name="TabSubtitle" Text="" Margin="8,1,0,0" FontFamily="{StaticResource Text}" FontSize="12"
-                                   Foreground="{StaticResource Faint}" VerticalAlignment="Center" DockPanel.Dock="Left"/>
-                        <Button x:Name="CloseButton" DockPanel.Dock="Right" Width="24" Height="24" Cursor="Hand" ToolTip="Close (Esc)"
-                                Click="OnCloseClick" Focusable="False">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border x:Name="Bg" CornerRadius="12" Background="#12FFFFFF">
-                                        <TextBlock Text="&#xE70E;" FontFamily="{StaticResource Icons}" FontSize="10"
-                                                   Foreground="{StaticResource Mist}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="Bg" Property="Background" Value="#24FFFFFF"/>
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Button.Template>
-                        </Button>
-                        <!-- Keep open (the Mac's pin), filled in code. -->
+                        <!-- Collapse (the Mac's chevron.up) and Keep open (pin), filled in code. -->
+                        <Border x:Name="CollapseHost" DockPanel.Dock="Right" VerticalAlignment="Center"/>
                         <Border x:Name="PinHost" DockPanel.Dock="Right" Margin="0,0,4,0" VerticalAlignment="Center"/>
-                        <StackPanel x:Name="WeatherChip" Orientation="Horizontal" DockPanel.Dock="Right" Margin="0,0,10,0"
+                        <StackPanel x:Name="WeatherChip" Orientation="Horizontal" DockPanel.Dock="Right" Margin="0,0,8,0"
                                     VerticalAlignment="Center" Visibility="Collapsed" Background="Transparent"/>
-                        <TextBlock x:Name="Clock" Text="00:00" DockPanel.Dock="Right" Margin="0,0,10,0" FontFamily="{StaticResource Text}"
-                                   FontSize="12" Foreground="{StaticResource Mist}" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="Clock" Text="00:00" DockPanel.Dock="Right" Margin="0,0,8,0" FontFamily="{StaticResource Display}"
+                                   FontSize="12" FontWeight="Medium" Foreground="{StaticResource Mist}" VerticalAlignment="Center"
+                                   Typography.NumeralAlignment="Tabular"/>
                     </DockPanel>
 
                     <UniformGrid x:Name="Tabs" Grid.Row="1" Rows="1"/>

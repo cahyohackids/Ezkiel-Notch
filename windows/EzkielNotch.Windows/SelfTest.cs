@@ -240,7 +240,9 @@ internal static class SelfTest
             }),
             ("den id", () =>
             {
-                Check(w.TabSubtitle.Text == "Timer fokus", $"Indonesian follows the Mac's words ({w.TabSubtitle.Text})");
+                // The header shows only the room's name (like the Mac); its subtitle is the tab's tooltip.
+                var tip = ((FrameworkElement)w.Tabs.Children[(int)Room.Den]).ToolTip as string;
+                Check(tip == "Den · Timer fokus", $"Indonesian follows the Mac's words ({tip})");
                 RoomChecks(w, Room.Den);
             }),
             ("hunt id", () => w.Select(Room.Hunt)),
