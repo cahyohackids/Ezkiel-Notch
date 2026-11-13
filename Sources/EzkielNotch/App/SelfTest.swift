@@ -614,6 +614,8 @@ enum SelfTest {
             model.setAsk(false)
             check(!model.askOn, "Esc or × puts the box away")
             model.ask.reset(keys: MemoryAskKeys(), transport: FakeAskTransport(script: []))
+        }))
+
         // 1.9: System monitor, with fake readings (CI has no battery and its CPU and network vary run to run).
         steps.append(("sysmon den card", {
             model.collapse()
@@ -659,6 +661,8 @@ enum SelfTest {
             model.sysmon.simulate(nil)
             check(NotchMetrics.paneHeight(.den, sysmon: model.settings.sysmon) == NotchMetrics.paneHeight(.den), "Den is back to its own height")
             check(!model.sysmonPillShowing, "no pill while the monitor is off")
+        }))
+
         // 1.9: Sync. Two fake devices in a temp folder (never with the real data file: sync.json sits beside it).
         let syncFolder = FileManager.default.temporaryDirectory.appendingPathComponent("ezkiel-sync-selftest-\(ProcessInfo.processInfo.processIdentifier)")
         let isolated = model.dataFileURL.standardizedFileURL != DataStore.defaultURL().standardizedFileURL

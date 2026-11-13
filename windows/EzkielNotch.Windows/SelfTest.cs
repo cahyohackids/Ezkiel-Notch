@@ -777,7 +777,7 @@ internal static class SelfTest
             ("sysmon den card ok", () =>
             {
                 RoomChecks(w, Room.Den);
-                Check(w.CurrentPane?.DesiredHeight == RoomInfo.Of(Room.Den).PaneHeight + 60, "Den grows by the system card");
+                Check(w.CurrentPane?.DesiredHeight == DenPane.FullHeight + 60, "Den grows by the system card");
                 var card = w.CurrentPane is { } pane ? Descendants<SysMonCard>(pane).FirstOrDefault() : null;
                 var texts = card is null ? new List<string>() : Descendants<TextBlock>(card).Select(t => t.Text).ToList();
                 Check(texts.Contains("34%") && texts.Contains("1.3 MB/s") && texts.Contains("10.5 GB") && texts.Contains("120 GB"),
