@@ -47,7 +47,7 @@ public partial class IslandWindow : Window
 
     /// <summary>Header 34 + tabs 30 + gap 10 + the room's pane + bottom 12, like the Mac's expandedSize.</summary>
     public double ExpandedHeight(Room room) =>
-        34 + 30 + 10 + (_panes.TryGetValue(room, out var pane) ? pane.DesiredHeight : RoomInfo.Of(room).PaneHeight) + 12;
+        34 + 30 + 10 + Math.Max(AskOpen ? AskPaneHeight : 0, _panes.TryGetValue(room, out var pane) ? pane.DesiredHeight : RoomInfo.Of(room).PaneHeight) + 12;
     private Shape ExpandedShape(Room room) => IsIsland ? new(IslandExpandedWidth, ExpandedHeight(room), 26, 0) : new(440, ExpandedHeight(room), 22, 13);
 
     public NotchModel Model { get; }
@@ -141,6 +141,7 @@ public partial class IslandWindow : Window
         InitLiveActivities();
         BuildTabs();
         RenderPin();
+        InitAsk();
         ApplyStyle(animate: false);
         _pointer.Tick += (_, _) => PointerTick();
         _second.Tick += (_, _) => SecondTick();
@@ -576,6 +577,7 @@ public partial class IslandWindow : Window
         Fade(PeekView, 0, 0.1);
         ReleasePeek();
         if (MirrorOpen) SetMirror(false);
+        HideAsk();
         _closedShape = null;
         _liveShown = false;
         _liveKey = "";
@@ -915,8 +917,9 @@ public partial class IslandWindow : Window
         _lastKey = DateTime.UtcNow;
         if (e.Key == Key.Escape)
         {
-            // Esc leaves the field first (what you typed stays); a second Esc closes.
-            if (Keyboard.FocusedElement is TextBox) Focus();
+            // Esc puts the ask box away; otherwise it leaves the field first (what you typed stays); a second Esc closes.
+            if (AskOpen) SetAsk(false);
+            else if (Keyboard.FocusedElement is TextBox) Focus();
             else Collapse();
             e.Handled = true;
         }
@@ -1023,7 +1026,7 @@ public partial class IslandWindow : Window
             // idle field still lets go 20 s after the pointer left. A click elsewhere always closes it.
             var grace = Typing ? TimeSpan.FromSeconds(20) : TimeSpan.FromMilliseconds(500);
             if (Typing && now - _lastKey < TimeSpan.FromSeconds(60)) return;
-            if (_openedByKeyboard || Pinned || _menuOpen) return;
+            if (_openedByKeyboard || Pinned || _menuOpen || AskBusy) return;
             if (StashPane.DraggingOut || _dragInside) return;
             if (Presentation == Presentation.Expanded && now - _outsideSince > grace) Collapse();
         }
@@ -1197,6 +1200,7 @@ public partial class IslandWindow : Window
     public void Select(Room room)
     {
         if (MirrorOpen && room != Selected) SetMirror(false);
+        HideAsk();
         Selected = room;
         var info = RoomInfo.Of(room);
         TabTitle.Text = info.Name;
@@ -1262,6 +1266,7 @@ public partial class IslandWindow : Window
         }
         Add(Presentation == Presentation.Expanded ? L("Close") : L("Open") + $"  ({HotkeyLabel(Model.Settings.Hotkey)})", Toggle);
         Add(L("Keep Open"), () => SetPinned(!Pinned), Pinned);
+        if (Model.Settings.Ask) Add(L("Ask…  %@", $"({AskHotkeyLabel})"), OpenAsk);
         menu.Items.Add(new Separator());
         Add(L("Open on Hover"), () =>
         {

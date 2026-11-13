@@ -195,6 +195,7 @@ public sealed class TrayIcon : IDisposable
         }
         list.Add((Lang.L("Open") + $"  ({hotkey})", w.Toggle, false));
         list.Add((Lang.L("Keep Open"), () => w.SetPinned(!w.Pinned), w.Pinned));
+        if (w.Model.Settings.Ask) list.Add((Lang.L("Ask…  %@", $"({Island.IslandWindow.AskHotkeyLabel})"), w.OpenAsk, false));
         list.Add(null);
         foreach (var info in Island.RoomInfo.All)
             if (info.Room != Room.Settings)

@@ -195,6 +195,10 @@ public struct NotchSettings: Codable, Equatable {
     public var liveDownloads: Bool = false
     /// Live activities: the sound a quick timer rings with (a Mac sound name; "none" for silence).
     public var timerSound: String = "Glass"
+    /// Ask: the AI box (header button, ⌃⌥A). The API key itself is never in this file (Keychain).
+    public var ask: Bool = true
+    /// Ask: the model on api.ezkielyna.store.
+    public var askModel: String = Ask.defaultModel
     /// Bumped when defaults change in a way existing users should get too (see the decoder).
     public var defaultsRevision: Int = NotchSettings.currentRevision
     public static let currentRevision = 2
@@ -259,6 +263,8 @@ public struct NotchSettings: Codable, Equatable {
         eyeStyle = (try? c.decode(EyeStyle.self, forKey: .eyeStyle)) ?? d.eyeStyle
         liveDownloads = (try? c.decode(Bool.self, forKey: .liveDownloads)) ?? d.liveDownloads
         timerSound = (try? c.decode(String.self, forKey: .timerSound)) ?? d.timerSound
+        ask = (try? c.decode(Bool.self, forKey: .ask)) ?? d.ask
+        askModel = (try? c.decode(String.self, forKey: .askModel)).flatMap { $0.isEmpty ? nil : $0 } ?? d.askModel
         let revision = (try? c.decode(Int.self, forKey: .defaultsRevision)) ?? 1
         if revision < 2 {
             // 1.3.1: calmer defaults. Only values still at the old default move; choices the user made stay.

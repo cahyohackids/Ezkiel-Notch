@@ -257,6 +257,7 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
     private void Features(StackPanel list)
     {
         var s = Model.Settings;
+        AskSettingsRows.AddAskRows(list, Model, Refresh);
         list.Children.Add(WeatherRow());
         list.Children.Add(Toggle("", "Prowl", L("Green and orange dots while a camera or microphone is on"), s.Prowl, v => s.Prowl = v, Accent.Roar));
         list.Children.Add(Toggle("", "Rally", L("Next meeting in Hunt, a peek with Join 5 min before"), s.Rally, v => s.Rally = v, Accent.Rally, rebuild: true));

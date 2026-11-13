@@ -146,6 +146,10 @@ public sealed class NotchSettings
     public bool LiveDownloads { get; set; }
     /// <summary>Live activities: the sound a quick timer rings with (a Mac sound name, see TimerSounds; "none" for silence).</summary>
     public string TimerSound { get; set; } = "Glass";
+    /// <summary>Ask: the AI box (header button, Ctrl+Alt+A). The API key itself is never in this file (DPAPI).</summary>
+    public bool Ask { get; set; } = true;
+    /// <summary>Ask: the model on api.ezkielyna.store.</summary>
+    public string AskModel { get; set; } = Core.Ask.DefaultModel;
 
     /// <summary>The settings object as read, Mac-only keys included.</summary>
     internal JsonObject Raw { get; set; } = [];
@@ -206,6 +210,8 @@ public sealed class NotchSettings
         s.MascotSleeps = Json.Bool(o["mascotSleeps"]) ?? s.MascotSleeps;
         s.LiveDownloads = Json.Bool(o["liveDownloads"]) ?? s.LiveDownloads;
         s.TimerSound = TimerSounds.Normalize(Json.String(o["timerSound"]));
+        s.Ask = Json.Bool(o["ask"]) ?? s.Ask;
+        s.AskModel = Json.String(o["askModel"]) is { Length: > 0 } askModel ? askModel : s.AskModel;
         s.Hotkey = Json.String(o["hotkey"]) is "controlOptionN" or "controlOptionSpace" or "optionCommandI" ? Json.String(o["hotkey"])! : s.Hotkey;
         s.Language = Json.String(o["language"]) switch
         {
@@ -265,6 +271,8 @@ public sealed class NotchSettings
         o["mascotSleeps"] = MascotSleeps;
         o["liveDownloads"] = LiveDownloads;
         o["timerSound"] = TimerSound;
+        o["ask"] = Ask;
+        o["askModel"] = AskModel;
         o["language"] = Language switch { AppLanguage.En => "en", AppLanguage.Id => "id", _ => "auto" };
         // Without it the Mac would treat these as pre-1.3.1 settings and migrate them again.
         o["defaultsRevision"] ??= CurrentRevision;

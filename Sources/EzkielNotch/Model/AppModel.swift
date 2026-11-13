@@ -110,6 +110,9 @@ final class AppModel: ObservableObject {
     let mirror = CameraMirror()
     /// Mirror covers the page of the open notch.
     @Published var mirrorOn = false
+    /// Ask: the AI box covers the page of the open notch (AppModel+Ask.swift).
+    let ask = AskModel()
+    @Published var askOn = false
     let scout = ScoutService()
     /// Roar: when each app last peeked, so a busy chat doesn't peek on every message.
     var lastRoarPeek: [String: Date] = [:]
@@ -149,6 +152,8 @@ final class AppModel: ObservableObject {
     var onCollapse: () -> Void = {}
     /// Provided by the app delegate: register the chosen global shortcut.
     var onHotkeyChange: (HotkeyChoice) -> Void = { _ in }
+    /// Provided by the app delegate: Ask's shortcut follows its switch.
+    var onAskChange: (Bool) -> Void = { _ in }
 
     init(store: DataStore = DataStore(url: DataStore.defaultURL())) {
         self.store = store
@@ -179,6 +184,7 @@ final class AppModel: ObservableObject {
         pounce.onProgress = { [weak self] active in self?.downloads = active }
         badges.onIncrease = { [weak self] badge, before in self?.badgeIncreased(badge, before: before) }
         scout.onEvent = { [weak self] event in self?.scoutReceived(event) }
+        ask.onBusyChange = { [weak self] busy in busy ? self?.block("ask") : self?.unblock("ask") }
         applySettings(old: nil)
         rebuildStash()
 
@@ -255,6 +261,10 @@ final class AppModel: ObservableObject {
         scout.setEnabled(s.scout)
         if !s.scout { agents = [:] }
         if old?.hotkey != s.hotkey { onHotkeyChange(s.hotkey) }
+        if old?.ask != s.ask {
+            onAskChange(s.ask)
+            if !s.ask, askOn { setAsk(false) }
+        }
         if old?.musicSource != s.musicSource {
             music.source = s.musicSource
             if old != nil { music.refresh() }
@@ -342,7 +352,10 @@ final class AppModel: ObservableObject {
     /// Purr is taller while Chorus has lyrics to show.
     var purrShowsLyrics: Bool { settings.showLyrics && music.nowPlaying != nil }
 
-    var paneHeight: CGFloat { NotchMetrics.paneHeight(tab, lyrics: tab == .purr && purrShowsLyrics) }
+    var paneHeight: CGFloat {
+        let page = NotchMetrics.paneHeight(tab, lyrics: tab == .purr && purrShowsLyrics)
+        return askOn ? max(page, NotchMetrics.askHeight) : page
+    }
 
     var bodySize: CGSize {
         let bar = rowHeight
@@ -490,6 +503,7 @@ final class AppModel: ObservableObject {
         peek = nil
         clearToast()
         if mirrorOn { setMirror(false) }
+        if askOn { askOn = false }
         onCollapse()
         updateMusicPolling()
     }
@@ -500,6 +514,7 @@ final class AppModel: ObservableObject {
 
     func select(_ newTab: NotchTab) {
         if newTab == .purr { allowMusic() }
+        if askOn { setAsk(false) }
         guard newTab != tab else { return }
         tabForward = newTab.index > tab.index
         noteInteraction()
@@ -1193,7 +1208,10 @@ final class AppModel: ObservableObject {
     func setMirror(_ on: Bool) {
         noteInteraction()
         prowl.ignoreCamera = on
-        withAnimation(Theme.smooth) { mirrorOn = on }
+        withAnimation(Theme.smooth) {
+            mirrorOn = on
+            if on { askOn = false }
+        }
         if on { expand() }
     }
 

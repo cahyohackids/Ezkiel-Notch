@@ -21,6 +21,8 @@ enum SelfTest {
         model.badges.simulate([])
         // Nor the real Spotify/Music: only the simulated song below.
         model.music.paused = true
+        // Nor the user's Ask key or the network: a key store in memory and a fake stream.
+        model.ask.reset(keys: MemoryAskKeys(), transport: FakeAskTransport(script: []))
         let saved = model.settings
 
         steps.append(("panel on screen", {
@@ -549,6 +551,70 @@ enum SelfTest {
             model.updates.simulate(nil)
         }))
 
+        // 1.9: Ask, with a fake stream and an in-memory key: never the network, never the user's Keychain.
+        let gate = AskGate()
+        let askLines = [
+            #"data: {"choices":[{"delta":{"role":"assistant","content":""}}]}"#,
+            #"data: {"choices":[{"delta":{"content":"Ibu kota Jepang adalah **Tokyo**."}}]}"#,
+            #"data: {"choices":[{"delta":{"content":"\n- Sejak 1869\n- Sekitar 14 juta penduduk"}}]}"#,
+            "data: [DONE]",
+        ]
+        steps.append(("ask no key", {
+            model.ask.reset(keys: MemoryAskKeys(), transport: FakeAskTransport(script: askLines, holdAfter: 2, gate: gate))
+            model.collapse()
+            model.setAsk(true)
+            check(model.askOn && model.presentation == .expanded, "Ask opens the notch with the ask box")
+            check(model.paneHeight >= NotchMetrics.askHeight && abs(model.shapeRect.height - model.expandedSize.height) < 0.5,
+                  "the open notch is tall enough for an answer")
+            model.ask.draft = "Ibu kota Jepang?"
+            model.askSend()
+            check(model.ask.error == .noKey && model.ask.phase == .failed, "without a key it says so, and asks nothing")
+        }))
+        steps.append(("ask streaming", {
+            check(model.ask.saveKey("sk-selftest-not-real"), "a key saves (to memory here)")
+            check(model.ask.error == nil, "saving a key clears the no-key message")
+            model.ask.draft = "Ibu kota Jepang?"
+            model.askSend()
+            check(model.ask.busy, "asking starts streaming")
+        }))
+        steps.append(("ask half way", {
+            check(model.ask.phase == .streaming && model.ask.answer.hasPrefix("Ibu kota Jepang"), "the answer shows as it streams")
+            gate.open()
+        }))
+        steps.append(("ask answer", {
+            check(model.ask.phase == .done && model.ask.answer.hasSuffix("14 juta penduduk"), "the whole answer arrives")
+            check(String(AskOverlay.rendered(model.ask.answer).characters).contains("• Sejak 1869"), "lists are tidied, bold is drawn")
+            let tasks = model.data.tasks.count, notes = model.data.notes.count
+            model.askMakeTask()
+            check(model.data.tasks.count == tasks + 1 && model.data.tasks.first?.title == "Ibu kota Jepang?", "Make task adds it to Hunt")
+            model.askSaveNote()
+            check(model.data.notes.count == notes + 1 && model.data.notes.first?.body.contains("Tokyo") == true, "Save as note puts it in Scratch")
+            check(model.ask.history.count == 1, "the session remembers the question (in memory only)")
+            model.clearToast()
+        }))
+        steps.append(("ask no balance", {
+            model.ask.reset(keys: MemoryAskKeys(), transport: FakeAskTransport(status: 402, script: [#"{"error":{"message":"Insufficient balance"}}"#]))
+            model.ask.saveKey("sk-selftest-not-real")
+            model.ask.draft = "Lagi?"
+            model.askSend()
+        }))
+        steps.append(("ask error shown", {
+            check(model.ask.error == .noBalance && model.ask.error?.needsSettings == true, "no balance reads as no balance, with Settings")
+            check(!model.settings.askModel.isEmpty, "a model is chosen")
+        }))
+        steps.append(("ask settings", {
+            model.ask.testKey()
+            model.openAskSettings()
+            check(!model.askOn && model.tab == .settings && model.settingsSection == .features, "Settings opens on Features")
+        }))
+        steps.append(("ask closed", {
+            check(AskError.http(status: 401, body: "").title == "That API key didn't work", "a 401 is a wrong key")
+            model.setAsk(true)
+            model.setAsk(false)
+            check(!model.askOn, "Esc or × puts the box away")
+            model.ask.reset(keys: MemoryAskKeys(), transport: FakeAskTransport(script: []))
+        }))
+
         steps.append(("splash settles", {
             model.collapse()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -557,6 +623,7 @@ enum SelfTest {
         }))
         steps.append(("hotkey and icons", {
             check((NSApp.delegate as? AppDelegate)?.hotKeyRegistered == true, "global shortcut \(model.settings.hotkey.label) registered")
+            check((NSApp.delegate as? AppDelegate)?.askHotKeyRegistered == true, "Ask's shortcut \(AppModel.askHotkeyLabel) registered")
             check(IconRenderer.statusImage().isTemplate, "menu-bar lion is a template image")
             // Leave the settings as they were (the Rally step turned Calendar on).
             model.settings = saved
@@ -677,5 +744,45 @@ enum SelfTest {
     private static func check(_ ok: Bool, _ message: String) {
         print("  \(ok ? "✓" : "✗") \(message)")
         if !ok { failures.append(message) }
+    }
+}
+
+/// Self-test: lets a fake stream pause half way, so a snapshot shows an answer arriving.
+final class AskGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    var opened: Bool { lock.lock(); defer { lock.unlock() }; return isOpen }
+    func open() { lock.lock(); isOpen = true; lock.unlock() }
+}
+
+/// Self-test: answers from a list of lines, never the network.
+struct FakeAskTransport: AskTransport {
+    var status = 200
+    var script: [String]
+    /// Lines sent before waiting for the gate (nil: send everything).
+    var holdAfter: Int? = nil
+    var gate: AskGate? = nil
+
+    func lines(_ request: URLRequest) async throws -> (status: Int, contentType: String, lines: AsyncThrowingStream<String, Error>) {
+        let lines = script, holdAfter = self.holdAfter, gate = self.gate
+        let stream = AsyncThrowingStream<String, Error> { continuation in
+            let task = Task {
+                for (i, line) in lines.enumerated() {
+                    if let holdAfter, i == holdAfter, let gate {
+                        while !gate.opened, !Task.isCancelled { try? await Task.sleep(nanoseconds: 50_000_000) }
+                    }
+                    try? await Task.sleep(nanoseconds: 60_000_000)
+                    if Task.isCancelled { break }
+                    continuation.yield(line)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+        return (status, status == 200 ? "text/event-stream" : "application/json", stream)
+    }
+
+    func data(_ request: URLRequest) async throws -> (status: Int, body: Data) {
+        (status, Data(#"{"data":[{"id":"deepseek-v4.1-flash"},{"id":"deepseek-v4-pro-0813"}]}"#.utf8))
     }
 }
