@@ -13,7 +13,7 @@ namespace EzkielNotch.Island;
 /// The closed island while something is live: the Mac's wings, as a small pill under the top edge.
 /// Left: the album art while music plays, else Ezkiel, plus Prowl's dots. Right, the first that applies:
 /// the Den countdown, a meeting soon, an AI agent, the equalizer, the unread count, charging, the water ring.
-/// Nothing live: back to the thin lip.
+/// Nothing live: back to the thin lip, unless "Minimal closed island" is off (then the wings always show).
 /// </summary>
 public partial class IslandWindow
 {
@@ -97,11 +97,15 @@ public partial class IslandWindow
         }
     }
 
-    /// <summary>The closed shape: the island pill (wider while live), or in Notch style the live pill,
+    /// <summary>The closed island shows its wings (Mac: showsWings): while something is live, or always when
+    /// "Minimal closed island" is off. Over a fullscreen app with "Calm in fullscreen" on, never.</summary>
+    public bool ShowsWings => IsLive || (!Model.Settings.MinimalClosed && !(FullscreenActive && Model.Settings.HideInFullscreen));
+
+    /// <summary>The closed shape: the island pill (wider with its wings), or in Notch style the live pill,
     /// a small tab for Ezkiel's face, or just the thin lip when the face is off.</summary>
     private Shape ClosedShape()
     {
-        bool live = IsLive;
+        bool live = ShowsWings;
         if (IsIsland)
         {
             double w = IslandCenter + (live ? 88 : 0), h = IslandHeight;
@@ -124,7 +128,7 @@ public partial class IslandWindow
             _closedShape = shape;
             Apply(shape, animate: true, bouncy: grows);
         }
-        bool show = IsLive || ShowsFace;
+        bool show = ShowsWings || ShowsFace;
         if (show != _liveShown)
         {
             _liveShown = show;
@@ -162,10 +166,11 @@ public partial class IslandWindow
     private string LiveKey()
     {
         var np = Media.Current;
-        return string.Join("|", IsLive, Model.Settings.ClosedFace, Model.Settings.EyeStyle, IsIsland, Model.Focus.IsRunning, Model.Focus.Mode,
+        return string.Join("|", ShowsWings, Model.Settings.ClosedFace, Model.Settings.EyeStyle, IsIsland, Model.Focus.IsRunning, Model.Focus.Mode,
             np?.IsPlaying == true ? np.TrackKey : "", Media.Artwork is not null,
             Prowl.MicInUse, Prowl.CameraInUse, Model.Settings.Prowl, MeetingSoon?.Title, MeetingMinutes, Model.LiveAgents.Count,
-            Model.LiveAgents.FirstOrDefault()?.Kind, Model.UnreadTotal, Power.Charging, Power.Percent, Lang.IsIndonesian);
+            Model.LiveAgents.FirstOrDefault()?.Kind, Model.UnreadTotal, Power.Charging, Power.Percent, Lang.IsIndonesian,
+            Math.Round(Model.WaterProgress, 2));
     }
 
     private void BuildLive()
@@ -176,13 +181,13 @@ public partial class IslandWindow
         _liveTimer = null;
         var np = Media.Current;
         var face = Model.Settings.ClosedFace;
-        bool live = IsLive;
+        bool live = ShowsWings;
 
         // Middle: Ezkiel's eyes (the closed island has no camera to make room for).
         if (face == "eyes")
         {
             _eyes ??= new EzkielEyes(IsIsland ? 10 : 9, Model.Settings.EyeStyle);
-            _eyes.Style = Model.Settings.EyeStyle;
+            _eyes.EyeStyle = Model.Settings.EyeStyle;
             LiveCenter.Content = _eyes;
         }
         else if (face == "lion" && !live)

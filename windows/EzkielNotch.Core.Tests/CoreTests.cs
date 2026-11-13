@@ -753,3 +753,56 @@ public class GlassSettingTests
         Assert.False(AppData.FromJson("{}")!.Settings.IslandGlass);
     }
 }
+
+public class ClosedAndSharingSettingTests
+{
+    /// <summary>The Mac's minimalClosed and hideFromScreenShare come through to Windows and back.</summary>
+    [Fact]
+    public void MinimalClosedAndHideFromScreenShareRoundTrip()
+    {
+        var d = AppData.FromJson("""{"settings":{"minimalClosed":false,"hideFromScreenShare":true,"defaultsRevision":2}}""")!;
+        Assert.False(d.Settings.MinimalClosed);
+        Assert.True(d.Settings.HideFromScreenShare);
+        var again = AppData.FromJson(d.ToJson())!;
+        Assert.False(again.Settings.MinimalClosed);
+        Assert.True(again.Settings.HideFromScreenShare);
+    }
+
+    [Fact]
+    public void DefaultsMatchTheMac()
+    {
+        var d = AppData.FromJson("{}")!;
+        Assert.True(d.Settings.MinimalClosed);
+        Assert.False(d.Settings.HideFromScreenShare);
+        var written = JsonNode.Parse(d.ToJson())!["settings"]!;
+        Assert.True(written["minimalClosed"]!.GetValue<bool>());
+        Assert.False(written["hideFromScreenShare"]!.GetValue<bool>());
+    }
+
+    /// <summary>A wrong type falls back to the default instead of failing the file.</summary>
+    [Fact]
+    public void WrongTypesFallBack()
+    {
+        var d = AppData.FromJson("""{"settings":{"minimalClosed":"no","hideFromScreenShare":1,"defaultsRevision":2}}""")!;
+        Assert.True(d.Settings.MinimalClosed);
+        Assert.False(d.Settings.HideFromScreenShare);
+    }
+
+    /// <summary>Like the Mac's decoder: settings from before 1.3.1 (no revision, or 1) get the minimal closed notch.</summary>
+    [Fact]
+    public void OldSettingsGetTheMinimalClosedNotch()
+    {
+        Assert.True(AppData.FromJson("""{"settings":{"minimalClosed":false}}""")!.Settings.MinimalClosed);
+        Assert.True(AppData.FromJson("""{"settings":{"minimalClosed":false,"defaultsRevision":1}}""")!.Settings.MinimalClosed);
+    }
+
+    /// <summary>The Mac's older showMascot is only read (no face when off) and written back as it was.</summary>
+    [Fact]
+    public void ShowMascotIsKeptAsRead()
+    {
+        var d = AppData.FromJson("""{"settings":{"showMascot":false,"defaultsRevision":2}}""")!;
+        Assert.Equal("off", d.Settings.ClosedFace);
+        var written = JsonNode.Parse(d.ToJson())!["settings"]!;
+        Assert.False(written["showMascot"]!.GetValue<bool>());
+    }
+}

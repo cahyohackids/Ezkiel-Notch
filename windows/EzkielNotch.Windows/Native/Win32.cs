@@ -25,6 +25,20 @@ internal static partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool SetWindowPos(nint hWnd, nint after, int x, int y, int cx, int cy, uint flags);
 
+    // MARK: Screen capture
+
+    /// <summary>WDA_EXCLUDEFROMCAPTURE (Windows 10 2004+): screen sharing, screenshots and recordings leave the window out.
+    /// WDA_MONITOR (older builds): they see a black rectangle instead. WDA_NONE: captured like any window.</summary>
+    public const uint WDA_NONE = 0x00, WDA_MONITOR = 0x01, WDA_EXCLUDEFROMCAPTURE = 0x11;
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SetWindowDisplayAffinity(nint hWnd, uint affinity);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetWindowDisplayAffinity(nint hWnd, out uint affinity);
+
     // MARK: Pointer
 
     [StructLayout(LayoutKind.Sequential)]

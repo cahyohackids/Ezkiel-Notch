@@ -334,7 +334,7 @@ internal static class SelfTest
             {
                 m.Settings.EyeStyle = style;
                 m.SettingsChanged();
-                Check(w.LiveCenter.Content is EzkielEyes { Style: var shown } && shown == style, $"the {style} eyes are in the closed island");
+                Check(w.LiveCenter.Content is EzkielEyes { EyeStyle: var shown } && shown == style, $"the {style} eyes are in the closed island");
             }))),
             ("settings draft", () =>
             {
@@ -366,6 +366,35 @@ internal static class SelfTest
                 m.Settings.IslandSize = "medium";
                 m.SettingsChanged();
                 w.Collapse();
+            }),
+            ("screen share", () =>
+            {
+                m.Settings.HideFromScreenShare = true;
+                m.SettingsChanged();
+                Check(w.DisplayAffinity is Native.Win32.WDA_EXCLUDEFROMCAPTURE or Native.Win32.WDA_MONITOR,
+                      $"Hide from screen sharing keeps the island out of captures (affinity 0x{w.DisplayAffinity:X})");
+            }),
+            ("screen share off", () =>
+            {
+                m.Settings.HideFromScreenShare = false;
+                m.SettingsChanged();
+                Check(w.DisplayAffinity == Native.Win32.WDA_NONE, $"and off again (affinity 0x{w.DisplayAffinity:X})");
+                // Nothing live: with Minimal closed island off the wings show anyway.
+                m.Settings.MinimalClosed = false;
+                m.SettingsChanged();
+            }),
+            ("wings always", () =>
+            {
+                var r = w.Island.BodyRect;
+                Check(!w.IsLive && w.ShowsWings && r.Width > 200, $"Minimal closed island off: the wings show with nothing live ({r.Width:0}×{r.Height:0})");
+                Check(w.LiveRight.Children.OfType<ProgressRing>().Any(), "and the right wing has the water ring, like the Mac");
+                m.Settings.MinimalClosed = true;
+                m.SettingsChanged();
+            }),
+            ("wings minimal", () =>
+            {
+                var r = w.Island.BodyRect;
+                Check(!w.ShowsWings && r.Width < 140, $"and on again: back to the small tab ({r.Width:0}×{r.Height:0})");
             }),
         ];
 

@@ -71,6 +71,10 @@ public sealed class NotchSettings
     public int BreakMinutes { get; set; } = 5;
     public bool HideInFullscreen { get; set; } = true;
     public bool QuietDuringFocus { get; set; } = true;
+    /// <summary>The closed island shows its wings (the live pill) only while something is live. Off: always.</summary>
+    public bool MinimalClosed { get; set; } = true;
+    /// <summary>Keep the island out of screen sharing, screenshots and recordings.</summary>
+    public bool HideFromScreenShare { get; set; }
     public AppLanguage Language { get; set; } = AppLanguage.Auto;
     /// <summary>Chorus (lyrics) beside Purr. Off until the user taps the lyrics button (LRCLIB is only asked then).</summary>
     public bool ShowLyrics { get; set; }
@@ -147,6 +151,10 @@ public sealed class NotchSettings
         s.BreakMinutes = Json.Int(o["breakMinutes"]) ?? s.BreakMinutes;
         s.HideInFullscreen = Json.Bool(o["hideInFullscreen"]) ?? s.HideInFullscreen;
         s.QuietDuringFocus = Json.Bool(o["quietDuringFocus"]) ?? s.QuietDuringFocus;
+        s.MinimalClosed = Json.Bool(o["minimalClosed"]) ?? s.MinimalClosed;
+        // Like the Mac: settings from before 1.3.1 (revision 1) get the calmer closed notch.
+        if ((Json.Int(o["defaultsRevision"]) ?? 1) < 2) s.MinimalClosed = true;
+        s.HideFromScreenShare = Json.Bool(o["hideFromScreenShare"]) ?? s.HideFromScreenShare;
         s.ShowLyrics = Json.Bool(o["showLyrics"]) ?? s.ShowLyrics;
         s.Roar = Json.Bool(o["roar"]) ?? s.Roar;
         s.RoarPeeks = Json.Bool(o["roarPeeks"]) ?? s.RoarPeeks;
@@ -202,6 +210,8 @@ public sealed class NotchSettings
         o["breakMinutes"] = BreakMinutes;
         o["hideInFullscreen"] = HideInFullscreen;
         o["quietDuringFocus"] = QuietDuringFocus;
+        o["minimalClosed"] = MinimalClosed;
+        o["hideFromScreenShare"] = HideFromScreenShare;
         o["showLyrics"] = ShowLyrics;
         o["roar"] = Roar;
         o["roarPeeks"] = RoarPeeks;

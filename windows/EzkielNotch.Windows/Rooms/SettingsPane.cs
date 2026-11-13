@@ -67,6 +67,7 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
             Ui.Chip(L(o.Item2), s.ClosedFace == o.Item1, Accent.Den, () => { s.ClosedFace = o.Item1; Changed(); }))]));
         if (s.ClosedFace == "eyes") list.Children.Add(EyeStyleCard());
         list.Children.Add(Toggle(L("Lion naps when idle"), L("Wakes up when you're back"), s.MascotSleeps, v => s.MascotSleeps = v, Accent.Den));
+        list.Children.Add(Toggle(L("Minimal closed island"), L("Hide the wings until something is live"), s.MinimalClosed, v => s.MinimalClosed = v));
         list.Children.Add(Toggle(L("Open on hover"), L("Click always works too"), s.ExpandOnHover, v => s.ExpandOnHover = v));
         list.Children.Add(Option(L("Hover delay"), [.. new[] { 0.05, 0.12, 0.25, 0.45 }.Select(d =>
             Ui.Chip(d < 0.1 ? L("Instant") : $"{(int)(d * 1000)} ms", Math.Abs(s.HoverDelay - d) < 0.01, Accent.Neutral, () => { s.HoverDelay = d; Changed(); }))]));
@@ -77,6 +78,7 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
             s.LaunchAtLogin = Startup.Set(v);
         }));
         list.Children.Add(Toggle(L("Calm in fullscreen"), L("Videos, games and slides: the island steps away, only urgent peeks"), s.HideInFullscreen, v => s.HideInFullscreen = v));
+        list.Children.Add(Toggle(L("Hide from screen sharing"), L("Teams, Zoom, Meet and recordings don't see the island"), s.HideFromScreenShare, v => s.HideFromScreenShare = v));
         list.Children.Add(Toggle(L("Sounds"), L("Chimes for timers and reminders"), s.Sounds, v => s.Sounds = v));
 
         list.Children.Add(Section("Whiskers"));

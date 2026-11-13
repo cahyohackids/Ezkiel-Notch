@@ -278,6 +278,7 @@ public partial class IslandWindow : Window
         Win32.SetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE, ex | Win32.WS_EX_TOOLWINDOW | Win32.WS_EX_NOACTIVATE);
 
         RegisterHotKey();
+        ApplyScreenShare();
 
         Place();
         SystemEvents.DisplaySettingsChanged += (_, _) => Dispatcher.BeginInvoke(Place);
@@ -335,6 +336,24 @@ public partial class IslandWindow : Window
         int y = Screen.Bounds.Top;
         Win32.SetWindowPos(_hwnd, Win32.HWND_TOPMOST, x, y, w, h, Win32.SWP_NOACTIVATE | Win32.SWP_SHOWWINDOW);
     }
+
+    // MARK: Hide from screen sharing (the Mac's sharingType = .none)
+
+    /// <summary>Teams, Zoom, Meet, screenshots and recordings leave the island out while the setting is on.</summary>
+    private void ApplyScreenShare()
+    {
+        if (_hwnd != 0) ExcludeFromCapture(_hwnd, Model.Settings.HideFromScreenShare);
+    }
+
+    /// <summary>Windows 10 2004 and later leave the window out of captures; older builds can only show it black.</summary>
+    private static void ExcludeFromCapture(nint hwnd, bool hidden)
+    {
+        if (!hidden) Win32.SetWindowDisplayAffinity(hwnd, Win32.WDA_NONE);
+        else if (!Win32.SetWindowDisplayAffinity(hwnd, Win32.WDA_EXCLUDEFROMCAPTURE)) Win32.SetWindowDisplayAffinity(hwnd, Win32.WDA_MONITOR);
+    }
+
+    /// <summary>The island window's display affinity as Windows reports it (WDA_NONE when it can't tell).</summary>
+    public uint DisplayAffinity => _hwnd != 0 && Win32.GetWindowDisplayAffinity(_hwnd, out var a) ? a : Win32.WDA_NONE;
 
     private int _ticks;
 
@@ -1002,6 +1021,7 @@ public partial class IslandWindow : Window
         if (room == Room.Settings)
         {
             ConfigureSources();
+            ApplyScreenShare();
             UpdateWeatherChip();
             ApplyStyle(animate: true);
             // Settings feed Den, Oasis and the rest; the Settings room redraws itself.
@@ -1034,6 +1054,12 @@ public partial class IslandWindow : Window
         menu.Items.Add(settings);
         menu.Items.Add(new Separator());
         menu.Items.Add(quit);
+        // The menu is a window of its own: it stays out of screen sharing with the island.
+        if (Model.Settings.HideFromScreenShare)
+            menu.Opened += (_, _) =>
+            {
+                if (PresentationSource.FromVisual(menu) is HwndSource popup) ExcludeFromCapture(popup.Handle, true);
+            };
         menu.IsOpen = true;
     }
 
