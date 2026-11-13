@@ -19,6 +19,9 @@ public sealed class PurrPane : Pane
     private readonly LyricsClient _lyrics;
     private ProgressBarView? _progress;
     private ChorusView? _chorus;
+    private EqualizerBars? _bars;
+    /// <summary>On screen in the open island: only then do the equalizer and Chorus run.</summary>
+    private bool _onScreen;
     private string? _shownKey;
     private bool? _shownPlaying;
 
@@ -56,6 +59,7 @@ public sealed class PurrPane : Pane
         _shownPlaying = np?.IsPlaying;
         _progress = null;
         _chorus = null;
+        _bars = null;
         if (np is null)
         {
             Children.Add(EmptyState());
@@ -70,6 +74,14 @@ public sealed class PurrPane : Pane
     }
 
     public override void SecondTick() => _progress?.Update();
+
+    /// <summary>Closed, or another room: the equalizer and Chorus stop (no timers or frame callbacks unseen).</summary>
+    public override void Shown(bool visible)
+    {
+        _onScreen = visible;
+        if (_bars is not null) _bars.Paused = !visible;
+        if (_chorus is not null) _chorus.Paused = !visible;
+    }
 
     // MARK: Layouts
 
@@ -107,7 +119,7 @@ public sealed class PurrPane : Pane
         left.Children.Add(row);
         g.Children.Add(At(left, 0));
 
-        _chorus = new ChorusView(_media, Accent, () => _lyrics.Retry(_media.Current?.Song));
+        _chorus = new ChorusView(_media, Accent, () => _lyrics.Retry(_media.Current?.Song)) { Paused = !_onScreen };
         _chorus.SetState(_lyrics.State);
         g.Children.Add(At(Ui.Card(_chorus, 12), 2));
         return g;
@@ -118,7 +130,7 @@ public sealed class PurrPane : Pane
     private StackPanel TitleBlock(NowPlaying np, double titleSize)
     {
         var s = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        var player = Ui.Row(5, Ui.Label(np.PlayerName, Ui.Caption, Ui.Mist, FontWeights.Medium), new EqualizerBars(np.IsPlaying, Accent.Deep, 8));
+        var player = Ui.Row(5, Ui.Label(np.PlayerName, Ui.Caption, Ui.Mist, FontWeights.Medium), _bars = new EqualizerBars(np.IsPlaying, Accent.Deep, 8) { Paused = !_onScreen });
         s.Children.Add(player);
         s.Children.Add(Ui.Label(np.Title, titleSize, weight: FontWeights.SemiBold));
         var sub = string.Join(" · ", new[] { np.Artist, np.Album }.Where(x => !string.IsNullOrWhiteSpace(x)));
@@ -180,7 +192,8 @@ public sealed class PurrPane : Pane
         return Ui.IconButton("", on ? L("Hide Chorus (lyrics)") : L("Show Chorus: synced lyrics from LRCLIB"), () =>
         {
             Model.Settings.ShowLyrics = !Model.Settings.ShowLyrics;
-            Model.SaveSoon();
+            // A setting like any other: saved, and Settings' Chorus switch follows.
+            Model.SettingsChanged();
             if (!Model.Settings.ShowLyrics) _lyrics.Load(null);
             Refresh();
             HeightChanged?.Invoke();
@@ -329,6 +342,20 @@ internal sealed class EqualizerBars : StackPanel
     private readonly Rectangle[] _bars = new Rectangle[3];
     private readonly System.Windows.Threading.DispatcherTimer? _timer;
     private readonly Random _random = new();
+    private bool _paused;
+
+    /// <summary>Stopped while its room isn't on screen (the closed island's and a peek's own bars never pause).</summary>
+    public bool Paused
+    {
+        get => _paused;
+        set
+        {
+            _paused = value;
+            if (_timer is null) return;
+            if (value) _timer.Stop();
+            else if (IsLoaded) _timer.Start();
+        }
+    }
 
     public EqualizerBars(bool playing, Color color, double height)
     {
@@ -347,7 +374,7 @@ internal sealed class EqualizerBars : StackPanel
             if (!IsVisible) return;
             foreach (var b in _bars) b.Height = height * (0.3 + _random.NextDouble() * 0.7);
         };
-        Loaded += (_, _) => _timer.Start();
+        Loaded += (_, _) => { if (!_paused) _timer.Start(); };
         Unloaded += (_, _) => _timer.Stop();
     }
 }
@@ -368,6 +395,27 @@ internal sealed class ChorusView : Grid
     private double _from, _to;
     private DateTime _glideStart;
     private bool _gliding;
+    private bool _paused;
+
+    /// <summary>Stopped while Purr isn't on screen; back on the current line when it is again.</summary>
+    public bool Paused
+    {
+        get => _paused;
+        set
+        {
+            _paused = value;
+            if (value)
+            {
+                _timer.Stop();
+                StopGlide();
+            }
+            else if (IsLoaded)
+            {
+                _timer.Start();
+                Follow(force: true);
+            }
+        }
+    }
 
     public ChorusView(MediaWatcher media, Accent accent, Action retry)
     {
@@ -376,7 +424,7 @@ internal sealed class ChorusView : Grid
         _retry = retry;
         ClipToBounds = true;
         _timer.Tick += (_, _) => Follow();
-        Loaded += (_, _) => _timer.Start();
+        Loaded += (_, _) => { if (!_paused) _timer.Start(); };
         Unloaded += (_, _) => { _timer.Stop(); StopGlide(); };
         SizeChanged += (_, _) => { Pad(); Follow(force: true); };
     }

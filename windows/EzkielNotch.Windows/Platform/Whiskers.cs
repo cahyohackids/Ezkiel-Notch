@@ -61,10 +61,18 @@ public sealed partial class WhiskersWatcher
         _layoutWindow = fg;
     }
 
+    /// <summary>The layout's language in the app's language (DisplayName follows Windows' own language instead).
+    /// .NET only names languages in English, in Windows' language or in their own, so an Indonesian app on a
+    /// Windows in another language uses the layout's own name ("Indonesia (Indonesia)").</summary>
     private static string LayoutName(nint hkl)
     {
-        try { return CultureInfo.GetCultureInfo((int)(hkl & 0xFFFF)).DisplayName; }
-        catch (Exception) { return "Keyboard"; }
+        try
+        {
+            var c = CultureInfo.GetCultureInfo((int)(hkl & 0xFFFF));
+            if (!Core.Lang.IsIndonesian) return c.EnglishName;
+            return CultureInfo.InstalledUICulture.TwoLetterISOLanguageName == "id" ? c.DisplayName : c.NativeName;
+        }
+        catch (Exception) { return Core.Lang.L("Keyboard"); }
     }
 
     private static bool WifiUp()

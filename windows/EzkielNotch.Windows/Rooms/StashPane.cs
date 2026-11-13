@@ -177,7 +177,7 @@ public sealed class StashPane(NotchModel model) : Pane(model, Room.Stash)
             if (Math.Abs(p.X - d.X) < 4 && Math.Abs(p.Y - d.Y) < 4) return;
             down = null;
             DraggingOut = true;
-            try { DragDrop.DoDragDrop(card, new DataObject(DataFormats.FileDrop, new[] { item.Path }), DragDropEffects.Copy | DragDropEffects.Move | DragDropEffects.Link); }
+            try { DragDrop.DoDragDrop(card, new DataObject(DataFormats.FileDrop, new[] { item.Path }), DragDropEffects.Copy | DragDropEffects.Link); }   // never Move: the file stays where it is
             catch (Exception) { }
             finally { DraggingOut = false; }
         };

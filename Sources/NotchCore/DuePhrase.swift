@@ -19,18 +19,18 @@ public enum DuePhrase {
     }
 
     // "dalam 2 jam", "in 20 min" · "15 menit lagi", "3 jam lagi"
-    private static let relativeIn = rx(#"\b(?:dalam|in)\s+(\d{1,3})\s*"# + units + #"\b"#)
-    private static let relativeLater = rx(#"\b(\d{1,3})\s*"# + units + #"\s+(?:lagi|later)\b"#)
+    private static let relativeIn = rx(#"\b(?:dalam|in)\s+([0-9]{1,3})\s*"# + units + #"\b"#)
+    private static let relativeLater = rx(#"\b([0-9]{1,3})\s*"# + units + #"\s+(?:lagi|later)\b"#)
     // "besok", "esok", "lusa", "hari ini", "malam ini", "tomorrow", "tonight", optionally "besok pagi"
     private static let day = rx(#"\b(besok|esok|tomorrow|lusa|hari ini|today|malam ini|tonight)\b(?:\s+"# + periods + #"\b)?"#)
     // "jam setengah 4" = 3:30
-    private static let half = rx(#"\b(?:jam|pukul|pkl|kul)\s+setengah\s+(\d{1,2})(?!\d)"#)
+    private static let half = rx(#"\b(?:jam|pukul|pkl|kul)\s+setengah\s+([0-9]{1,2})(?!\d)"#)
     // "jam 3", "pukul 15.30", "kul 3", "at 9:15am", "@ 12:30"
-    private static let prefixed = rx(#"(?:\b(?:jam|pukul|pkl|kul|at)\b|@)\s*(\d{1,2})(?:[.:](\d{2}))?(?!\d|[.:]\d)(?:\s*(am|pm)\b)?"#)
+    private static let prefixed = rx(#"(?:\b(?:jam|pukul|pkl|kul|at)\b|@)\s*([0-9]{1,2})(?:[.:]([0-9]{2}))?(?!\d|[.:]\d)(?:\s*(am|pm)\b)?"#)
     // "15:30", "9:15am" (a bare dot, like "1.10", is a number, not a time)
-    private static let colon = rx(#"\b(\d{1,2}):(\d{2})(?!\d)(?:\s*(am|pm)\b)?"#)
+    private static let colon = rx(#"\b([0-9]{1,2}):([0-9]{2})(?!\d)(?:\s*(am|pm)\b)?"#)
     // "7pm", "10 am", "3.30pm"
-    private static let ampm = rx(#"\b(\d{1,2})(?:[.:](\d{2}))?\s*(am|pm)\b"#)
+    private static let ampm = rx(#"\b([0-9]{1,2})(?:[.:]([0-9]{2}))?\s*(am|pm)\b"#)
     // A period right after the time: "jam 7 malam", "kul 5 petang"
     private static let periodAfter = rx(#"\s+"# + periods + #"\b"#)
     // A word that only joins the time to the task: "rapat pada jam 4"
@@ -54,8 +54,8 @@ public enum DuePhrase {
         let due: Date
 
         if let rel = [first(relativeIn), first(relativeLater)].compactMap({ $0 }).min(by: { $0.range.location < $1.range.location }) {
-            let n = Int(group(rel, 1)!)!
-            if n == 0 { return nil }
+            // The patterns only take ASCII digits; this is the second guard against a crash on "jam ３".
+            guard let n = group(rel, 1).flatMap({ Int($0) }), n != 0 else { return nil }
             let hours = ["jam", "hour", "hours", "hr", "hrs"].contains(group(rel, 2)!)
             due = now.addingTimeInterval(TimeInterval(n * (hours ? 3600 : 60)))
             spans.append(rel.range)
@@ -77,17 +77,19 @@ public enum DuePhrase {
             var time: (h: Int, m: Int)?
             var meridiem: String?
             let halfMatch = first(half)
-            if let t = halfMatch ?? first(prefixed) ?? first(colon) ?? first(ampm) {
-                var h = Int(group(t, 1)!)!
+            if let t = halfMatch ?? first(prefixed) ?? first(colon) ?? first(ampm), var h = group(t, 1).flatMap({ Int($0) }) {
                 var m = 0
+                var readable = true
                 if halfMatch != nil {
                     h -= 1
                     m = 30
                 } else {
-                    if let mm = group(t, 2) { m = Int(mm)! }
+                    if let mm = group(t, 2) {
+                        if let parsed = Int(mm) { m = parsed } else { readable = false }
+                    }
                     meridiem = group(t, 3)
                 }
-                if (0...23).contains(h), (0...59).contains(m), !(meridiem != nil && (h == 0 || h > 12)) {
+                if readable, (0...23).contains(h), (0...59).contains(m), !(meridiem != nil && (h == 0 || h > 12)) {
                     time = (h, m)
                     var end = t.range.location + t.range.length
                     if let after = periodAfter.firstMatch(in: text, options: .anchored,
