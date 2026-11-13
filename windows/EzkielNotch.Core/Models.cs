@@ -74,6 +74,11 @@ public sealed class NotchSettings
     public AppLanguage Language { get; set; } = AppLanguage.Auto;
     /// <summary>Chorus (lyrics) beside Purr. Off until the user taps the lyrics button (LRCLIB is only asked then).</summary>
     public bool ShowLyrics { get; set; }
+    /// <summary>While Chorus is on, sing along under the closed island too.</summary>
+    public bool ClosedLyrics { get; set; } = true;
+    /// <summary>Which player Purr follows: "auto", "spotify" or "appleMusic" (see <see cref="Core.MusicSource"/>).
+    /// The Mac's "musicAllowed" (its Automation prompt) means nothing here and stays in the file as it was.</summary>
+    public string MusicSource { get; set; } = Core.MusicSource.Auto;
     /// <summary>Roar: unread counts from other apps (only the number, never the message).</summary>
     public bool Roar { get; set; } = true;
     /// <summary>Roar: peek when an app's unread count goes up.</summary>
@@ -148,6 +153,9 @@ public sealed class NotchSettings
         s.HideInFullscreen = Json.Bool(o["hideInFullscreen"]) ?? s.HideInFullscreen;
         s.QuietDuringFocus = Json.Bool(o["quietDuringFocus"]) ?? s.QuietDuringFocus;
         s.ShowLyrics = Json.Bool(o["showLyrics"]) ?? s.ShowLyrics;
+        s.ClosedLyrics = Json.Bool(o["closedLyrics"]) ?? s.ClosedLyrics;
+        // A source from a newer version that this one doesn't know falls back to Auto.
+        s.MusicSource = Core.MusicSource.Normalize(Json.String(o["musicSource"]));
         s.Roar = Json.Bool(o["roar"]) ?? s.Roar;
         s.RoarPeeks = Json.Bool(o["roarPeeks"]) ?? s.RoarPeeks;
         s.RoarMuted = o["roarMuted"] is JsonArray muted ? [.. muted.Select(Json.String).OfType<string>()] : s.RoarMuted;
@@ -203,6 +211,8 @@ public sealed class NotchSettings
         o["hideInFullscreen"] = HideInFullscreen;
         o["quietDuringFocus"] = QuietDuringFocus;
         o["showLyrics"] = ShowLyrics;
+        o["closedLyrics"] = ClosedLyrics;
+        o["musicSource"] = MusicSource;
         o["roar"] = Roar;
         o["roarPeeks"] = RoarPeeks;
         o["roarMuted"] = new JsonArray(RoarMuted.Select(m => (JsonNode?)m).ToArray());

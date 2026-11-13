@@ -114,6 +114,11 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
                                       }));
             list.Children.Add(Toggle(L("Meeting countdown"), L("\"in 5m\" in the closed island"), s.RallyCountdown, v => s.RallyCountdown = v, Accent.Rally));
         }
+        // Purr and Chorus, after Rally as on the Mac. Auto follows any player in Windows' media controls.
+        list.Children.Add(Option(L("Purr source"), [.. MusicSource.All.Select(src =>
+            Ui.Chip(PurrPane.SourceName(src), s.MusicSource == src, Accent.Purr, () => { s.MusicSource = src; Changed(); }))]));
+        list.Children.Add(Toggle("Chorus", L("Synced lyrics from LRCLIB, only asked while on"), s.ShowLyrics, v => s.ShowLyrics = v, Accent.Purr));
+        list.Children.Add(Toggle(L("Chorus under the notch"), L("Sing along while it's closed"), s.ClosedLyrics, v => s.ClosedLyrics = v, Accent.Purr));
         list.Children.Add(WeatherRow());
         if (s.WeatherCity.Length > 0)
             list.Children.Add(Option(L("Temperature"), [

@@ -35,11 +35,18 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- Closed but live: the Mac's wings, as a small pill (a timer, music, Prowl, unread…). -->
-                <Grid x:Name="LiveView" Opacity="0" IsHitTestVisible="False" Margin="12,0">
-                    <StackPanel x:Name="LiveLeft" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center"/>
-                    <StackPanel x:Name="LiveRight" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                    <ContentControl x:Name="LiveCenter" HorizontalAlignment="Center" VerticalAlignment="Center" Focusable="False"/>
+                <!-- Closed but live: the Mac's wings, as a small pill (a timer, music, Prowl, unread…).
+                     Below them, while Chorus sings under the closed island, the lyric line (added in code). -->
+                <Grid x:Name="LiveView" Opacity="0" IsHitTestVisible="False">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition x:Name="LiveLyricRow" Height="0"/>
+                    </Grid.RowDefinitions>
+                    <Grid x:Name="LiveBar" Margin="12,0">
+                        <StackPanel x:Name="LiveLeft" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                        <StackPanel x:Name="LiveRight" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                        <ContentControl x:Name="LiveCenter" HorizontalAlignment="Center" VerticalAlignment="Center" Focusable="False"/>
+                    </Grid>
                 </Grid>
 
                 <!-- Expanded: header, the rooms, and the page. -->

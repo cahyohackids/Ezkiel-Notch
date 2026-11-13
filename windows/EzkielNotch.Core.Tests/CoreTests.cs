@@ -753,3 +753,146 @@ public class GlassSettingTests
         Assert.False(AppData.FromJson("{}")!.Settings.IslandGlass);
     }
 }
+
+public class MusicSettingTests
+{
+    /// <summary>The Mac's closedLyrics and musicSource come through to Windows and back, in the Mac's names.</summary>
+    [Fact]
+    public void ClosedLyricsAndMusicSourceRoundTrip()
+    {
+        var d = AppData.FromJson("""{"settings":{"closedLyrics":false,"musicSource":"spotify","showLyrics":true}}""")!;
+        Assert.False(d.Settings.ClosedLyrics);
+        Assert.Equal(MusicSource.Spotify, d.Settings.MusicSource);
+        d.Settings.MusicSource = MusicSource.AppleMusic;
+        var json = JsonNode.Parse(d.ToJson())!["settings"]!;
+        Assert.Equal("appleMusic", json["musicSource"]!.GetValue<string>());
+        Assert.False(json["closedLyrics"]!.GetValue<bool>());
+        var again = AppData.FromJson(d.ToJson())!;
+        Assert.False(again.Settings.ClosedLyrics);
+        Assert.Equal("appleMusic", again.Settings.MusicSource);
+    }
+
+    [Fact]
+    public void MissingOrUnknownMusicSettingsUseTheMacDefaults()
+    {
+        var d = AppData.FromJson("{}")!;
+        Assert.True(d.Settings.ClosedLyrics);
+        Assert.Equal("auto", d.Settings.MusicSource);
+        // A source from a newer version, or a value of the wrong type.
+        Assert.Equal("auto", AppData.FromJson("""{"settings":{"musicSource":"tidal"}}""")!.Settings.MusicSource);
+        Assert.Equal("auto", AppData.FromJson("""{"settings":{"musicSource":3,"closedLyrics":"yes"}}""")!.Settings.MusicSource);
+        Assert.True(AppData.FromJson("""{"settings":{"closedLyrics":"yes"}}""")!.Settings.ClosedLyrics);
+    }
+
+    /// <summary>musicAllowed is the Mac's Automation prompt; Windows needs no permission and leaves it as it was.</summary>
+    [Theory]
+    [InlineData("""{"settings":{"musicAllowed":false}}""", false)]
+    [InlineData("""{"settings":{"musicAllowed":true}}""", true)]
+    [InlineData("{}", null)]
+    public void MusicAllowedIsKeptUntouched(string text, bool? want)
+    {
+        var json = JsonNode.Parse(AppData.FromJson(text)!.ToJson())!["settings"]!;
+        Assert.Equal(want, json["musicAllowed"]?.GetValue<bool>());
+    }
+}
+
+public class MusicSourceTests
+{
+    private const string SpotifyDesktop = "Spotify.exe";
+    private const string SpotifyStore = "SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify";
+    private const string AppleMusicApp = "AppleInc.AppleMusicWin_nzyj5cx40ttqa!App";
+    private const string ITunes = "iTunes.exe";
+    private const string Chrome = "Chrome";
+    private const string MediaPlayer = "Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic";
+
+    [Fact]
+    public void KnowsThePlayersByTheirAppIds()
+    {
+        Assert.True(MusicSource.IsSpotify(SpotifyDesktop));
+        Assert.True(MusicSource.IsSpotify(SpotifyStore));
+        Assert.True(MusicSource.IsAppleMusic(AppleMusicApp));
+        Assert.True(MusicSource.IsAppleMusic(ITunes));
+        Assert.False(MusicSource.IsSpotify(Chrome));
+        Assert.False(MusicSource.IsAppleMusic(MediaPlayer));
+        Assert.True(MusicSource.Allows("auto", Chrome));
+        Assert.True(MusicSource.Allows("something-new", Chrome));   // unknown = Auto
+        Assert.False(MusicSource.Allows("spotify", AppleMusicApp));
+        Assert.True(MusicSource.Allows("appleMusic", ITunes));
+    }
+
+    [Fact]
+    public void AutoPrefersWhatsPlayingThenWindowsCurrentThenTheFirst()
+    {
+        MusicSource.Session S(string id, bool playing = false, bool current = false) => new(id, playing, current);
+        Assert.Null(MusicSource.Pick("auto", []));
+        Assert.Equal(1, MusicSource.Pick("auto", [S(Chrome, current: true), S(SpotifyDesktop, playing: true)]));
+        Assert.Equal(0, MusicSource.Pick("auto", [S(Chrome, current: true), S(SpotifyDesktop)]));
+        Assert.Equal(0, MusicSource.Pick("auto", [S(Chrome), S(SpotifyDesktop)]));
+        Assert.Equal(1, MusicSource.Pick("auto", [S(Chrome, playing: true), S(SpotifyDesktop, playing: true, current: true)]));
+    }
+
+    [Fact]
+    public void AChosenSourceFollowsOnlyThatPlayer()
+    {
+        MusicSource.Session S(string id, bool playing = false, bool current = false) => new(id, playing, current);
+        // Spotify paused still beats a browser that's playing.
+        Assert.Equal(1, MusicSource.Pick("spotify", [S(Chrome, playing: true, current: true), S(SpotifyStore)]));
+        Assert.Null(MusicSource.Pick("spotify", [S(Chrome, playing: true), S(AppleMusicApp)]));
+        Assert.Equal(2, MusicSource.Pick("appleMusic", [S(SpotifyDesktop, playing: true), S(ITunes), S(AppleMusicApp, playing: true)]));
+    }
+}
+
+public class ClosedChorusTests
+{
+    private static readonly IReadOnlyList<LyricLine> Lines = Lrc.Parse("[00:10.00]First\n[00:12.00]\n[00:15.00]Second\n[00:15.00]Echo\n[00:20.00]Last");
+
+    [Fact]
+    public void ShowsTheLineBeingSungOrANote()
+    {
+        Assert.Equal("♪", ClosedChorus.Line(2, Lines));          // before the first line
+        Assert.Equal("First", ClosedChorus.Line(9.9, Lines));    // a moment early, like Chorus beside Purr
+        Assert.Equal("♪", ClosedChorus.Line(13, Lines));         // an empty line between verses
+        Assert.Equal("Last", ClosedChorus.Line(300, Lines));
+        Assert.Equal("♪", ClosedChorus.Line(5, []));
+    }
+
+    [Fact]
+    public void WakesUpWhenTheNextLineStarts()
+    {
+        Assert.Equal(10 - 2 - ClosedChorus.Lead, ClosedChorus.UntilNextLine(2, Lines)!.Value, 6);
+        Assert.Equal(15 - 13 - ClosedChorus.Lead, ClosedChorus.UntilNextLine(13, Lines)!.Value, 6);
+        // Two lines on one time stamp: the next change is the one after both.
+        Assert.Equal(20 - 16 - ClosedChorus.Lead, ClosedChorus.UntilNextLine(16, Lines)!.Value, 6);
+        Assert.Null(ClosedChorus.UntilNextLine(25, Lines));
+        Assert.Null(ClosedChorus.UntilNextLine(0, []));
+    }
+
+    [Fact]
+    public void SingsOnlyWhileEverythingIsOn()
+    {
+        var on = new NotchSettings { ShowLyrics = true };
+        var synced = new LyricsState(LyricsKind.Synced, Lines);
+        Assert.True(on.ClosedLyrics);
+        Assert.True(ClosedChorus.Shows(on, playing: true, synced));
+        Assert.False(ClosedChorus.Shows(on, playing: false, synced));
+        Assert.False(ClosedChorus.Shows(new NotchSettings { ShowLyrics = true, ClosedLyrics = false }, true, synced));
+        Assert.False(ClosedChorus.Shows(new NotchSettings(), true, synced));
+        Assert.False(ClosedChorus.Shows(on, true, new LyricsState(LyricsKind.Plain, Text: "words")));
+        Assert.False(ClosedChorus.Shows(on, true, new LyricsState(LyricsKind.Synced, [])));
+    }
+
+    [Fact]
+    public void LoadingNothingWhenIdleSaysNothing()
+    {
+        var client = new LyricsClient(new HttpClient());
+        int changes = 0;
+        client.Changed += () => changes++;
+        client.Load(null);
+        client.Load(null);
+        Assert.Equal(0, changes);
+        client.Preview(Lines, new SongInfo("t", "a", "b", 30));
+        client.Load(null);
+        Assert.Equal(2, changes);
+        Assert.Equal(LyricsKind.Idle, client.State.Kind);
+    }
+}
