@@ -174,6 +174,9 @@ enum NotchMetrics {
         }
     }
 
+    /// Ask's box is at least this tall, whichever tab it opens over.
+    static let askHeight: CGFloat = 196
+
     static var maxPaneHeight: CGFloat {
         NotchTab.allCases.map { paneHeight($0, lyrics: true) }.max() ?? 200
     }

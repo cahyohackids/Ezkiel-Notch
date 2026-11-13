@@ -38,7 +38,7 @@ final class NotchWindowController {
         }
         panel.contentView = hosting
         panel.onEscape = { [weak self] in
-            MainActor.assumeIsolated { self?.model.collapse() }
+            MainActor.assumeIsolated { self?.escape() }
         }
         panel.onKeyDown = { [weak self] event in
             MainActor.assumeIsolated { self?.handleKey(event) ?? false }
@@ -236,10 +236,19 @@ final class NotchWindowController {
         }
     }
 
+    /// Esc puts the ask box away first; the next one closes the notch.
+    private func escape() {
+        if model.askOn {
+            model.setAsk(false)
+        } else {
+            model.collapse()
+        }
+    }
+
     private func handleKey(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if event.keyCode == 53 { // Esc
-            model.collapse()
+            escape()
             return true
         }
         if flags.isEmpty, !isEditingText {
@@ -275,6 +284,12 @@ final class NotchWindowController {
             if self.model.pinned { self.model.expand() }
         }
         menu.addItem(pin)
+        if model.settings.ask {
+            menu.addItem(ActionMenuItem(L("Ask…  %@", AppModel.askHotkeyLabel)) { [weak self] in
+                self?.model.setAsk(true)
+                self?.panel.makeKeyAndOrderFront(nil)
+            })
+        }
         menu.addItem(.separator())
         let hover = ActionMenuItem("Open on Hover") { [weak self] in self?.model.settings.expandOnHover.toggle() }
         hover.state = model.settings.expandOnHover ? .on : .off

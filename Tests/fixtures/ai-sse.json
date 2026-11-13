@@ -1,0 +1,206 @@
+{
+  "comment": "Ask (the AI box): request building, the event-stream reader, error mapping, the model list, tidy/plain text and Make task. Read by both the Swift and the C# tests, so both apps talk to api.ezkielyna.store the same way. No real key, no network.",
+  "system": {
+    "en": "You are Ezkiel, the quick helper inside the Ezkiel Notch app. Answer short and to the point: a few sentences or a short list, no preamble. Plain text, minimal markdown. Reply in English unless the user writes in another language.",
+    "id": "Kamu Ezkiel, asisten cepat di dalam app Ezkiel Notch. Jawab singkat dan langsung ke inti: beberapa kalimat atau daftar pendek, tanpa basa-basi. Teks biasa, markdown seminimal mungkin. Balas dalam Bahasa Indonesia, kecuali pengguna menulis dalam bahasa lain."
+  },
+  "request": {
+    "key": "  sk-test-not-a-real-key \n",
+    "model": "deepseek-v4.1-flash",
+    "indonesian": true,
+    "question": "  Ibu kota Jepang?  ",
+    "history": [
+      { "question": "1", "answer": "a1" },
+      { "question": "2", "answer": "a2" },
+      { "question": "3", "answer": "a3" },
+      { "question": "4", "answer": "a4" }
+    ],
+    "url": "https://api.ezkielyna.store/v1/chat/completions",
+    "method": "POST",
+    "headers": {
+      "Authorization": "Bearer sk-test-not-a-real-key",
+      "Content-Type": "application/json",
+      "Accept": "text/event-stream"
+    },
+    "body": {
+      "model": "deepseek-v4.1-flash",
+      "stream": true,
+      "messages": [
+        { "role": "system", "content": "Kamu Ezkiel, asisten cepat di dalam app Ezkiel Notch. Jawab singkat dan langsung ke inti: beberapa kalimat atau daftar pendek, tanpa basa-basi. Teks biasa, markdown seminimal mungkin. Balas dalam Bahasa Indonesia, kecuali pengguna menulis dalam bahasa lain." },
+        { "role": "user", "content": "2" },
+        { "role": "assistant", "content": "a2" },
+        { "role": "user", "content": "3" },
+        { "role": "assistant", "content": "a3" },
+        { "role": "user", "content": "4" },
+        { "role": "assistant", "content": "a4" },
+        { "role": "user", "content": "Ibu kota Jepang?" }
+      ]
+    },
+    "modelsUrl": "https://api.ezkielyna.store/v1/models"
+  },
+  "streams": [
+    {
+      "name": "plain stream",
+      "lines": [
+        "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}",
+        "",
+        "data: {\"id\":\"c1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Ibu kota Jepang\"}}]}",
+        "",
+        "data: {\"id\":\"c1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" adalah Tokyo.\"}}]}",
+        "",
+        "data: {\"id\":\"c1\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}",
+        "",
+        "data: [DONE]"
+      ],
+      "text": "Ibu kota Jepang adalah Tokyo.",
+      "finished": true,
+      "reasoning": false,
+      "error": null
+    },
+    {
+      "name": "keep-alives, CRLF, no space after data:, other fields",
+      "lines": [
+        ": OPENROUTER PROCESSING",
+        "event: message\r",
+        "id: 7\r",
+        "retry: 3000",
+        "data:{\"choices\":[{\"delta\":{\"content\":\"One\"}}]}\r",
+        "\r",
+        ":ping",
+        "data:  {\"choices\":[{\"delta\":{\"content\":\" two\"}}]}",
+        "data: [DONE]\r"
+      ],
+      "text": "One two",
+      "finished": true,
+      "reasoning": false,
+      "error": null
+    },
+    {
+      "name": "thinking first, then the answer",
+      "lines": [
+        "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"The user asks\"}}]}",
+        "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\" for a word.\",\"content\":null}}]}",
+        "data: {\"choices\":[{\"delta\":{\"reasoning\":\"Short.\"}}]}",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"Halo!\"}}]}",
+        "data: [DONE]"
+      ],
+      "text": "Halo!",
+      "finished": true,
+      "reasoning": true,
+      "error": null
+    },
+    {
+      "name": "the balance runs out mid-answer",
+      "lines": [
+        "data: {\"choices\":[{\"delta\":{\"content\":\"Part\"}}]}",
+        "data: {\"error\":{\"message\":\"Insufficient balance, please top up\",\"type\":\"billing_error\",\"code\":402}}",
+        "data: {\"choices\":[{\"delta\":{\"content\":\" ignored\"}}]}"
+      ],
+      "text": "Part",
+      "finished": true,
+      "reasoning": false,
+      "error": "noBalance"
+    },
+    {
+      "name": "an unknown error in the stream keeps its words",
+      "lines": [
+        "data: {\"error\":{\"message\":\"Upstream model is overloaded\"}}"
+      ],
+      "text": "",
+      "finished": true,
+      "reasoning": false,
+      "error": "other",
+      "message": "Upstream model is overloaded"
+    },
+    {
+      "name": "unicode, newlines and markdown come through as sent",
+      "lines": [
+        "data: {\"choices\":[{\"delta\":{\"content\":\"Langkah:\\n1. **Siapkan** KTP\"}}]}",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"\\n2. Isi formulir \\ud83d\\ude42\"}}]}",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"\\n\\u00e9t\\u00e9 \\u65e5\\u672c\"}}]}",
+        "data: [DONE]"
+      ],
+      "text": "Langkah:\n1. **Siapkan** KTP\n2. Isi formulir 🙂\nété 日本",
+      "finished": true,
+      "reasoning": false,
+      "error": null
+    },
+    {
+      "name": "empty choices, null content and junk lines are skipped",
+      "lines": [
+        "data: {\"choices\":[]}",
+        "data: {\"choices\":[{\"delta\":{\"content\":null}}]}",
+        "data: not json",
+        "data: [1,2,3]",
+        "data: {\"usage\":{\"total_tokens\":12}}",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}"
+      ],
+      "text": "ok",
+      "finished": false,
+      "reasoning": false,
+      "error": null
+    },
+    {
+      "name": "a server that ignored stream:true (the whole answer as one JSON)",
+      "lines": [
+        "data: {\"id\":\"x\",\"object\":\"chat.completion\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Full answer.\"},\"finish_reason\":\"stop\"}]}"
+      ],
+      "text": "Full answer.",
+      "finished": false,
+      "reasoning": false,
+      "error": null
+    }
+  ],
+  "errors": [
+    { "status": 401, "body": "{\"error\":{\"message\":\"Invalid API key\",\"type\":\"invalid_request_error\"}}", "error": "invalidKey" },
+    { "status": 401, "body": "", "error": "invalidKey" },
+    { "status": 402, "body": "{\"error\":{\"message\":\"Insufficient balance\"}}", "error": "noBalance" },
+    { "status": 403, "body": "{\"error\":{\"message\":\"Saldo tidak cukup, silakan top up\"}}", "error": "noBalance" },
+    { "status": 403, "body": "{\"error\":{\"message\":\"Your credit is used up\"}}", "error": "noBalance" },
+    { "status": 403, "body": "{\"error\":{\"message\":\"Invalid token\"}}", "error": "invalidKey" },
+    { "status": 403, "body": "{\"error\":{\"message\":\"Model not allowed for this key\"}}", "error": "other", "message": "Model not allowed for this key" },
+    { "status": 429, "body": "{\"error\":{\"message\":\"Rate limit reached\",\"type\":\"rate_limit\"}}", "error": "rateLimited" },
+    { "status": 429, "body": "{\"error\":{\"message\":\"You exceeded your current quota\",\"code\":\"insufficient_quota\"}}", "error": "noBalance" },
+    { "status": 400, "body": "{\"error\":{\"message\":\"Unknown model: foo\"}}", "error": "other", "message": "Unknown model: foo" },
+    { "status": 400, "body": "{\"error\":\"bad request body\"}", "error": "other", "message": "bad request body" },
+    { "status": 422, "body": "{\"detail\":\"messages must not be empty\"}", "error": "other", "message": "messages must not be empty" },
+    { "status": 404, "body": "Not Found", "error": "other", "message": "Not Found" },
+    { "status": 418, "body": "", "error": "other", "message": "HTTP 418" },
+    { "status": 408, "body": "", "error": "timeout" },
+    { "status": 504, "body": "<html>Gateway Timeout</html>", "error": "timeout" },
+    { "status": 500, "body": "<html><body>Internal Server Error</body></html>", "error": "server" },
+    { "status": 503, "body": "", "error": "server" }
+  ],
+  "models": {
+    "body": "{\"object\":\"list\",\"data\":[{\"id\":\"deepseek-v4.1-flash\",\"object\":\"model\",\"owned_by\":\"ezkielyna\"},{\"id\":\"deepseek-v4-pro-0813\",\"object\":\"model\"},{\"id\":\"text-embedding-3-small\"},{\"id\":\"\"},{\"name\":\"no id\"},{\"id\":\"qwen3-max\"},{\"id\":\"deepseek-v4.1-flash\"},{\"id\":\"whisper-1\"},{\"id\":\"tts-1-hd\"},{\"id\":\"bge-reranker-v2\"}]}",
+    "ids": ["deepseek-v4.1-flash", "deepseek-v4-pro-0813", "qwen3-max"],
+    "bad": ["", "not json", "{\"data\":\"nope\"}", "[]"]
+  },
+  "text": [
+    {
+      "markdown": "# Paspor\nSiapkan **KTP** dan `KK`.\n- daftar online\n* bayar\n  - lapis dua\n1. datang\n\n",
+      "tidy": "Paspor\nSiapkan **KTP** dan `KK`.\n• daftar online\n• bayar\n  • lapis dua\n1. datang",
+      "plain": "Paspor\nSiapkan KTP dan KK.\n• daftar online\n• bayar\n  • lapis dua\n1. datang"
+    },
+    {
+      "markdown": "Pakai ini:\n```swift\nlet x = 2 * 3\n```\nSelesai __penting__.",
+      "tidy": "Pakai ini:\nlet x = 2 * 3\nSelesai __penting__.",
+      "plain": "Pakai ini:\nlet x = 2 * 3\nSelesai penting."
+    },
+    {
+      "markdown": "3 * 4 = 12, a_b_c and **unclosed",
+      "tidy": "3 * 4 = 12, a_b_c and **unclosed",
+      "plain": "3 * 4 = 12, a_b_c and **unclosed"
+    }
+  ],
+  "tasks": {
+    "now": "2026-11-13T10:00",
+    "cases": [
+      { "question": "ingatkan beli susu jam 3", "answer": "Siap, nanti jam 3.", "title": "ingatkan beli susu", "due": "2026-11-13T15:00" },
+      { "question": "email boss tomorrow 10am", "answer": "Sure.", "title": "email boss", "due": "2026-11-14T10:00" },
+      { "question": "  Cara bikin paspor?  ", "answer": "1. Daftar online", "title": "Cara bikin paspor?", "due": null },
+      { "question": "Can you explain in detail how the new passport application works for people living abroad in 2026?", "answer": "\n## Apply online first\nThen visit the embassy.", "title": "Apply online first", "due": null },
+      { "question": "Can you explain in detail how the new passport application works for people living abroad in 2026?", "answer": "**Short version:** you need an appointment at the embassy, your old passport, two photos and the fee paid online beforehand.", "title": "Short version: you need an appointment at the embassy, your old passport, two p…", "due": null }
+    ]
+  }
+}

@@ -191,6 +191,10 @@ public struct NotchSettings: Codable, Equatable {
     public var closedFace: ClosedFace = .eyes
     /// Which eyes: Ezkiel's lion eyes, sparkly anime eyes, a cat's, cute round ones or robot LEDs.
     public var eyeStyle: EyeStyle = .lion
+    /// Ask: the AI box (header button, ⌃⌥A). The API key itself is never in this file (Keychain).
+    public var ask: Bool = true
+    /// Ask: the model on api.ezkielyna.store.
+    public var askModel: String = Ask.defaultModel
     /// Bumped when defaults change in a way existing users should get too (see the decoder).
     public var defaultsRevision: Int = NotchSettings.currentRevision
     public static let currentRevision = 2
@@ -253,6 +257,8 @@ public struct NotchSettings: Codable, Equatable {
         closedFace = (try? c.decode(ClosedFace.self, forKey: .closedFace)) ?? (showMascot ? .eyes : .off)
         // An eye style from a newer version that this one doesn't know falls back to the lion's.
         eyeStyle = (try? c.decode(EyeStyle.self, forKey: .eyeStyle)) ?? d.eyeStyle
+        ask = (try? c.decode(Bool.self, forKey: .ask)) ?? d.ask
+        askModel = (try? c.decode(String.self, forKey: .askModel)).flatMap { $0.isEmpty ? nil : $0 } ?? d.askModel
         let revision = (try? c.decode(Int.self, forKey: .defaultsRevision)) ?? 1
         if revision < 2 {
             // 1.3.1: calmer defaults. Only values still at the old default move; choices the user made stay.

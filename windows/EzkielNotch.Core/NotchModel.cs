@@ -275,6 +275,16 @@ public sealed class NotchModel
         Touch(Room.Scratch);
     }
 
+    /// <summary>A finished note from elsewhere (Ask's "Save as note"), on top and selected.</summary>
+    public void AddNote(string title, string body)
+    {
+        var note = NoteItem.New() with { Title = title, Body = body };
+        ShowingCatch = false;
+        Data.Notes.Insert(0, note);
+        SelectedNoteId = note.Id;
+        Touch(Room.Scratch);
+    }
+
     public void DeleteNote(Guid id)
     {
         int i = Data.Notes.FindIndex(n => n.Id == id);

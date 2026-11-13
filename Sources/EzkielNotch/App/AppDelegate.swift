@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private(set) var controller: NotchWindowController!
     private var statusItem: NSStatusItem?
     private var hotKey: HotKey?
+    private var askHotKey: HotKey?
+    private(set) var askHotKeyRegistered = false
     /// A URL can arrive before launching has finished (the app was opened by it).
     private var pendingURLs: [URL] = []
 
@@ -22,10 +24,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             model = AppModel()
         }
         model.onHotkeyChange = { [weak self] choice in self?.registerHotKey(choice) }
+        model.onAskChange = { [weak self] on in self?.registerAskHotKey(on) }
         controller = NotchWindowController(model: model)
         controller.start()
         installStatusItem()
         registerHotKey(model.settings.hotkey)
+        registerAskHotKey(model.settings.ask)
         pendingURLs.forEach { model.handle(url: $0) }
         pendingURLs = []
 
@@ -55,6 +59,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             model?.showPeek(Peek(icon: "command", title: L("%@ is taken by another app", choice.label), subtitle: "Pick another in Settings",
                                  tint: Theme.gold, tab: .settings, mood: .awake, urgent: true))
         }
+    }
+
+    /// Ask's own shortcut, ⌃⌥A (not one of the open/close choices). Taken by another app: Settings says so.
+    func registerAskHotKey(_ on: Bool) {
+        askHotKey = nil
+        if on {
+            askHotKey = HotKey(keyCode: kVK_ANSI_A, modifiers: controlKey | optionKey, id: 2) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.model.askFromKeyboard()
+                    if self.model.presentation == .expanded { self.controller.panel.makeKeyAndOrderFront(nil) }
+                }
+            }
+        }
+        askHotKeyRegistered = askHotKey != nil
     }
 
     /// Opened from the keyboard: take key status so Esc and ⌘1…⌘8 work right away.
@@ -126,6 +145,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.model.pinned = true
             self.model.expand()
         })
+        if model.settings.ask {
+            menu.addItem(ActionMenuItem(L("Ask…  %@", AppModel.askHotkeyLabel)) { [weak self] in
+                guard let self else { return }
+                self.model.setAsk(true)
+                self.controller.panel.makeKeyAndOrderFront(nil)
+            })
+        }
         menu.addItem(.separator())
         for tab in NotchTab.allCases where tab != .settings {
             let entry = ActionMenuItem("\(tab.title) · \(L(tab.subtitle))") { [weak self] in self?.model.expand(tab) }

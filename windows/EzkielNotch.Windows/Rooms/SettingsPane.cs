@@ -87,6 +87,7 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
         list.Children.Add(Toggle(L("Wi-Fi & headphones"), L("When they connect or drop"), s.ConnectionPeeks, v => s.ConnectionPeeks = v, Accent.Neutral));
 
         list.Children.Add(Section(L("Features")));
+        AskSettingsRows.AddAskRows(list, Model, Refresh);
         list.Children.Add(Option(L("Den break"), [.. new[] { 5, 10, 15 }.Select(m =>
             Ui.Chip(L("%d min", m), s.BreakMinutes == m, Accent.Rest, () => Model.SetBreakMinutes(m)))]));
         list.Children.Add(Toggle(L("Oasis reminders"), L("Every %d min in your active hours", s.WaterIntervalMinutes), s.WaterReminders,

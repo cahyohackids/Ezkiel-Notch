@@ -28,6 +28,9 @@ internal static class SelfTest
         w.IgnorePointer = true;
         var m = w.Model;
         Seed(m);
+        var askGateway = new FakeAskGateway();
+        // Before any room is drawn: Settings must never read the user's real key.
+        Platform.AskHub.Reset(new Platform.MemoryAskKeys(), new AskClient(askGateway));
         m.Settings.WeatherCity = "Jakarta";
         w.Weather.Simulate(new WeatherClient.Now(29.4, 2, 32, 24, 40, true, DateTime.UtcNow));
         m.Settings.Rally = true;
@@ -158,6 +161,77 @@ internal static class SelfTest
             }),
             ("settings", () => w.Select(Room.Settings)),
             ("settings ok", () => RoomChecks(w, Room.Settings)),
+            // Ask: a fake gateway (never the real one) and a key kept in memory (never the user's).
+            ("ask no key", () =>
+            {
+                w.SetAsk(true);
+                Check(w.AskOpen && w.AskBox is { Visibility: Visibility.Visible }, "the header button opens the ask box over the page");
+                Check(w.AskBox?.ShownError?.Kind == AskErrorKind.NoKey && w.AskBox.ShowsSettingsButton, "without a key it says so, with a Settings button");
+            }),
+            ("ask streaming", () =>
+            {
+                Check(w.ExpandedHeight(Room.Settings) >= IslandWindow.AskPaneHeight + 86 && Math.Abs(w.Island.BodyRect.Height - w.ExpandedHeight(Room.Settings)) < 1,
+                      $"the island is tall enough for it ({w.Island.BodyRect.Height:0})");
+                Check(Platform.AskHub.SaveKey("  sk-selftest-1234 \n"), "a pasted key is saved (trimmed)");
+                askGateway.Hold(3);
+                w.AskBox!.Input.Text = "What does DPAPI do?";
+                w.AskSend();
+                Check(w.AskBox.Input.Text.Length == 0, "Return asks and clears the field");
+            }),
+            ("ask half way", () =>
+            {
+                var s = Platform.AskHub.Session;
+                Check(s.Phase == AskSession.State.Streaming && s.Answer == "DPAPI keeps secrets **per user**", $"the answer streams in (\"{s.Answer}\")");
+                Check(w.AskBox!.AnswerText == "DPAPI keeps secrets per user", $"and is drawn as it comes, bold without stars (\"{w.AskBox.AnswerText}\")");
+                Check(askGateway.LastAuthorization == "Bearer sk-selftest-1234", "the key goes only in the Authorization header");
+                askGateway.Release();
+            }),
+            ("ask answer", () =>
+            {
+                var s = Platform.AskHub.Session;
+                Check(s.Phase == AskSession.State.Done && s.Answer.EndsWith("nothing leaves the PC"), "the whole answer arrives");
+                Check(w.AskBox!.AnswerText.Contains("• encrypted with your login"), "bullets are tidied");
+                Check(s.History.Count == 1, "it's remembered for this session");
+                int tasks = m.Data.Tasks.Count, notes = m.Data.Notes.Count;
+                w.AskMakeTask();
+                Check(m.Data.Tasks.Count == tasks + 1 && m.Data.Tasks[0].Title == "What does DPAPI do?", "Make task adds the question to Hunt");
+                Check(w.LastToast == "Added to Hunt", "and says so");
+                w.AskSaveNote();
+                Check(m.Data.Notes.Count == notes + 1 && m.Data.Notes[0].Title == "What does DPAPI do?" && m.Data.Notes[0].Body.StartsWith("DPAPI keeps secrets per user"),
+                      "Save as note puts the answer in Scratch, without markdown");
+            }),
+            ("ask no balance", () =>
+            {
+                askGateway.Status = 402;
+                w.AskBox!.Input.Text = "And one more?";
+                w.AskSend();
+            }),
+            ("ask error shown", () =>
+            {
+                Check(Platform.AskHub.Session.Error?.Kind == AskErrorKind.NoBalance, "402 means the balance is empty");
+                Check(w.AskBox!.ShownError?.Kind == AskErrorKind.NoBalance && w.AskBox.ShowsSettingsButton, "and says so in plain words, with a Settings button");
+                askGateway.Status = 200;
+                w.OpenAskSettings();
+            }),
+            ("ask settings", () =>
+            {
+                Check(!w.AskOpen && w.Selected == Room.Settings, "Settings opens on the key");
+                var texts = Descendants<TextBlock>(w.CurrentPane!).Select(t => t.Text).ToList();
+                Check(texts.Contains("Ezkielyna API key") && texts.Any(t => t.EndsWith("1234") && t.StartsWith("••••")), "the key row shows the key masked");
+                Check(texts.Contains("deepseek-v4.1-flash") && texts.Contains("deepseek-v4-pro-0813"), "and the models to pick from");
+                Check(w.AskHotKeyRegistered, "Ctrl+Alt+A registered");
+                m.SaveNow();
+                var json = File.ReadAllText(m.Store!.Path);
+                Check(!json.Contains("sk-selftest") && json.Contains("\"askModel\""), "data.json has the model but never the key");
+                w.SetAsk(true);
+            }),
+            ("ask esc", () =>
+            {
+                Check(w.AskOpen, "the box opens again");
+                Press(w, Key.Escape);
+                Check(!w.AskOpen && w.Presentation == Presentation.Expanded, "Esc puts it away and leaves the island open");
+                Platform.AskHub.Reset(new Platform.MemoryAskKeys(), new AskClient(askGateway));
+            }),
             ("purr", () =>
             {
                 w.Media.Simulate(new Platform.NowPlaying("Spotify.exe", "Golden Hour", "JVKE", "this is what ____ feels like", 209, 63, DateTime.UtcNow, true), DemoArtwork());
@@ -654,5 +728,96 @@ internal static class SelfTest
     {
         Console.WriteLine($"  {(ok ? "✓" : "✗")} {message}");
         if (!ok) Failures.Add(message);
+    }
+}
+
+/// <summary>The self-test's gateway: a scripted answer (one line every 60 ms, waiting half way when asked to),
+/// a 402 when told, and two models. Nothing goes to the network.</summary>
+internal sealed class FakeAskGateway : System.Net.Http.HttpMessageHandler
+{
+    public int Status { get; set; } = 200;
+    public string? LastAuthorization { get; private set; }
+    private int _holdAfter = -1;
+    private TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private static readonly string[] Lines =
+    [
+        Chunk("DPAPI keeps "), Chunk("secrets "), Chunk("**per user**"),
+        Chunk(" on Windows.\n"), Chunk("- encrypted with your login\n"), Chunk("- nothing leaves the PC"), "", "data: [DONE]",
+    ];
+
+    private static string Chunk(string text) =>
+        "data: " + new System.Text.Json.Nodes.JsonObject
+        {
+            ["choices"] = new System.Text.Json.Nodes.JsonArray(new System.Text.Json.Nodes.JsonObject
+            {
+                ["delta"] = new System.Text.Json.Nodes.JsonObject { ["content"] = text },
+            }),
+        }.ToJsonString();
+
+    public void Hold(int after)
+    {
+        _holdAfter = after;
+        _gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    public void Release() => _gate.TrySetResult();
+
+    protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken ct)
+    {
+        LastAuthorization = request.Headers.Authorization?.ToString();
+        System.Net.Http.HttpResponseMessage response;
+        if (request.RequestUri!.AbsolutePath.EndsWith("/models"))
+            response = new(System.Net.HttpStatusCode.OK)
+            {
+                Content = new System.Net.Http.StringContent("{\"data\":[{\"id\":\"deepseek-v4.1-flash\"},{\"id\":\"deepseek-v4-pro-0813\"}]}",
+                                                           System.Text.Encoding.UTF8, "application/json"),
+            };
+        else if (Status != 200)
+            response = new((System.Net.HttpStatusCode)Status)
+            {
+                Content = new System.Net.Http.StringContent("{\"error\":{\"message\":\"Insufficient balance\"}}", System.Text.Encoding.UTF8, "application/json"),
+            };
+        else
+        {
+            var content = new System.Net.Http.StreamContent(new ScriptStream(Lines, _holdAfter, _gate.Task));
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/event-stream");
+            response = new(System.Net.HttpStatusCode.OK) { Content = content };
+        }
+        return Task.FromResult(response);
+    }
+
+    private sealed class ScriptStream(string[] lines, int holdAfter, Task gate) : Stream
+    {
+        private int _next;
+        private byte[] _pending = [];
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => 0; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => ReadAsync(buffer, offset, count).GetAwaiter().GetResult();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+        {
+            if (_pending.Length == 0)
+            {
+                if (_next >= lines.Length) return 0;
+                if (_next == holdAfter) await gate.WaitAsync(ct);
+                await Task.Delay(60, ct);
+                _pending = System.Text.Encoding.UTF8.GetBytes(lines[_next++] + "\n");
+            }
+            int n = Math.Min(buffer.Length, _pending.Length);
+            _pending.AsMemory(0, n).CopyTo(buffer);
+            _pending = _pending[n..];
+            return n;
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct) =>
+            ReadAsync(buffer.AsMemory(offset, count), ct).AsTask();
     }
 }

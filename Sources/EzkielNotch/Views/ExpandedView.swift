@@ -24,6 +24,10 @@ struct ExpandedView: View {
                     MirrorOverlay(mirror: model.mirror) { model.setMirror(false) }
                         .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 }
+                if model.askOn {
+                    AskOverlay(model: model, ask: model.ask)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
             }
             .frame(maxWidth: .infinity)
             .frame(height: model.paneHeight, alignment: .top)
@@ -56,6 +60,12 @@ struct ExpandedView: View {
                     .lineLimit(1)
                     .id(model.tab)
                     .transition(.opacity)
+                if model.settings.ask {
+                    IconButton(icon: "sparkles", label: L("Ask · %@", AppModel.askHotkeyLabel), size: 22,
+                               tint: model.askOn ? Theme.gold : Theme.mist) {
+                        model.setAsk(!model.askOn)
+                    }
+                }
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity)
