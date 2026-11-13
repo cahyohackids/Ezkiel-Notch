@@ -2,7 +2,8 @@ name: Build Ezkiel Notch
 
 on:
   push:
-    branches: ["**"]
+    # desktop/* branches only start a Windows desktop (windows-desktop.yml).
+    branches: ["**", "!desktop/**"]
     tags: ["v*"]
     # The Windows app has its own workflow; changes only there don't rebuild the Mac app.
     paths-ignore: ["windows/**", ".github/workflows/windows.yml"]

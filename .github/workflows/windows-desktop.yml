@@ -1,0 +1,100 @@
+name: Windows desktop for hands-on testing
+
+# A throwaway Windows desktop with this commit's build installed, reachable over Remote Desktop through a
+# temporary Cloudflare tunnel. Start one by pushing any commit to a branch named desktop/<something>
+# (tools/windesk.sh in the owner's setup does that); cancel the run or delete the branch to end it.
+#
+# This repository is public, so its logs and artifacts are too: the password lives only in the RDP_PASSWORD
+# secret, the tunnel address is published only encrypted with it, and nothing here echoes either.
+
+on:
+  push:
+    branches: ["desktop/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-desktop
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      MINUTES: "150"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build the app (win-x64)
+        shell: pwsh
+        working-directory: windows/EzkielNotch.Windows
+        run: |
+          dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true -o C:\EzkielNotch --nologo -v q
+          Get-Item C:\EzkielNotch\EzkielNotch.exe | Format-Table Name, Length
+
+      - name: Remote Desktop user "tester"
+        shell: pwsh
+        env:
+          RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
+        run: |
+          if (-not $env:RDP_PASSWORD) { Write-Error "The RDP_PASSWORD secret is missing"; exit 1 }
+          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0
+          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name UserAuthentication -Value 1
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Set-Service TermService -StartupType Automatic; Start-Service TermService
+          $pw = ConvertTo-SecureString $env:RDP_PASSWORD -AsPlainText -Force
+          New-LocalUser -Name tester -Password $pw -PasswordNeverExpires -AccountNeverExpires -FullName "Ezkiel tester" | Out-Null
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member tester
+          Add-LocalGroupMember -Group "Users" -Member tester -ErrorAction SilentlyContinue
+          $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut("C:\Users\Public\Desktop\Ezkiel Notch.lnk")
+          $lnk.TargetPath = "C:\EzkielNotch\EzkielNotch.exe"; $lnk.Save()
+          # Indonesian keyboard/format is not needed; the app has its own language switch.
+          Write-Output "Remote Desktop is on for user tester"
+
+      - name: Tunnel (address published encrypted)
+        shell: pwsh
+        env:
+          RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
+        run: |
+          Invoke-WebRequest https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe -OutFile C:\cloudflared.exe
+          Start-Process C:\cloudflared.exe -ArgumentList "tunnel","--no-autoupdate","--url","rdp://localhost:3389","--logfile","C:\cloudflared.log" -WindowStyle Hidden
+          $hostname = $null
+          for ($i = 0; $i -lt 60 -and -not $hostname; $i++) {
+            Start-Sleep 2
+            if (Test-Path C:\cloudflared.log) {
+              $m = Select-String -Path C:\cloudflared.log -Pattern 'https://([a-z0-9-]+\.trycloudflare\.com)' | Select-Object -First 1
+              if ($m) { $hostname = $m.Matches[0].Groups[1].Value }
+            }
+          }
+          if (-not $hostname) { Write-Error "The tunnel did not come up"; exit 1 }
+          New-Item -ItemType Directory -Force C:\desk | Out-Null
+          $openssl = "C:\Program Files\Git\usr\bin\openssl.exe"
+          Set-Content -NoNewline -Path C:\desk\host.txt -Value $hostname
+          & $openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -a -A -in C:\desk\host.txt -out C:\desk\tunnel.enc -pass env:RDP_PASSWORD
+          Remove-Item C:\desk\host.txt
+          Write-Output "Tunnel is up (address in the encrypted 'tunnel' artifact)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tunnel
+          path: C:\desk\tunnel.enc
+          retention-days: 1
+
+      - name: Keep the desktop up (cancel the run to end it)
+        shell: pwsh
+        run: |
+          $end = (Get-Date).AddMinutes([int]$env:MINUTES)
+          while ((Get-Date) -lt $end) {
+            $left = [int]($end - (Get-Date)).TotalMinutes
+            $users = (quser 2>$null | Select-Object -Skip 1 | Measure-Object).Count
+            Write-Output ("{0:HH:mm} UTC · {1} min left · sessions: {2}" -f (Get-Date).ToUniversalTime(), $left, $users)
+            if (-not (Get-Process cloudflared -ErrorAction SilentlyContinue)) { Write-Error "Tunnel stopped"; exit 1 }
+            Start-Sleep 300
+          }
