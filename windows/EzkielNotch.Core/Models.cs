@@ -5,12 +5,14 @@ namespace EzkielNotch.Core;
 // The records in data.json. Field names, date format and decoding rules match the Mac app's NotchCore,
 // so one file works on both: copy it across and every task, note, clip, drink and focus session comes along.
 
-public sealed record TaskItem(Guid Id, string Title, bool Done, DateTime? Due, bool Reminded, DateTime Created)
+// Modified (sync, 1.9): when this version was made. Set by the sync; files from before 1.9 don't have it.
+
+public sealed record TaskItem(Guid Id, string Title, bool Done, DateTime? Due, bool Reminded, DateTime Created, DateTime? Modified = null)
 {
     public static TaskItem New(string title, DateTime? due = null) => new(Guid.NewGuid(), title, false, due, false, DateTime.UtcNow);
 }
 
-public sealed record NoteItem(Guid Id, string Title, string Body, DateTime Updated)
+public sealed record NoteItem(Guid Id, string Title, string Body, DateTime Updated, DateTime? Modified = null)
 {
     public static NoteItem New() => new(Guid.NewGuid(), "", "", DateTime.UtcNow);
 
@@ -37,13 +39,13 @@ public sealed record ShelfRecord(Guid Id, string Path, string? Bookmark, DateTim
     public string Name => Path.TrimEnd('\\', '/').Split('\\', '/').Last() is { Length: > 0 } n ? n : Path;
 }
 
-public sealed record WaterEntry(Guid Id, DateTime Date, int Ml)
+public sealed record WaterEntry(Guid Id, DateTime Date, int Ml, DateTime? Modified = null)
 {
     public static WaterEntry New(int ml, DateTime? at = null) => new(Guid.NewGuid(), at ?? DateTime.UtcNow, ml);
 }
 
 /// <summary>One finished focus session (breaks are not logged).</summary>
-public sealed record FocusEntry(Guid Id, DateTime Start, int Minutes)
+public sealed record FocusEntry(Guid Id, DateTime Start, int Minutes, DateTime? Modified = null)
 {
     public static FocusEntry New(DateTime start, int minutes) => new(Guid.NewGuid(), start, minutes);
 }
@@ -361,12 +363,13 @@ public sealed class AppData
                 ["reminded"] = t.Reminded, ["created"] = Json.Date(t.Created),
             };
             if (t.Due is { } due) j["due"] = Json.Date(due);
+            if (t.Modified is { } modified) j["modified"] = Json.Date(modified);
             return (JsonNode)j;
         }).ToArray());
-        o["notes"] = new JsonArray(Notes.Select(n => (JsonNode)new JsonObject
+        o["notes"] = new JsonArray(Notes.Select(n => (JsonNode)WithModified(new JsonObject
         {
             ["id"] = Json.Id(n.Id), ["title"] = n.Title, ["body"] = n.Body, ["updated"] = Json.Date(n.Updated),
-        }).ToArray());
+        }, n.Modified)).ToArray());
         o["clips"] = new JsonArray(Clips.Select(c => (JsonNode)new JsonObject
         {
             ["id"] = Json.Id(c.Id), ["text"] = c.Text, ["captured"] = Json.Date(c.Captured),
@@ -377,14 +380,14 @@ public sealed class AppData
             if (r.Bookmark is not null) j["bookmark"] = r.Bookmark;
             return (JsonNode)j;
         }).ToArray());
-        o["water"] = new JsonArray(Water.Select(w => (JsonNode)new JsonObject
+        o["water"] = new JsonArray(Water.Select(w => (JsonNode)WithModified(new JsonObject
         {
             ["id"] = Json.Id(w.Id), ["date"] = Json.Date(w.Date), ["ml"] = w.Ml,
-        }).ToArray());
-        o["focusLog"] = new JsonArray(FocusLog.Select(f => (JsonNode)new JsonObject
+        }, w.Modified)).ToArray());
+        o["focusLog"] = new JsonArray(FocusLog.Select(f => (JsonNode)WithModified(new JsonObject
         {
             ["id"] = Json.Id(f.Id), ["start"] = Json.Date(f.Start), ["minutes"] = f.Minutes,
-        }).ToArray());
+        }, f.Modified)).ToArray());
         o["scoutLog"] = new JsonArray(ScoutLog.Select(e => (JsonNode)e.Write()).ToArray());
         if (FocusState is { } fs) o["focusState"] = fs.Write(); else o.Remove("focusState");
         o["settings"] = Settings.Write();
@@ -394,18 +397,61 @@ public sealed class AppData
         return Json.Sorted(o)!.ToJsonString(Json.Pretty);
     }
 
-    // Each record needs every non-optional field, as the Mac's decoder does.
+    private static JsonObject WithModified(JsonObject o, DateTime? modified)
+    {
+        if (modified is { } m) o["modified"] = Json.Date(m);
+        return o;
+    }
+
+    /// <summary>Sync: the synced lists (tasks, notes, water, focusLog) exactly as data.json writes them.</summary>
+    public JsonObject SyncedJson()
+    {
+        var all = (JsonObject)JsonNode.Parse(ToJson())!;
+        var o = new JsonObject();
+        foreach (var kind in SyncMerge.Kinds) o[kind] = all[kind]?.DeepClone() ?? new JsonArray();
+        return o;
+    }
+
+    /// <summary>Sync: puts merged lists in. Returns whether anything changed. An entry that can't be read is skipped,
+    /// never the list.</summary>
+    public bool ApplySynced(JsonObject merged)
+    {
+        var tasks = Json.List(merged["tasks"], ReadTask);
+        var notes = Json.List(merged["notes"], ReadNote);
+        var water = Json.List(merged["water"], ReadWater);
+        var focus = Json.List(merged["focusLog"], ReadFocus);
+        bool changed = !tasks.SequenceEqual(Tasks) || !notes.SequenceEqual(Notes) || !water.SequenceEqual(Water) || !focus.SequenceEqual(FocusLog);
+        Tasks = tasks;
+        Notes = notes;
+        Water = water;
+        FocusLog = focus;
+        return changed;
+    }
+
+    /// <summary>Whether this version can load a synced entry. Ones it can't (a newer format, a broken file) are left out
+    /// of the merge: never kept here, so never in this device's file or base, so a later sync can't take them for
+    /// deleted. The other devices keep them.</summary>
+    public static bool CanHold(string kind, JsonNode? item) => item is JsonObject o && kind switch
+    {
+        "tasks" => ReadTask(o) is not null,
+        "notes" => ReadNote(o) is not null,
+        "water" => ReadWater(o) is not null,
+        "focusLog" => ReadFocus(o) is not null,
+        _ => true,
+    };
+
+    // Each record needs every non-optional field, as the Mac's decoder does. "modified" is optional (sync, 1.9).
 
     private static TaskItem? ReadTask(JsonObject o) =>
         Json.Guid(o["id"]) is { } id && Json.String(o["title"]) is { } title && Json.Bool(o["done"]) is { } done
         && Json.Bool(o["reminded"]) is { } reminded && Json.Date(o["created"]) is { } created
         && (o["due"] is null || Json.Date(o["due"]) is not null)
-            ? new TaskItem(id, title, done, Json.Date(o["due"]), reminded, created) : null;
+            ? new TaskItem(id, title, done, Json.Date(o["due"]), reminded, created, Json.Date(o["modified"])) : null;
 
     private static NoteItem? ReadNote(JsonObject o) =>
         Json.Guid(o["id"]) is { } id && Json.String(o["title"]) is { } title && Json.String(o["body"]) is { } body
         && Json.Date(o["updated"]) is { } updated
-            ? new NoteItem(id, title, body, updated) : null;
+            ? new NoteItem(id, title, body, updated, Json.Date(o["modified"])) : null;
 
     private static ClipItem? ReadClip(JsonObject o) =>
         Json.Guid(o["id"]) is { } id && Json.String(o["text"]) is { } text && Json.Date(o["captured"]) is { } captured
@@ -417,9 +463,9 @@ public sealed class AppData
 
     private static WaterEntry? ReadWater(JsonObject o) =>
         Json.Guid(o["id"]) is { } id && Json.Date(o["date"]) is { } date && Json.Int(o["ml"]) is { } ml
-            ? new WaterEntry(id, date, ml) : null;
+            ? new WaterEntry(id, date, ml, Json.Date(o["modified"])) : null;
 
     private static FocusEntry? ReadFocus(JsonObject o) =>
         Json.Guid(o["id"]) is { } id && Json.Date(o["start"]) is { } start && Json.Int(o["minutes"]) is { } minutes
-            ? new FocusEntry(id, start, minutes) : null;
+            ? new FocusEntry(id, start, minutes, Json.Date(o["modified"])) : null;
 }

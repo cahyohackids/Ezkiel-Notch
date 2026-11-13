@@ -1,0 +1,308 @@
+{
+  "name": "concurrent-edits",
+  "about": "The PC (B-PC) edited T1, N2 and N3 since its last sync; A-MAC and C-MAC2 edited too. Newest wins; an edit is stamped max(now, previous + 1 s), so it beats the version it was made on even though A's clock is an hour ahead (N3); equal times go to the lowest device id (T2, T3: A-MAC).",
+  "now": "2026-11-13T12:00:00Z",
+  "deviceId": "B-PC",
+  "local": {
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "Draft v2",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T10:00:00Z"
+      },
+      {
+        "id": "T2",
+        "title": "Gym",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      },
+      {
+        "id": "T3",
+        "title": "Read",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      }
+    ],
+    "notes": [
+      {
+        "id": "N1",
+        "title": "Plan",
+        "body": "v1",
+        "updated": "2026-11-13T09:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      },
+      {
+        "id": "N2",
+        "title": "List",
+        "body": "x local",
+        "updated": "2026-11-13T11:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      },
+      {
+        "id": "N3",
+        "title": "Skew",
+        "body": "s2 local",
+        "updated": "2026-11-13T11:50:00Z",
+        "modified": "2026-11-13T13:00:00Z"
+      }
+    ],
+    "water": [],
+    "focusLog": []
+  },
+  "base": {
+    "format": 1,
+    "deviceId": "B-PC",
+    "deviceName": "B-Pc",
+    "platform": "windows",
+    "appVersion": "1.9.0",
+    "written": "2026-11-13T10:00:00Z",
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "Draft",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T10:00:00Z"
+      },
+      {
+        "id": "T2",
+        "title": "Gym",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      },
+      {
+        "id": "T3",
+        "title": "Read",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      }
+    ],
+    "notes": [
+      {
+        "id": "N1",
+        "title": "Plan",
+        "body": "v1",
+        "updated": "2026-11-13T09:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      },
+      {
+        "id": "N2",
+        "title": "List",
+        "body": "x",
+        "updated": "2026-11-13T09:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      },
+      {
+        "id": "N3",
+        "title": "Skew",
+        "body": "s1",
+        "updated": "2026-11-13T09:00:00Z",
+        "modified": "2026-11-13T13:00:00Z"
+      }
+    ],
+    "water": [],
+    "focusLog": [],
+    "tombstones": {
+      "tasks": [],
+      "notes": [],
+      "water": [],
+      "focusLog": []
+    }
+  },
+  "remotes": [
+    {
+      "format": 1,
+      "deviceId": "C-MAC2",
+      "deviceName": "C-Mac2",
+      "platform": "mac",
+      "appVersion": "1.9.0",
+      "written": "2026-11-13T11:45:00Z",
+      "tasks": [
+        {
+          "id": "T2",
+          "title": "Gym 7pm",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T11:00:00Z"
+        },
+        {
+          "id": "T3",
+          "title": "Read C",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T09:00:00Z"
+        }
+      ],
+      "notes": [],
+      "water": [],
+      "focusLog": [],
+      "tombstones": {
+        "tasks": [],
+        "notes": [],
+        "water": [],
+        "focusLog": []
+      }
+    },
+    {
+      "format": 1,
+      "deviceId": "A-MAC",
+      "deviceName": "A-Mac",
+      "platform": "mac",
+      "appVersion": "1.9.0",
+      "written": "2026-11-13T11:30:00Z",
+      "tasks": [
+        {
+          "id": "T1",
+          "title": "Draft A",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T11:00:00Z"
+        },
+        {
+          "id": "T2",
+          "title": "Gym 6pm",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T11:00:00Z"
+        },
+        {
+          "id": "T3",
+          "title": "Read book",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T09:00:00Z"
+        }
+      ],
+      "notes": [
+        {
+          "id": "N1",
+          "title": "Plan",
+          "body": "v2 from A",
+          "updated": "2026-11-13T12:30:00Z",
+          "modified": "2026-11-13T12:30:00Z"
+        },
+        {
+          "id": "N2",
+          "title": "List",
+          "body": "x A",
+          "updated": "2026-11-13T11:30:00Z",
+          "modified": "2026-11-13T11:30:00Z"
+        },
+        {
+          "id": "N3",
+          "title": "Skew",
+          "body": "s1",
+          "updated": "2026-11-13T09:00:00Z",
+          "modified": "2026-11-13T13:00:00Z"
+        }
+      ],
+      "water": [],
+      "focusLog": [],
+      "tombstones": {
+        "tasks": [],
+        "notes": [],
+        "water": [],
+        "focusLog": []
+      }
+    }
+  ],
+  "expect": {
+    "data": {
+      "tasks": [
+        {
+          "id": "T1",
+          "title": "Draft v2",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T12:00:00Z"
+        },
+        {
+          "id": "T2",
+          "title": "Gym 6pm",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T11:00:00Z"
+        },
+        {
+          "id": "T3",
+          "title": "Read book",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T09:00:00Z"
+        }
+      ],
+      "notes": [
+        {
+          "id": "N1",
+          "title": "Plan",
+          "body": "v2 from A",
+          "updated": "2026-11-13T12:30:00Z",
+          "modified": "2026-11-13T12:30:00Z"
+        },
+        {
+          "id": "N2",
+          "title": "List",
+          "body": "x local",
+          "updated": "2026-11-13T11:00:00Z",
+          "modified": "2026-11-13T12:00:00Z"
+        },
+        {
+          "id": "N3",
+          "title": "Skew",
+          "body": "s2 local",
+          "updated": "2026-11-13T11:50:00Z",
+          "modified": "2026-11-13T13:00:01Z"
+        }
+      ],
+      "water": [],
+      "focusLog": []
+    },
+    "tombstones": {
+      "tasks": [],
+      "notes": [],
+      "water": [],
+      "focusLog": []
+    },
+    "changes": [
+      {
+        "kind": "tasks",
+        "id": "T2",
+        "change": "updated",
+        "from": "A-MAC"
+      },
+      {
+        "kind": "tasks",
+        "id": "T3",
+        "change": "updated",
+        "from": "A-MAC"
+      },
+      {
+        "kind": "notes",
+        "id": "N1",
+        "change": "updated",
+        "from": "A-MAC"
+      }
+    ],
+    "skipped": []
+  }
+}

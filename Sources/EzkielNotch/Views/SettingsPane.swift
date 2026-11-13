@@ -208,6 +208,8 @@ struct SettingsPane: View {
     private var features: some View {
         // Ask: the AI box (its key, model and test live in AskView.swift).
         AskSettingsCard(model: model, ask: model.ask)
+        // Sync between devices (tasks, notes, water, focus) through a cloud folder.
+        SyncCard(sync: model.sync)
         WeatherRow(model: model, weather: model.weather)
         ToggleRow(title: "Prowl", subtitle: "Green and orange dots while a camera or microphone is on", icon: "eye",
                   accent: Accent(light: Color(hex: 0x9BF0B4), deep: Color(hex: 0x30D158)), isOn: $model.settings.prowl)

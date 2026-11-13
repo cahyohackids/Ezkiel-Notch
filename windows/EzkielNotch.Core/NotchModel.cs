@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using static EzkielNotch.Core.Lang;
 
 namespace EzkielNotch.Core;
@@ -29,6 +30,8 @@ public sealed partial class NotchModel
     public event Action<ToastRequest>? Toast;
     /// <summary>Mac sound names: Glass, Ping, Purr, Tink, Bottle.</summary>
     public event Action<string>? Sound;
+    /// <summary>Data was handed to the store (the sync looks whether its lists changed).</summary>
+    public event Action? Saved;
 
     /// <summary>UTC clock; tests replace it.</summary>
     public Func<DateTime> Now { get; set; } = () => DateTime.UtcNow;
@@ -110,6 +113,7 @@ public sealed partial class NotchModel
             _dirty = false;
             Data.FocusState = Focus.Snapshot;
             Store?.Save(Data);
+            Saved?.Invoke();
         }
         // Said once a minute at most, on the UI thread (the write happens on another).
         if (_saveFailed && now - _saveWarned > TimeSpan.FromMinutes(1))
@@ -608,4 +612,21 @@ public sealed partial class NotchModel
         _dirty = true;
         Changed?.Invoke(everything ? null : Room.Settings);
     }
+
+    // MARK: Sync
+
+    /// <summary>Merged lists from other devices: shown, then on disk before the sync writes anything else.</summary>
+    public bool ApplySynced(JsonObject merged)
+    {
+        if (!Data.ApplySynced(merged)) return false;
+        if (SelectedNoteId is { } id && !Data.Notes.Any(n => n.Id == id)) SelectedNoteId = Data.Notes.FirstOrDefault()?.Id;
+        SaveNow();
+        foreach (var room in new[] { Room.Den, Room.Hunt, Room.Scratch, Room.Oasis }) Changed?.Invoke(room);
+        return true;
+    }
+
+    /// <summary>"Synced from <device>": something another device changed arrived here.</summary>
+    public void SyncPeek(string device, int changes) =>
+        Peek?.Invoke(new PeekRequest(L("Synced from %@", device), changes == 1 ? L("1 change") : L("%d changes", changes), Room.Settings, "",
+                                     Urgent: false, Look: new PeekLook("\uE895", PeekTint.Oasis)));
 }

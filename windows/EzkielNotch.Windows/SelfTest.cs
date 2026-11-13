@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Controls;
@@ -44,6 +45,8 @@ internal static class SelfTest
         m.SettingsChanged(everything: true);
 
         var fakeDownloads = Path.Combine(Path.GetTempPath(), "ezkiel-live-" + Guid.NewGuid().ToString("N")[..6]);
+        var syncFolder = Path.Combine(Path.GetTempPath(), $"ezkiel-sync-selftest-{Environment.ProcessId}");
+        JsonObject? syncBefore = null;
         List<(string Name, Action Act)> steps =
         [
             ("placed", () =>
@@ -786,6 +789,55 @@ internal static class SelfTest
                 m.SettingsChanged();
                 w.SysMon.Simulate(null);
                 Check(!w.SysPillOn && !w.ShowsWings, "no pill and no wings once the monitor is off");
+            }),
+            // 1.9: Sync. Two fake devices in a temp folder; the self-test's own data file, never the real one.
+            ("sync two devices", () =>
+            {
+                var sync = Platform.SyncService.Current!;
+                syncBefore = m.Data.SyncedJson();
+                if (Directory.Exists(syncFolder)) Directory.Delete(syncFolder, true);
+                var folder = SyncRunner.Directory(syncFolder);
+                Directory.CreateDirectory(folder);
+                var now = SyncTime.String(SyncTime.Ms(DateTime.UtcNow));
+                JsonObject File_(string id, string name, string platform, JsonArray tasks, JsonArray notes, JsonArray water) => new()
+                {
+                    ["format"] = 1, ["deviceId"] = id, ["deviceName"] = name, ["platform"] = platform, ["appVersion"] = "1.9.0",
+                    ["written"] = now, ["tasks"] = tasks, ["notes"] = notes, ["water"] = water, ["focusLog"] = new JsonArray(),
+                    ["tombstones"] = new JsonObject(),
+                };
+                var mac = File_("5E1F7E57-0000-4000-8000-0000000000B1", "Studio Mac", "mac",
+                    [new JsonObject { ["id"] = "5E1F7E57-0000-4000-8000-000000000011", ["title"] = "Book the venue (from the Mac)", ["done"] = false,
+                                      ["reminded"] = false, ["created"] = now, ["modified"] = now }],
+                    [], [new JsonObject { ["id"] = "5E1F7E57-0000-4000-8000-000000000012", ["date"] = now, ["ml"] = 330, ["modified"] = now }]);
+                var pc = File_("5E1F7E57-0000-4000-8000-0000000000B2", "Laptop", "windows", [],
+                    [new JsonObject { ["id"] = "5E1F7E57-0000-4000-8000-000000000013", ["title"] = "Synced note", ["body"] = "Written on the laptop",
+                                      ["updated"] = now, ["modified"] = now }], []);
+                File.WriteAllText(Path.Combine(folder, "5E1F7E57-0000-4000-8000-0000000000B1.json"), mac.ToJsonString());
+                File.WriteAllText(Path.Combine(folder, "5E1F7E57-0000-4000-8000-0000000000B2.json"), pc.ToJsonString());
+                sync.Simulate(syncFolder, "Self-test PC");
+            }),
+            ("sync wait", () => { }),
+            ("sync merged", () =>
+            {
+                var sync = Platform.SyncService.Current!;
+                Check(m.Data.Tasks.Any(t => t.Title == "Book the venue (from the Mac)"), "sync brings in the Mac's task");
+                Check(m.Data.Notes.Any(n => n.Title == "Synced note"), "sync brings in the laptop's note");
+                Check(m.Data.Water.Count(x => x.Id == Guid.Parse("5E1F7E57-0000-4000-8000-000000000012")) == 1, "a drink is counted once");
+                Check(sync.Config.Devices.Count == 2, $"both other devices are listed ({sync.Config.Devices.Count})");
+                Check(sync.Config.LastError is null, $"no sync error ({sync.Config.LastError})");
+                Check(File.Exists(Path.Combine(SyncRunner.Directory(syncFolder), sync.Config.DeviceId + ".json")), "this PC wrote its own file");
+                Check(m.Data.Tasks.All(t => t.Modified is not null), "synced items carry a modified time");
+                w.Select(Room.Settings);
+                w.Expand();
+            }),
+            ("sync stop", () =>
+            {
+                var sync = Platform.SyncService.Current!;
+                sync.Stop();
+                Check(!sync.Config.Enabled, "Stop syncing turns it off");
+                if (syncBefore is not null) m.ApplySynced(syncBefore);
+                try { Directory.Delete(syncFolder, true); } catch (Exception) { }
+                w.Collapse();
             }),
         ];
 

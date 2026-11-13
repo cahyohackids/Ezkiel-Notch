@@ -9,14 +9,18 @@ public struct TaskItem: Codable, Identifiable, Equatable {
     public var due: Date?
     public var reminded: Bool
     public var created: Date
+    /// Sync: when this version was made (set by the sync, missing in files from before 1.9).
+    public var modified: Date?
 
-    public init(id: UUID = UUID(), title: String, done: Bool = false, due: Date? = nil, reminded: Bool = false, created: Date = Date()) {
+    public init(id: UUID = UUID(), title: String, done: Bool = false, due: Date? = nil, reminded: Bool = false, created: Date = Date(),
+                modified: Date? = nil) {
         self.id = id
         self.title = title
         self.done = done
         self.due = due
         self.reminded = reminded
         self.created = created
+        self.modified = modified
     }
 }
 
@@ -25,12 +29,15 @@ public struct NoteItem: Codable, Identifiable, Equatable {
     public var title: String
     public var body: String
     public var updated: Date
+    /// Sync: when this version was made (set by the sync, missing in files from before 1.9).
+    public var modified: Date?
 
-    public init(id: UUID = UUID(), title: String = "", body: String = "", updated: Date = Date()) {
+    public init(id: UUID = UUID(), title: String = "", body: String = "", updated: Date = Date(), modified: Date? = nil) {
         self.id = id
         self.title = title
         self.body = body
         self.updated = updated
+        self.modified = modified
     }
 
     /// Title shown in lists: the explicit title, else the first line of the body.
@@ -75,11 +82,14 @@ public struct WaterEntry: Codable, Identifiable, Equatable {
     public var id: UUID
     public var date: Date
     public var ml: Int
+    /// Sync: when this version was made (set by the sync, missing in files from before 1.9).
+    public var modified: Date?
 
-    public init(id: UUID = UUID(), date: Date = Date(), ml: Int) {
+    public init(id: UUID = UUID(), date: Date = Date(), ml: Int, modified: Date? = nil) {
         self.id = id
         self.date = date
         self.ml = ml
+        self.modified = modified
     }
 }
 

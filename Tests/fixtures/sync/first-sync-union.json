@@ -1,0 +1,207 @@
+{
+  "name": "first-sync-union",
+  "about": "First sync on a Mac (no base, items without modified): union by id; an equal-time conflict (T2 done on the Mac, not on the PC) goes to the device id that sorts first; W1 on both is counted once.",
+  "now": "2026-11-13T12:00:00Z",
+  "deviceId": "A-MAC",
+  "local": {
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "Buy milk",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-10T08:00:00Z"
+      },
+      {
+        "id": "T2",
+        "title": "Call Rina",
+        "done": true,
+        "reminded": false,
+        "created": "2026-11-11T09:00:00Z"
+      }
+    ],
+    "notes": [
+      {
+        "id": "N1",
+        "title": "Ideas",
+        "body": "a",
+        "updated": "2026-11-12T10:00:00Z"
+      }
+    ],
+    "water": [
+      {
+        "id": "W1",
+        "date": "2026-11-13T08:00:00Z",
+        "ml": 250
+      }
+    ],
+    "focusLog": []
+  },
+  "base": null,
+  "remotes": [
+    {
+      "format": 1,
+      "deviceId": "B-PC",
+      "deviceName": "B-Pc",
+      "platform": "windows",
+      "appVersion": "1.9.0",
+      "written": "2026-11-13T11:00:00Z",
+      "tasks": [
+        {
+          "id": "T3",
+          "title": "Pay rent",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-12T07:00:00Z",
+          "modified": "2026-11-12T07:00:00Z"
+        },
+        {
+          "id": "T2",
+          "title": "Call Rina",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-11T09:00:00Z",
+          "modified": "2026-11-11T09:00:00Z"
+        }
+      ],
+      "notes": [
+        {
+          "id": "N2",
+          "title": "",
+          "body": "PC note",
+          "updated": "2026-11-13T09:00:00Z",
+          "modified": "2026-11-13T09:00:00Z"
+        }
+      ],
+      "water": [
+        {
+          "id": "W1",
+          "date": "2026-11-13T08:00:00Z",
+          "ml": 250,
+          "modified": "2026-11-13T08:00:00Z"
+        },
+        {
+          "id": "W2",
+          "date": "2026-11-13T09:30:00Z",
+          "ml": 300,
+          "modified": "2026-11-13T09:30:00Z"
+        }
+      ],
+      "focusLog": [
+        {
+          "id": "F1",
+          "start": "2026-11-13T07:00:00Z",
+          "minutes": 25,
+          "modified": "2026-11-13T07:00:00Z"
+        }
+      ],
+      "tombstones": {
+        "tasks": [],
+        "notes": [],
+        "water": [],
+        "focusLog": []
+      }
+    }
+  ],
+  "expect": {
+    "data": {
+      "tasks": [
+        {
+          "id": "T3",
+          "title": "Pay rent",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-12T07:00:00Z",
+          "modified": "2026-11-12T07:00:00Z"
+        },
+        {
+          "id": "T1",
+          "title": "Buy milk",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-10T08:00:00Z",
+          "modified": "2026-11-10T08:00:00Z"
+        },
+        {
+          "id": "T2",
+          "title": "Call Rina",
+          "done": true,
+          "reminded": false,
+          "created": "2026-11-11T09:00:00Z",
+          "modified": "2026-11-11T09:00:00Z"
+        }
+      ],
+      "notes": [
+        {
+          "id": "N2",
+          "title": "",
+          "body": "PC note",
+          "updated": "2026-11-13T09:00:00Z",
+          "modified": "2026-11-13T09:00:00Z"
+        },
+        {
+          "id": "N1",
+          "title": "Ideas",
+          "body": "a",
+          "updated": "2026-11-12T10:00:00Z",
+          "modified": "2026-11-12T10:00:00Z"
+        }
+      ],
+      "water": [
+        {
+          "id": "W1",
+          "date": "2026-11-13T08:00:00Z",
+          "ml": 250,
+          "modified": "2026-11-13T08:00:00Z"
+        },
+        {
+          "id": "W2",
+          "date": "2026-11-13T09:30:00Z",
+          "ml": 300,
+          "modified": "2026-11-13T09:30:00Z"
+        }
+      ],
+      "focusLog": [
+        {
+          "id": "F1",
+          "start": "2026-11-13T07:00:00Z",
+          "minutes": 25,
+          "modified": "2026-11-13T07:00:00Z"
+        }
+      ]
+    },
+    "tombstones": {
+      "tasks": [],
+      "notes": [],
+      "water": [],
+      "focusLog": []
+    },
+    "changes": [
+      {
+        "kind": "tasks",
+        "id": "T3",
+        "change": "added",
+        "from": "B-PC"
+      },
+      {
+        "kind": "notes",
+        "id": "N2",
+        "change": "added",
+        "from": "B-PC"
+      },
+      {
+        "kind": "water",
+        "id": "W2",
+        "change": "added",
+        "from": "B-PC"
+      },
+      {
+        "kind": "focusLog",
+        "id": "F1",
+        "change": "added",
+        "from": "B-PC"
+      }
+    ],
+    "skipped": []
+  }
+}
