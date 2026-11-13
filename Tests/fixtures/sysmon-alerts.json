@@ -1,0 +1,92 @@
+{
+  "comment": "System monitor: alert rules, counter maths and formatting. Read by both the Swift (NotchCoreTests) and the C# (EzkielNotch.Core.Tests) suites, so the Mac and Windows alert and print the same way. Alert samples are {t, id, v} or a run {from, to, step, id, v}; 'fires' lists every sample that should show a peek. Times are seconds.",
+  "rules": [
+    { "id": "cpu", "above": true, "on": 90, "off": 70, "sustain": 30, "cooldown": 900 },
+    { "id": "memory", "above": true, "on": 90, "off": 80, "sustain": 20, "cooldown": 1800 },
+    { "id": "disk", "above": false, "on": 5, "off": 6, "sustain": 0, "cooldown": 21600 }
+  ],
+  "spacing": 120,
+  "maxGap": 25,
+  "alerts": [
+    { "name": "CPU fires once after 30 s above 90",
+      "samples": [ { "from": 0, "to": 60, "step": 10, "id": "cpu", "v": 95 } ],
+      "fires": [ { "t": 30, "id": "cpu" } ] },
+    { "name": "exactly 90 counts",
+      "samples": [ { "from": 0, "to": 30, "step": 10, "id": "cpu", "v": 90 } ],
+      "fires": [ { "t": 30, "id": "cpu" } ] },
+    { "name": "a dip under 90 starts the wait over",
+      "samples": [ { "t": 0, "id": "cpu", "v": 95 }, { "t": 10, "id": "cpu", "v": 95 }, { "t": 20, "id": "cpu", "v": 85 },
+                   { "from": 30, "to": 60, "step": 10, "id": "cpu", "v": 95 } ],
+      "fires": [ { "t": 60, "id": "cpu" } ] },
+    { "name": "staying high never repeats",
+      "samples": [ { "from": 0, "to": 1000, "step": 10, "id": "cpu", "v": 97 } ],
+      "fires": [ { "t": 30, "id": "cpu" } ] },
+    { "name": "between off and on stays quiet",
+      "samples": [ { "from": 0, "to": 30, "step": 10, "id": "cpu", "v": 95 }, { "from": 40, "to": 60, "step": 10, "id": "cpu", "v": 80 },
+                   { "from": 70, "to": 1000, "step": 10, "id": "cpu", "v": 95 } ],
+      "fires": [ { "t": 30, "id": "cpu" } ] },
+    { "name": "re-armed under 70, then the 15 min cooldown",
+      "samples": [ { "from": 0, "to": 30, "step": 10, "id": "cpu", "v": 95 }, { "t": 40, "id": "cpu", "v": 60 },
+                   { "from": 50, "to": 1000, "step": 10, "id": "cpu", "v": 95 } ],
+      "fires": [ { "t": 30, "id": "cpu" }, { "t": 930, "id": "cpu" } ] },
+    { "name": "a pause in sampling starts the wait over",
+      "samples": [ { "t": 0, "id": "cpu", "v": 95 }, { "t": 10, "id": "cpu", "v": 95 },
+                   { "from": 50, "to": 80, "step": 10, "id": "cpu", "v": 95 } ],
+      "fires": [ { "t": 80, "id": "cpu" } ] },
+    { "name": "memory high for 20 s",
+      "samples": [ { "from": 0, "to": 40, "step": 10, "id": "memory", "v": 95 } ],
+      "fires": [ { "t": 20, "id": "memory" } ] },
+    { "name": "disk under 5 GB fires at once, quiet until 6 GB, then the cooldown",
+      "samples": [ { "t": 0, "id": "disk", "v": 4.2 }, { "t": 10, "id": "disk", "v": 4.0 }, { "t": 20, "id": "disk", "v": 5.5 },
+                   { "t": 30, "id": "disk", "v": 4.0 }, { "t": 40, "id": "disk", "v": 6.5 }, { "t": 50, "id": "disk", "v": 4.5 } ],
+      "fires": [ { "t": 0, "id": "disk" } ] },
+    { "name": "exactly 5 GB free is fine",
+      "samples": [ { "from": 0, "to": 30, "step": 10, "id": "disk", "v": 5 } ],
+      "fires": [] },
+    { "name": "two alerts keep 2 min apart",
+      "samples": [ { "from": 0, "to": 30, "step": 10, "id": "cpu", "v": 95 }, { "from": 40, "to": 160, "step": 10, "id": "disk", "v": 4.0 } ],
+      "fires": [ { "t": 30, "id": "cpu" }, { "t": 150, "id": "disk" } ] },
+    { "name": "an unknown rule never fires",
+      "samples": [ { "from": 0, "to": 60, "step": 10, "id": "gpu", "v": 100 } ],
+      "fires": [] }
+  ],
+  "memoryLoad": [
+    { "used": 97, "pressure": "normal", "load": 0 },
+    { "used": 50, "pressure": "warning", "load": 95 },
+    { "used": 50, "pressure": "critical", "load": 100 },
+    { "used": 92, "pressure": null, "load": 92 }
+  ],
+  "counterDelta": [
+    { "previous": 100, "current": 250, "bits": 64, "delta": 150 },
+    { "previous": 250, "current": 100, "bits": 64, "delta": null },
+    { "previous": 4294967000, "current": 200, "bits": 32, "delta": 496 },
+    { "previous": 1000000, "current": 200, "bits": 32, "delta": null },
+    { "previous": 100, "current": 100, "bits": 32, "delta": 0 }
+  ],
+  "rates": [
+    { "previous": { "en0": 1000, "en1": 500 }, "current": { "en0": 3000, "en1": 500, "en5": 99999 }, "seconds": 2, "bits": 64, "rate": 1000 },
+    { "previous": { "en0": 4294967000 }, "current": { "en0": 704 }, "seconds": 2, "bits": 32, "rate": 500 },
+    { "previous": { "en0": 5000 }, "current": { "en0": 100 }, "seconds": 2, "bits": 64, "rate": 0 },
+    { "previous": { "en0": 1 }, "current": { "en0": 2 }, "seconds": 0, "bits": 64, "rate": null }
+  ],
+  "cpu": [
+    { "previousBusy": 100, "previousIdle": 900, "busy": 150, "idle": 950, "percent": 50 },
+    { "previousBusy": 0, "previousIdle": 0, "busy": 30, "idle": 10, "percent": 75 },
+    { "previousBusy": 100, "previousIdle": 900, "busy": 100, "idle": 900, "percent": null },
+    { "previousBusy": 100, "previousIdle": 900, "busy": 90, "idle": 1000, "percent": null }
+  ],
+  "series": { "capacity": 3, "push": [1, 2, 3, 4], "values": [2, 3, 4],
+              "normalized": [ { "floor": 8, "values": [0.25, 0.375, 0.5] }, { "floor": 1, "values": [0.5, 0.75, 1] } ] },
+  "format": {
+    "rate": [ [0, "0 KB/s"], [49, "0 KB/s"], [4200, "4.2 KB/s"], [9940, "9.9 KB/s"], [9960, "10 KB/s"], [820000, "820 KB/s"],
+              [999400, "999 KB/s"], [999600, "1.0 MB/s"], [1250000, "1.3 MB/s"], [12400000, "12 MB/s"], [1100000000, "1.1 GB/s"],
+              [25000000000, "25 GB/s"] ],
+    "compactRate": [ [0, "0K"], [4200, "4.2K"], [820000, "820K"], [1250000, "1.3M"], [12400000, "12M"], [1100000000, "1.1G"] ],
+    "memory": [ [536870912, "512 MB"], [1063004405, "1014 MB"], [6549825126, "6.1 GB"], [8589934592, "8 GB"], [17179869184, "16 GB"],
+                [137438953472, "128 GB"] ],
+    "disk": [ [850000000, "850 MB"], [4200000000, "4.2 GB"], [5000000000, "5 GB"], [120400000000, "120 GB"], [999400000000, "999 GB"],
+              [1200000000000, "1.2 TB"] ],
+    "percent": [ [0, "0%"], [33.5, "34%"], [99.6, "100%"], [120, "100%"], [-3, "0%"] ],
+    "minutes": [ [0, "0m"], [45, "45m"], [60, "1h 00m"], [125, "2h 05m"], [600, "10h 00m"] ]
+  }
+}

@@ -212,6 +212,10 @@ struct CompactView: View {
             .foregroundStyle(waiting ? Accent.den.linear : Accent.scout.linear)
             .help(waiting ? L(agent.title) : "\(L(agent.title))\(agent.project.map { " · \($0)" } ?? "")")
             .transition(.scale.combined(with: .opacity))
+        } else if model.settings.sysmon && model.settings.sysmonPill != .off {
+            // System monitor: CPU % or network speed, while the user asked for it here.
+            SysMonPill(sysmon: model.sysmon, kind: model.settings.sysmonPill)
+                .transition(.scale.combined(with: .opacity))
         } else if let np = music.nowPlaying, np.isPlaying {
             EqualizerBars(playing: true, color: music.artworkAccent?.deep ?? np.player.tint, height: 12)
                 .transition(.scale.combined(with: .opacity))

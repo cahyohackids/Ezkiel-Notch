@@ -69,6 +69,11 @@ struct DenPane: View {
             }
 
             stats
+
+            if model.settings.sysmon {
+                SysMonCard(sysmon: model.sysmon)
+                    .transition(.opacity)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }

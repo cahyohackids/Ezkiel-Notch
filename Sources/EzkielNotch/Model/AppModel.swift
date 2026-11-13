@@ -109,6 +109,9 @@ final class AppModel: ObservableObject {
     /// Mirror covers the page of the open notch.
     @Published var mirrorOn = false
     let scout = ScoutService()
+    /// System monitor: CPU, memory, network, disk and battery for the Den card, the closed pill and its peeks.
+    let sysmon = SysMonService()
+    var sysAlerts = SysAlerts()
     /// Roar: when each app last peeked, so a busy chat doesn't peek on every message.
     var lastRoarPeek: [String: Date] = [:]
     /// Screens off or the session switched away: background work pauses.
@@ -226,6 +229,9 @@ final class AppModel: ObservableObject {
         music.start()
     }
 
+    /// The network as Whiskers last saw it (nil until the first report).
+    var networkOnline: Bool? { system.online }
+
     /// The data file in use (the default one, or `--data`).
     var dataFileURL: URL { store.url }
 
@@ -252,6 +258,7 @@ final class AppModel: ObservableObject {
         scout.setEnabled(s.scout)
         if !s.scout { agents = [:] }
         if old?.hotkey != s.hotkey { onHotkeyChange(s.hotkey) }
+        sysmonSettingsChanged(old: old)
         if old?.musicSource != s.musicSource {
             music.source = s.musicSource
             if old != nil { music.refresh() }
@@ -328,6 +335,7 @@ final class AppModel: ObservableObject {
         if !settings.minimalClosed { return true }
         // Unread messages are what Roar is for: the count stays visible in the calm closed notch.
         return chrome.hovering || hasLiveActivity || showsClosedLyrics || (settings.roar && unreadTotal > 0)
+            || (settings.sysmon && settings.sysmonPill != .off)
     }
 
     /// The closed notch grows a line underneath and sings along (Chorus).
@@ -338,7 +346,7 @@ final class AppModel: ObservableObject {
     /// Purr is taller while Chorus has lyrics to show.
     var purrShowsLyrics: Bool { settings.showLyrics && music.nowPlaying != nil }
 
-    var paneHeight: CGFloat { NotchMetrics.paneHeight(tab, lyrics: tab == .purr && purrShowsLyrics) }
+    var paneHeight: CGFloat { NotchMetrics.paneHeight(tab, lyrics: tab == .purr && purrShowsLyrics, sysmon: settings.sysmon) }
 
     var bodySize: CGSize {
         let bar = rowHeight
@@ -743,6 +751,7 @@ final class AppModel: ObservableObject {
         if focus.isFinished(at: now) { completeFocus() }
         // Nobody is looking: only the timer above (and due reminders, once back) matter.
         if screensAsleep { return }
+        sysmonTick(now: now)
 
         guard tickCount % 5 == 0 else { return }
         checkTasks(now)

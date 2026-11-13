@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using EzkielNotch.Core;
 using EzkielNotch.Island;
+using EzkielNotch.Platform;
 using static EzkielNotch.Core.Lang;
 
 namespace EzkielNotch.Rooms;
@@ -11,6 +12,13 @@ public sealed class DenPane(NotchModel model) : Pane(model, Room.Den)
 {
     private ProgressRing? _ring;
     private TextBlock? _time, _subtitle;
+    private SysMonCard? _sysmon;
+
+    /// <summary>The system monitor's readings; its card shows under the week while the monitor is on.</summary>
+    public SysMonSampler? SysMon { get; init; }
+
+    /// <summary>Taller by the system card while the monitor is on (the Mac's NotchMetrics.sysmonCard).</summary>
+    public override double DesiredHeight => Model.Settings.Sysmon && SysMon is not null ? Info.PaneHeight + 60 : Info.PaneHeight;
 
     public override void Refresh()
     {
@@ -19,6 +27,7 @@ public sealed class DenPane(NotchModel model) : Pane(model, Room.Den)
         RowDefinitions.Add(new RowDefinition { Height = Px(106) });
         RowDefinitions.Add(new RowDefinition { Height = Px(10) });
         RowDefinitions.Add(new RowDefinition { Height = Px(40) });
+        Height = DesiredHeight;
 
         var focus = Model.Focus;
         bool rest = focus.Mode == FocusMode.Rest;
@@ -67,6 +76,15 @@ public sealed class DenPane(NotchModel model) : Pane(model, Room.Den)
         Children.Add(At(top, 0, 0));
 
         Children.Add(At(Stats(), 0, 2));
+        _sysmon = null;
+        if (Model.Settings.Sysmon && SysMon is not null)
+        {
+            RowDefinitions.Add(new RowDefinition { Height = Px(10) });
+            RowDefinitions.Add(new RowDefinition { Height = Px(SysMonCard.CardHeight) });
+            _sysmon = new SysMonCard();
+            _sysmon.Update(SysMon);
+            Children.Add(At(_sysmon, 0, 4));
+        }
         SecondTick();
     }
 
@@ -97,6 +115,12 @@ public sealed class DenPane(NotchModel model) : Pane(model, Room.Den)
         if (f.IsPaused) return L("Paused");
         if (f.IsRunning) return f.Mode == FocusMode.Focus ? L("In the Den") : L("On a break");
         return f.Mode == FocusMode.Focus ? L("%d min focus", minutes) : L("%d min break", minutes);
+    }
+
+    /// <summary>A new reading arrived while Den shows.</summary>
+    public void SysMonUpdated()
+    {
+        if (_sysmon is not null && SysMon is not null) _sysmon.Update(SysMon);
     }
 
     public override void SecondTick()

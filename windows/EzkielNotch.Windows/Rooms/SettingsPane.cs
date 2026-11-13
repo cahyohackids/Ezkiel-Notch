@@ -128,6 +128,8 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
                 Ui.Chip("°C", !s.Fahrenheit, Accent.Neutral, () => { s.Fahrenheit = false; Changed(); }),
                 Ui.Chip("°F", s.Fahrenheit, Accent.Neutral, () => { s.Fahrenheit = true; Changed(); })]));
 
+        SysMonSettingsRows.AddSysMonRows(list, s, Toggle, Option, Changed, Refresh);
+
         list.Children.Add(Section("Roar & Scout"));
         list.Children.Add(Toggle("Roar", L("Unread counts from WhatsApp, Teams, Outlook and any app that notifies you. Only the number, no permission."),
                                  s.Roar, v => s.Roar = v, Accent.Roar));

@@ -383,6 +383,7 @@ public partial class IslandWindow : Window
         Model.Tick();
         if (DateTime.Now.Second == 0) Clock.Text = Lang.Time(DateTime.Now);
         if (Presentation == Presentation.Expanded) CurrentPane?.SecondTick();
+        SysMonTick();
         UpdateLive();
         if (_ticks % 60 == 0) Rally.Tick(DateTime.UtcNow);
         if (_ticks % 600 == 0) _ = Weather.Refresh();
@@ -1066,7 +1067,7 @@ public partial class IslandWindow : Window
         if (_panes.TryGetValue(room, out var pane)) return pane;
         pane = room switch
         {
-            Room.Den => new DenPane(Model),
+            Room.Den => new DenPane(Model) { SysMon = SysMon },
             Room.Hunt => new HuntPane(Model, Rally, () => SetMirror(true)),
             Room.Scratch => new ScratchPane(Model),
             Room.Oasis => new OasisPane(Model),

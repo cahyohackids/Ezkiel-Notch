@@ -191,6 +191,14 @@ public struct NotchSettings: Codable, Equatable {
     public var closedFace: ClosedFace = .eyes
     /// Which eyes: Ezkiel's lion eyes, sparkly anime eyes, a cat's, cute round ones or robot LEDs.
     public var eyeStyle: EyeStyle = .lion
+    /// System monitor: CPU, memory, network, battery and disk in Den (off until switched on; no sampling while off).
+    public var sysmon: Bool = false
+    /// System monitor: what the closed notch shows while it's on.
+    public var sysmonPill: SysPill = .off
+    /// System monitor peeks: CPU busy for 30 s, memory pressure high, startup disk under 5 GB.
+    public var sysmonCpuAlert: Bool = true
+    public var sysmonMemoryAlert: Bool = true
+    public var sysmonDiskAlert: Bool = true
     /// Bumped when defaults change in a way existing users should get too (see the decoder).
     public var defaultsRevision: Int = NotchSettings.currentRevision
     public static let currentRevision = 2
@@ -253,6 +261,12 @@ public struct NotchSettings: Codable, Equatable {
         closedFace = (try? c.decode(ClosedFace.self, forKey: .closedFace)) ?? (showMascot ? .eyes : .off)
         // An eye style from a newer version that this one doesn't know falls back to the lion's.
         eyeStyle = (try? c.decode(EyeStyle.self, forKey: .eyeStyle)) ?? d.eyeStyle
+        sysmon = (try? c.decode(Bool.self, forKey: .sysmon)) ?? d.sysmon
+        // A pill from a newer version that this one doesn't know falls back to none.
+        sysmonPill = (try? c.decode(SysPill.self, forKey: .sysmonPill)) ?? d.sysmonPill
+        sysmonCpuAlert = (try? c.decode(Bool.self, forKey: .sysmonCpuAlert)) ?? d.sysmonCpuAlert
+        sysmonMemoryAlert = (try? c.decode(Bool.self, forKey: .sysmonMemoryAlert)) ?? d.sysmonMemoryAlert
+        sysmonDiskAlert = (try? c.decode(Bool.self, forKey: .sysmonDiskAlert)) ?? d.sysmonDiskAlert
         let revision = (try? c.decode(Int.self, forKey: .defaultsRevision)) ?? 1
         if revision < 2 {
             // 1.3.1: calmer defaults. Only values still at the old default move; choices the user made stay.
