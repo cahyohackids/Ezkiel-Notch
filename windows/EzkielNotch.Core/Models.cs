@@ -390,6 +390,18 @@ public sealed class AppData
         return changed;
     }
 
+    /// <summary>Whether this version can load a synced entry. Ones it can't (a newer format, a broken file) are left out
+    /// of the merge: never kept here, so never in this device's file or base, so a later sync can't take them for
+    /// deleted. The other devices keep them.</summary>
+    public static bool CanHold(string kind, JsonNode? item) => item is JsonObject o && kind switch
+    {
+        "tasks" => ReadTask(o) is not null,
+        "notes" => ReadNote(o) is not null,
+        "water" => ReadWater(o) is not null,
+        "focusLog" => ReadFocus(o) is not null,
+        _ => true,
+    };
+
     // Each record needs every non-optional field, as the Mac's decoder does. "modified" is optional (sync, 1.9).
 
     private static TaskItem? ReadTask(JsonObject o) =>

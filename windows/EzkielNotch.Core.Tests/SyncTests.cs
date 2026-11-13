@@ -85,7 +85,9 @@ public class SyncTests
             var dir = SyncRunner.Directory(root);
             Directory.CreateDirectory(dir);
             File.WriteAllText(Path.Combine(dir, "MAC-1.json"), Device("MAC-1", "2026-11-13T11:00:00Z",
-                Task("C0FFEE00-0000-4000-8000-000000000001", "From Mac 1", "2026-11-13T10:00:00Z")).ToJsonString());
+                Task("C0FFEE00-0000-4000-8000-000000000001", "From Mac 1", "2026-11-13T10:00:00Z"),
+                // A newer version's entry this one can't load: left alone.
+                Task("not-a-guid", "Unreadable here", "2026-11-13T10:00:00Z")).ToJsonString());
             File.WriteAllText(Path.Combine(dir, "MAC-2.json"), Device("MAC-2", "2026-11-13T11:30:00Z",
                 Task("C0FFEE00-0000-4000-8000-000000000002", "From Mac 2", "2026-11-13T10:30:00Z")).ToJsonString());
             File.WriteAllText(Path.Combine(dir, "broken.json"), "{ half a file");
@@ -105,6 +107,8 @@ public class SyncTests
             Assert.NotNull(data.Tasks.Single(t => t.Title == "On the PC").Modified);
             SyncRunner.Commit(plan, root, basePath);
             Assert.True(File.Exists(Path.Combine(dir, "PC-1.json")));
+            Assert.Equal(3, SyncRunner.ReadJson(Path.Combine(dir, "PC-1.json"))!["tasks"]!.AsArray().Count);
+            Assert.Equal(2, SyncRunner.ReadJson(Path.Combine(dir, "MAC-1.json"))!["tasks"]!.AsArray().Count);
             Assert.False(Directory.GetFiles(dir).Any(f => Path.GetFileName(f).StartsWith('.')), "no temp file left behind");
 
             // Nothing new a minute later: nothing to write, nothing changes.

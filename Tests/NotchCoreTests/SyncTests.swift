@@ -78,9 +78,11 @@ final class SyncTests: XCTestCase {
         let root = try tempDir(), state = try tempDir()
         let dir = SyncRunner.directory(root)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try device("PC-1", written: "2026-11-13T11:00:00Z", tasks: [task("A", "From PC 1", "2026-11-13T10:00:00Z")]).encoded()
+        try device("PC-1", written: "2026-11-13T11:00:00Z", tasks: [task("C0FFEE00-0000-4000-8000-000000000001", "From PC 1", "2026-11-13T10:00:00Z"),
+                                                                     // A newer version's entry this one can't load: left alone.
+                                                                     task("not-a-uuid", "Unreadable here", "2026-11-13T10:00:00Z")]).encoded()
             .write(to: dir.appendingPathComponent("PC-1.json"))
-        try device("PC-2", written: "2026-11-13T11:30:00Z", tasks: [task("B", "From PC 2", "2026-11-13T10:30:00Z")]).encoded()
+        try device("PC-2", written: "2026-11-13T11:30:00Z", tasks: [task("C0FFEE00-0000-4000-8000-000000000002", "From PC 2", "2026-11-13T10:30:00Z")]).encoded()
             .write(to: dir.appendingPathComponent("PC-2.json"))
         try Data("{ half a file".utf8).write(to: dir.appendingPathComponent("broken.json"))
 
@@ -100,6 +102,9 @@ final class SyncTests: XCTestCase {
         XCTAssertNotNil(data.tasks.first { $0.title == "On the Mac" }?.modified, "modified is set by the sync")
         try SyncRunner.commit(plan, root: root, baseURL: baseURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("MAC-1.json").path))
+        let mine = try XCTUnwrap(SyncRunner.readJSON(dir.appendingPathComponent("MAC-1.json")))
+        XCTAssertEqual(mine["tasks"]?.array?.count, 3, "the entry it can't load stays out of this device's file")
+        XCTAssertEqual(SyncRunner.readJSON(dir.appendingPathComponent("PC-1.json"))?["tasks"]?.array?.count, 2, "and in PC-1's")
 
         // Nothing new a minute later: nothing to write, nothing changes.
         let base = SyncRunner.readJSON(baseURL)
@@ -116,7 +121,7 @@ final class SyncTests: XCTestCase {
         let dir = SyncRunner.directory(root)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let base = device("MAC-1", written: "2026-11-13T10:00:00Z", tasks: [])
-        try device("MAC-1", written: "2026-11-13T11:00:00Z", tasks: [task("X", "Written by the clone", "2026-11-13T11:00:00Z")]).encoded()
+        try device("MAC-1", written: "2026-11-13T11:00:00Z", tasks: [task("C0FFEE00-0000-4000-8000-000000000003", "Written by the clone", "2026-11-13T11:00:00Z")]).encoded()
             .write(to: dir.appendingPathComponent("MAC-1.json"))
         let now = try XCTUnwrap(SyncTime.date(.string("2026-11-13T12:00:00Z")))
         let plan = try SyncRunner.plan(root: root, deviceId: "MAC-1", deviceName: "Mac", platform: "mac", appVersion: "1.9.0",

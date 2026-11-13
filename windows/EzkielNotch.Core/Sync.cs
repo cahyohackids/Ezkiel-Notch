@@ -436,6 +436,16 @@ public static class SyncRunner
 
     public static string Directory(string root) => System.IO.Path.Combine(root, FolderName);
 
+    /// <summary>A device file without the entries this version can't load (see AppData.CanHold).</summary>
+    internal static JsonObject Loadable(JsonObject file)
+    {
+        var copy = (JsonObject)file.DeepClone();
+        foreach (var kind in SyncMerge.Kinds)
+            if (copy[kind] is JsonArray items)
+                copy[kind] = new JsonArray([.. items.Where(i => AppData.CanHold(kind, i)).Select(i => i?.DeepClone())]);
+        return copy;
+    }
+
     public static JsonObject? ReadJson(string path)
     {
         try
@@ -479,7 +489,7 @@ public static class SyncRunner
                 continue;
             }
             if (name == ownName && string.Equals(Json.String(file["deviceId"]), deviceId, StringComparison.OrdinalIgnoreCase)) own = file;
-            else remotes.Add(file);
+            else remotes.Add(Loadable(file));
         }
 
         string id = deviceId;
@@ -489,7 +499,7 @@ public static class SyncRunner
             // Not what this device wrote: its own older copy (the base was lost) or another computer cloned from this
             // one. Its data is merged either way; when a base exists, the other computer keeps the file and this
             // device takes a new id.
-            remotes.Add(own);
+            remotes.Add(Loadable(own));
             if (baseFile is not null)
             {
                 id = Guid.NewGuid().ToString("D").ToUpperInvariant();

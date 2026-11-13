@@ -86,6 +86,19 @@ public extension AppData {
         focusLog = list("focusLog", FocusEntry.self)
         return self != before
     }
+
+    /// Whether this version can load a synced entry. Ones it can't (a newer format, a broken file) are left out of the
+    /// merge: never kept here, so never in this device's file or base, so a later sync can't take them for deleted.
+    /// The other devices keep them.
+    static func canHold(_ kind: String, _ item: SyncJSON) -> Bool {
+        switch kind {
+        case "tasks": return item.decode(TaskItem.self) != nil
+        case "notes": return item.decode(NoteItem.self) != nil
+        case "water": return item.decode(WaterEntry.self) != nil
+        case "focusLog": return item.decode(FocusEntry.self) != nil
+        default: return true
+        }
+    }
 }
 
 /// Reads the sync folder, merges, and writes this device's file. Foundation only, so it runs in the tests too.
@@ -112,6 +125,15 @@ public enum SyncRunner {
         /// Files the cloud drive hasn't downloaded yet (asked for).
         public var waiting: Int
         public var needsWrite: Bool
+    }
+
+    /// A device file without the entries this version can't load (see AppData.canHold).
+    static func loadable(_ file: SyncJSON) -> SyncJSON {
+        guard case .object(var o) = file else { return file }
+        for kind in SyncMerge.kinds {
+            if let items = o[kind]?.array { o[kind] = .array(items.filter { AppData.canHold(kind, $0) }) }
+        }
+        return .object(o)
     }
 
     public static func readJSON(_ url: URL) -> SyncJSON? {
@@ -163,7 +185,7 @@ public enum SyncRunner {
             if name == ownName, file["deviceId"]?.string?.uppercased() == deviceId.uppercased() {
                 own = file
             } else {
-                remotes.append(file)
+                remotes.append(loadable(file))
             }
         }
 
@@ -176,7 +198,7 @@ public enum SyncRunner {
                 // Not what this device wrote: its own older copy (the base was lost) or another computer that was
                 // cloned from this one. Its data is merged either way; when a base exists, the other computer keeps
                 // the file and this device takes a new id.
-                remotes.append(own)
+                remotes.append(loadable(own))
                 if base != nil {
                     id = UUID().uuidString
                     newDeviceId = true
