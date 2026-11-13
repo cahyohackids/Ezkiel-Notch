@@ -12,7 +12,7 @@ namespace EzkielNotch.Rooms;
 /// the system drive, each with its number and, for the ones that move, a sparkline of the last two minutes.</summary>
 public sealed class SysMonCard : Grid
 {
-    public const double CardHeight = 48;
+    public const double CardHeight = 56;
     private static readonly Brush Berry = Ui.Frozen(new SolidColorBrush(Accent.Hex(0xFF5A7A)));
     private int _version = -1;
 
@@ -58,13 +58,6 @@ public sealed class SysMonCard : Grid
     private static Border Tile(string glyph, string label, string value, string detail, Brush valueBrush, IReadOnlyList<double> spark, Accent accent)
     {
         var g = new Grid();
-        if (spark.Count > 1)
-            // The last two minutes, small at the top right beside the label, so it never sits on the numbers.
-            g.Children.Add(new Sparkline(spark, accent.Deep)
-            {
-                Width = 30, Height = 9, Margin = new Thickness(0, 6, 7, 0),
-                HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false,
-            });
         var text = new StackPanel { Margin = new Thickness(7, 4, 7, 4) };
         var head = new StackPanel { Orientation = Orientation.Horizontal };
         head.Children.Add(Ui.Glyph(glyph, 8.5, Ui.Mist));
@@ -76,6 +69,9 @@ public sealed class SysMonCard : Grid
         number.TextTrimming = TextTrimming.CharacterEllipsis;
         text.Children.Add(number);
         text.Children.Add(Ui.Label(detail, 9, Ui.Faint));
+        // The last two minutes in its own thin row, so it never covers the words or numbers.
+        if (spark.Count > 1)
+            text.Children.Add(new Sparkline(spark, accent.Deep) { Height = 7, Margin = new Thickness(0, 2, 0, 0), IsHitTestVisible = false });
         g.Children.Add(text);
         return new Border
         {

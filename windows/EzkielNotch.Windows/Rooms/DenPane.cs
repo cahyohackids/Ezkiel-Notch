@@ -24,7 +24,7 @@ public sealed class DenPane(NotchModel model) : Pane(model, Room.Den)
     /// <summary>The focus timer, its stats, and the quick timers' row (the Mac's 196).</summary>
     public const double FullHeight = 196;
     /// <summary>Taller by the system card while the monitor is on (the Mac's NotchMetrics.sysmonCard).</summary>
-    public override double DesiredHeight => Model.Settings.Sysmon && SysMon is not null ? FullHeight + 60 : FullHeight;
+    public override double DesiredHeight => Model.Settings.Sysmon && SysMon is not null ? FullHeight + 68 : FullHeight;
     /// <summary>The quick-timer field, so the self-test can type into it.</summary>
     public TextBox? TimerInput => _timerInput;
 

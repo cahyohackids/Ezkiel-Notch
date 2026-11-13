@@ -48,14 +48,6 @@ struct SysMonCard: View {
                     Image(systemName: icon).font(.system(size: 8.5, weight: .semibold))
                     Text(L(label)).font(Theme.font(9, .medium)).lineLimit(1)
                     Spacer(minLength: 0)
-                    // The last two minutes, small beside the label, so it never sits on the numbers.
-                    if spark.count > 1 {
-                        Sparkline(values: spark)
-                            .fill(LinearGradient(colors: [accent.deep.opacity(0.3), accent.deep.opacity(0.03)], startPoint: .top, endPoint: .bottom))
-                            .overlay(Sparkline(values: spark, closed: false).stroke(accent.deep.opacity(0.85), lineWidth: 1))
-                            .frame(width: 30, height: 9)
-                            .allowsHitTesting(false)
-                    }
                     if let dot { Circle().fill(dot).frame(width: 5, height: 5) }
                 }
                 .foregroundStyle(Theme.mist)
@@ -69,6 +61,15 @@ struct SysMonCard: View {
                     .foregroundStyle(Theme.faint)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
+                // The last two minutes in its own thin row, so it never covers the words or numbers.
+                if spark.count > 1 {
+                    Sparkline(values: spark)
+                        .fill(LinearGradient(colors: [accent.deep.opacity(0.3), accent.deep.opacity(0.03)], startPoint: .top, endPoint: .bottom))
+                        .overlay(Sparkline(values: spark, closed: false).stroke(accent.deep.opacity(0.85), lineWidth: 1))
+                        .frame(height: 7)
+                        .padding(.top, 2)
+                        .allowsHitTesting(false)
+                }
             }
             .padding(.horizontal, 7)
             .padding(.vertical, 5)

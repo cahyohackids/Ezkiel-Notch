@@ -165,7 +165,7 @@ enum NotchMetrics {
     static let expandedShape = (radius: CGFloat(22), ear: CGFloat(13))
 
     /// Height of the system monitor card in Den, with the space above it.
-    static let sysmonCard: CGFloat = 60
+    static let sysmonCard: CGFloat = 68
 
     /// Each tab is only as tall as its content.
     static func paneHeight(_ tab: NotchTab, lyrics: Bool = false, sysmon: Bool = false) -> CGFloat {
