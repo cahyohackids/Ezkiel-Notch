@@ -258,8 +258,10 @@ public sealed class NotchSettings
         o["eyeStyle"] = EyeStyle;
         o["mascotSleeps"] = MascotSleeps;
         o["language"] = Language switch { AppLanguage.En => "en", AppLanguage.Id => "id", _ => "auto" };
-        // Without it the Mac would treat these as pre-1.3.1 settings and migrate them again.
-        o["defaultsRevision"] ??= CurrentRevision;
+        // Without it the Mac would treat these as pre-1.3.1 settings and migrate them again. These settings are
+        // migrated now (an old revision 1 stays behind would force the calmer closed island on every launch);
+        // a newer revision from a newer Mac is kept.
+        o["defaultsRevision"] = Math.Max(Json.Int(o["defaultsRevision"]) ?? 0, CurrentRevision);
         return o;
     }
 }
@@ -280,11 +282,13 @@ public sealed class AppData
     public NotchSettings Settings { get; set; } = new();
     /// <summary>The welcome note was offered once (the Mac's key, so a shared data.json doesn't offer it twice).</summary>
     public bool Onboarded { get; set; }
+    /// <summary>The last version a "new version is out" peek announced (the Mac's key), so it shows once, not every launch.</summary>
+    public string? AnnouncedVersion { get; set; }
 
     /// <summary>Top-level keys this app doesn't use yet (the shelf, Scout's log, update state…), kept as read.</summary>
     private JsonObject _rest = [];
 
-    private static readonly string[] Known = ["tasks", "notes", "clips", "shelf", "water", "focusLog", "scoutLog", "focusState", "settings", "onboarded"];
+    private static readonly string[] Known = ["tasks", "notes", "clips", "shelf", "water", "focusLog", "scoutLog", "focusState", "settings", "onboarded", "announcedVersion"];
 
     /// <summary>Parses data.json. Returns null only when the file isn't a JSON object at all.
     /// Like the Mac: one damaged entry costs that entry, never the whole list.</summary>
@@ -307,6 +311,7 @@ public sealed class AppData
             FocusState = FocusSnapshot.Read(o["focusState"]),
             Settings = NotchSettings.Read(o["settings"]),
             Onboarded = Json.Bool(o["onboarded"]) ?? false,
+            AnnouncedVersion = Json.String(o["announcedVersion"]),
         };
         foreach (var (key, value) in o)
             if (!Known.Contains(key)) d._rest[key] = value?.DeepClone();
@@ -352,6 +357,7 @@ public sealed class AppData
         if (FocusState is { } fs) o["focusState"] = fs.Write(); else o.Remove("focusState");
         o["settings"] = Settings.Write();
         o["onboarded"] = Onboarded;
+        if (AnnouncedVersion is not null) o["announcedVersion"] = AnnouncedVersion; else o.Remove("announcedVersion");
         // The Mac writes sorted keys; matching it keeps diffs between the two small.
         return Json.Sorted(o)!.ToJsonString(Json.Pretty);
     }

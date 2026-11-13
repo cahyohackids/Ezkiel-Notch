@@ -40,6 +40,7 @@ internal static class SelfTest
         m.Settings.Language = AppLanguage.En;
         m.SettingsChanged(everything: true);
 
+        ContextMenu? heldMenu = null;
         List<(string Name, Action Act)> steps =
         [
             ("placed", () =>
@@ -344,13 +345,22 @@ internal static class SelfTest
                 w.SimulateFullscreen(true);
                 w.ShowPeek("Song", "not urgent");
                 Check(w.Presentation == Presentation.Lip, "fullscreen holds back ordinary peeks");
-                w.ShowPeek("Task due", "Send the report", urgent: true);
-                Check(w.Presentation == Presentation.Peek, "urgent peeks still show");
             }),
             ("fullscreen lip hidden", () =>
             {
-                w.Collapse();
                 Check(w.Root.Opacity < 0.5 || !w.Root.IsHitTestVisible, "the lip steps away over fullscreen apps");
+                // The lip's fade-out has finished (and holds 0): an urgent peek must still be seen, not just clickable.
+                w.ShowPeek("Task due", "Send the report", urgent: true);
+                Check(w.Presentation == Presentation.Peek, "urgent peeks still show");
+                Check(w.Root.Opacity > 0.99 && w.Root.IsHitTestVisible, $"and are fully visible over fullscreen (opacity {w.Root.Opacity:0.00})");
+                w.Collapse();
+            }),
+            ("fullscreen open", () =>
+            {
+                Check(w.Root.Opacity < 0.5, "the lip steps away again once the peek is gone");
+                w.Expand();
+                Check(w.Root.Opacity > 0.99 && w.Root.IsHitTestVisible, $"opening over fullscreen (the shortcut, the tray) shows the island (opacity {w.Root.Opacity:0.00})");
+                w.Collapse();
                 w.SimulateFullscreen(false);
             }),
             ("hotkey toggle", () =>
@@ -385,6 +395,7 @@ internal static class SelfTest
                 Check(menu.Count(i => i.Header as string is "Notch" or "Island" && i.IsChecked) == 1, "and one of Notch or Island checked");
                 var tray = Platform.TrayIcon.Entries(w, "Ctrl+Alt+N", () => { }).Where(e => e is not null).Select(e => e!.Value).ToList();
                 Check(tray.Any(e => e.Text == "Keep Open" && e.Checked), "the tray menu shows Keep Open checked");
+                Check(tray.Any(e => e.Text == "Close") && !tray.Any(e => e.Text.StartsWith("Open")), "and Close (not Open) while the island is open");
                 Check(tray.Count(e => e.Text.Contains(" · ")) == RoomInfo.All.Length - 1, "the tray menu has an entry per room");
                 Check(tray.Any(e => e.Text == "Ezkiel Notch website") && tray.Any(e => e.Text == "Mirror"), "and the website and Mirror");
                 Check(!tray.Any(e => e.Text.StartsWith("Update to")), "and no update entry without an update");
@@ -414,6 +425,23 @@ internal static class SelfTest
                 Press(w, Key.Left);
                 Check(w.Selected == Room.Settings, "← goes back, and wraps around to Settings");
                 w.Select(before);
+                w.Collapse();
+            }),
+            ("any menu holds", () =>
+            {
+                // Any context menu (Stash's item menu, not only the island's own) holds the island like the Mac's
+                // menu tracking, so choosing an item doesn't close it first.
+                w.Expand();
+                heldMenu = new ContextMenu { PlacementTarget = w.Island };
+                heldMenu.Items.Add(new MenuItem { Header = "Remove from Stash" });
+                heldMenu.IsOpen = true;
+                w.PointerMoved(false);
+            }),
+            ("any menu holds ok", () =>
+            {
+                w.PointerMoved(false);
+                Check(w.Presentation == Presentation.Expanded, "a context menu that's up keeps the island open");
+                heldMenu!.IsOpen = false;
                 w.Collapse();
             }),
             ("island", () =>

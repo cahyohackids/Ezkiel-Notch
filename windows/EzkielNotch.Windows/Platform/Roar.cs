@@ -26,6 +26,8 @@ public sealed partial class RoarWatcher
     private readonly Dictionary<string, DateTime> _since = [];
     private DateTime _lastWrite;
     private bool _busy;
+    /// <summary>Bumped when Roar is switched off: a read still in flight from before then is dropped.</summary>
+    private int _generation;
 
     private static string Folder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "Windows", "Notifications");
 
@@ -38,7 +40,13 @@ public sealed partial class RoarWatcher
     public void SetEnabled(bool on)
     {
         if (on) { _timer.Start(); Poll(force: true); }
-        else { _timer.Stop(); Updated?.Invoke([]); }
+        else
+        {
+            _timer.Stop();
+            _generation++;
+            _lastWrite = default;   // switched on again, it reads afresh
+            Updated?.Invoke([]);
+        }
     }
 
     private void Poll(bool force = false)
@@ -54,10 +62,11 @@ public sealed partial class RoarWatcher
         if (!force && write == _lastWrite) return;
         _lastWrite = write;
         _busy = true;
+        int generation = _generation;
         Task.Run(() => Read(db)).ContinueWith(t =>
         {
             _busy = false;
-            if (t.Result is { } list) _ui.BeginInvoke(() => Updated?.Invoke(list));
+            if (t.Result is { } list) _ui.BeginInvoke(() => { if (generation == _generation) Updated?.Invoke(list); });
         });
     }
 

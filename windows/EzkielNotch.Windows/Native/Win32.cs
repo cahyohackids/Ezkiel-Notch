@@ -48,6 +48,19 @@ internal static partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool GetCursorPos(out POINT point);
 
+    /// <summary>The window under a screen point (layered windows' fully transparent pixels and click-through
+    /// windows are skipped, as for a click).</summary>
+    [LibraryImport("user32.dll")]
+    public static partial nint WindowFromPoint(POINT point);
+
+    public const uint GA_ROOT = 2;
+
+    [LibraryImport("user32.dll")]
+    public static partial nint GetAncestor(nint hWnd, uint flags);
+
+    /// <summary>Clicks pass through the whole window (with WS_EX_LAYERED).</summary>
+    public const int WS_EX_TRANSPARENT = 0x00000020;
+
     /// <summary>High bit set while the key (or mouse button: 0x01 = left) is down.</summary>
     [LibraryImport("user32.dll")]
     public static partial short GetAsyncKeyState(int vKey);

@@ -283,6 +283,27 @@ final class DataSafetyTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: broken.path))
     }
 
+    /// A data.json that's there but can't be read is never treated as "no data": it's reported and kept aside,
+    /// and the next save doesn't write over it.
+    func testUnreadableFileIsKeptNotOverwritten() throws {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("ezk-\(UUID().uuidString)")
+        let store = DataStore(url: dir.appendingPathComponent("data.json"))
+        // A directory where the file should be: it exists, but reading it fails (also when the tests run as root).
+        try fm.createDirectory(at: store.url, withIntermediateDirectories: true)
+        try Data("keep".utf8).write(to: store.url.appendingPathComponent("inside.txt"))
+        _ = store.load()
+        guard case .startedFresh(let broken)? = store.recovery else { return XCTFail("expected a recovery, not a fresh start") }
+        store.save(AppData(), synchronously: true)
+        XCTAssertEqual(try String(contentsOf: broken.appendingPathComponent("inside.txt"), encoding: .utf8), "keep")
+        XCTAssertNoThrow(try Data(contentsOf: store.url))
+
+        // A missing file is still a quiet fresh start.
+        let fresh = DataStore(url: dir.appendingPathComponent("none/data.json"))
+        _ = fresh.load()
+        XCTAssertNil(fresh.recovery)
+    }
+
     func testCalmerDefaultsMigrate() throws {
         let old = #"{"hoverDelay":0.12,"minimalClosed":false}"#
         let s = try JSONDecoder().decode(NotchSettings.self, from: Data(old.utf8))

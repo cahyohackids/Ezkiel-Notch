@@ -46,6 +46,17 @@ public class DataFormatTests
         Assert.Equal(2, (int)s["defaultsRevision"]!);
     }
 
+    /// <summary>The "new version is out" peek is remembered in the Mac's key, so it isn't shown again every launch.</summary>
+    [Fact]
+    public void AnnouncedVersionRoundTrips()
+    {
+        var d = AppData.FromJson(Fixture("mac-data.json"))!;
+        Assert.Equal("1.5.0", d.AnnouncedVersion);
+        d.AnnouncedVersion = "1.9.0";
+        Assert.Equal("1.9.0", AppData.FromJson(d.ToJson())!.AnnouncedVersion);
+        Assert.False(JsonNode.Parse(new AppData().ToJson())!.AsObject().ContainsKey("announcedVersion"));
+    }
+
     [Fact]
     public void WritesTheMacsDateUuidAndKeyFormat()
     {
@@ -127,6 +138,43 @@ public class DataStoreTests : IDisposable
         Assert.Empty(store.Load().Tasks);
         Assert.IsType<DataStore.StartedFresh>(store.LastRecovery);
         Assert.False(File.Exists(DataPath));
+    }
+
+    /// <summary>A data.json that's there but locked for a moment (a sync tool, antivirus) is read once it's free,
+    /// not replaced by an empty start.</summary>
+    [Fact]
+    public void ALockedFileIsReadOnceItsFree()
+    {
+        var store = new DataStore(DataPath);
+        var d = new AppData();
+        d.Tasks.Add(TaskItem.New("jangan hilang"));
+        store.Save(d, synchronously: true);
+        var lockFile = new FileStream(DataPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        _ = Task.Run(async () => { await Task.Delay(300); lockFile.Dispose(); });
+        var loaded = new DataStore(DataPath).Load();
+        Assert.Equal("jangan hilang", loaded.Tasks.Single().Title);
+    }
+
+    /// <summary>A data.json that stays unreadable is handled like a damaged one: the user is told, and the next save
+    /// never writes over the original (it's kept as data.broken-….json).</summary>
+    [Fact]
+    public void AnUnreadableFileIsKeptNotOverwritten()
+    {
+        var store = new DataStore(DataPath);
+        var d = new AppData();
+        d.Tasks.Add(TaskItem.New("jangan hilang"));
+        store.Save(d, synchronously: true);
+        var original = File.ReadAllText(DataPath);
+        DataStore.Recovery? recovery;
+        using (new FileStream(DataPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.Empty(store.Load().Tasks);
+            recovery = store.LastRecovery;
+            Assert.IsType<DataStore.StartedFresh>(recovery);
+            store.Save(new AppData(), synchronously: true);   // e.g. onboarding, while it's still locked
+        }
+        store.Save(new AppData(), synchronously: true);
+        Assert.Equal(original, File.ReadAllText(recovery!.Broken));
     }
 
     [Fact]
@@ -794,6 +842,21 @@ public class ClosedAndSharingSettingTests
     {
         Assert.True(AppData.FromJson("""{"settings":{"minimalClosed":false}}""")!.Settings.MinimalClosed);
         Assert.True(AppData.FromJson("""{"settings":{"minimalClosed":false,"defaultsRevision":1}}""")!.Settings.MinimalClosed);
+    }
+
+    /// <summary>Old settings are migrated once: they're written back as the current revision, so turning the minimal
+    /// closed island off sticks across launches (revision 1 stayed and re-forced it every time). A newer revision
+    /// from a newer Mac is kept.</summary>
+    [Fact]
+    public void OldSettingsAreMigratedOnce()
+    {
+        var d = AppData.FromJson("""{"settings":{"minimalClosed":false,"defaultsRevision":1}}""")!;
+        d.Settings.MinimalClosed = false;   // the user turns it off again
+        var json = d.ToJson();
+        Assert.Equal(NotchSettings.CurrentRevision, (int)JsonNode.Parse(json)!["settings"]!["defaultsRevision"]!);
+        Assert.False(AppData.FromJson(json)!.Settings.MinimalClosed);
+        var newer = AppData.FromJson("""{"settings":{"defaultsRevision":7}}""")!.ToJson();
+        Assert.Equal(7, (int)JsonNode.Parse(newer)!["settings"]!["defaultsRevision"]!);
     }
 
     /// <summary>The Mac's older showMascot is only read (no face when off) and written back as it was.</summary>

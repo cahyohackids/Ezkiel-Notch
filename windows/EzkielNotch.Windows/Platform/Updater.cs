@@ -150,6 +150,8 @@ public sealed class TrayIcon : IDisposable
             Fill(menu.Items);
             e.Cancel = false;   // an empty strip starts out cancelled
         };
+        // The tray menu stays out of screen sharing with the island.
+        menu.Opened += (_, _) => Island.IslandWindow.ExcludeFromCapture(menu.Handle, window.Model.Settings.HideFromScreenShare);
         Fill(menu.Items);
         _icon = new System.Windows.Forms.NotifyIcon
         {
@@ -158,7 +160,8 @@ public sealed class TrayIcon : IDisposable
             ContextMenuStrip = menu,
             Visible = true,
         };
-        _icon.MouseClick += (_, e) => { if (e.Button == System.Windows.Forms.MouseButtons.Left) window.Toggle(); };
+        // The press that starts this click already closed an open island (a press outside closes it): leave it closed.
+        _icon.MouseClick += (_, e) => { if (e.Button == System.Windows.Forms.MouseButtons.Left && !window.JustClosedByPress) window.Toggle(); };
     }
 
     /// <summary>The chosen shortcut, shown beside Open.</summary>
@@ -192,7 +195,7 @@ public sealed class TrayIcon : IDisposable
             }, false));
             list.Add(null);
         }
-        list.Add((Lang.L("Open") + $"  ({hotkey})", w.Toggle, false));
+        list.Add((w.Presentation == Island.Presentation.Expanded ? Lang.L("Close") : Lang.L("Open") + $"  ({hotkey})", w.Toggle, false));
         list.Add((Lang.L("Keep Open"), () => w.SetPinned(!w.Pinned), w.Pinned));
         list.Add(null);
         foreach (var info in Island.RoomInfo.All)
@@ -204,7 +207,8 @@ public sealed class TrayIcon : IDisposable
         list.Add(null);
         list.Add((Lang.L("Mirror"), () =>
         {
-            if (w.Presentation != Island.Presentation.Expanded) w.Expand();
+            // Opened from the tray, like a room: the pointer being elsewhere doesn't close it.
+            w.OpenRoom(w.Selected);
             w.SetMirror(true);
         }, false));
         list.Add(null);

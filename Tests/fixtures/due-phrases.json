@@ -37,6 +37,13 @@
     { "text": "baca 3.5 bab", "title": "baca 3.5 bab", "due": null },
     { "text": "jam tangan baru", "title": "jam tangan baru", "due": null },
     { "text": "makan malam", "title": "makan malam", "due": null },
-    { "text": "kul 25", "title": "kul 25", "due": null }
+    { "text": "kul 25", "title": "kul 25", "due": null },
+    { "text": "jam ３", "title": "jam ３", "due": null },
+    { "text": "jam ٣", "title": "jam ٣", "due": null },
+    { "text": "rapat ١٥:٣٠", "title": "rapat ١٥:٣٠", "due": null },
+    { "text": "dalam ３ jam", "title": "dalam ３ jam", "due": null },
+    { "text": "２０ menit lagi", "title": "２０ menit lagi", "due": null },
+    { "text": "makan ７pm", "title": "makan ７pm", "due": null },
+    { "text": "jam 3٣", "title": "jam 3٣", "due": null }
   ]
 }

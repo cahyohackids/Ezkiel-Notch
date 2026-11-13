@@ -17,6 +17,21 @@ public partial class App : Application
         base.OnStartup(e);
         bool selfTest = e.Args.Contains("--self-test");
 
+        // Whatever nothing else caught goes to crash.log. An error in a click or a timer doesn't take the island
+        // down (in the self-test it does, so it fails loudly).
+        DispatcherUnhandledException += (_, args) =>
+        {
+            Platform.CrashLog.Write("ui", args.Exception);
+            args.Handled = !selfTest;
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+            Platform.CrashLog.Write(args.IsTerminating ? "fatal" : "background", args.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            Platform.CrashLog.Write("task", args.Exception);
+            args.SetObserved();
+        };
+
         // Scout senders (a Claude Code hook, Codex, a script, an ezkielnotch:// link) pass their event to the
         // running app and quit without showing anything.
         string? pendingUrl = null;
@@ -86,6 +101,10 @@ public partial class App : Application
                 case DataStore.StartedFresh:
                     window.ShowPeek(L("Couldn't read your data"), L("It's kept as data.broken-….json in the data folder"), 8,
                                     urgent: true, room: Room.Settings, look: PeekLooks.Of(PeekKind.DataBroken));
+                    break;
+                // The welcome peek would hide that the shortcut didn't register: say that instead.
+                case null when !window.HotKeyRegistered:
+                    window.ReportHotkeyTaken();
                     break;
                 default:
                     window.ShowPeek("Ezkiel Notch", e.Args.Contains("--updated")

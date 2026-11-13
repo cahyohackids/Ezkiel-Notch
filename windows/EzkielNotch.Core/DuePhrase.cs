@@ -17,18 +17,18 @@ public static class DuePhrase
     private const string Periods = @"(pagi|subuh|siang|sore|petang|malam)";
 
     // "dalam 2 jam", "in 20 min" · "15 menit lagi", "3 jam lagi"
-    private static readonly Regex RelativeIn = new(@"\b(?:dalam|in)\s+(\d{1,3})\s*" + Units + @"\b", Options);
-    private static readonly Regex RelativeLater = new(@"\b(\d{1,3})\s*" + Units + @"\s+(?:lagi|later)\b", Options);
+    private static readonly Regex RelativeIn = new(@"\b(?:dalam|in)\s+([0-9]{1,3})\s*" + Units + @"\b", Options);
+    private static readonly Regex RelativeLater = new(@"\b([0-9]{1,3})\s*" + Units + @"\s+(?:lagi|later)\b", Options);
     // "besok", "esok", "lusa", "hari ini", "malam ini", "tomorrow", "tonight", optionally "besok pagi"
     private static readonly Regex Day = new(@"\b(besok|esok|tomorrow|lusa|hari ini|today|malam ini|tonight)\b(?:\s+" + Periods + @"\b)?", Options);
     // "jam setengah 4" = 3:30
-    private static readonly Regex Half = new(@"\b(?:jam|pukul|pkl|kul)\s+setengah\s+(\d{1,2})(?!\d)", Options);
+    private static readonly Regex Half = new(@"\b(?:jam|pukul|pkl|kul)\s+setengah\s+([0-9]{1,2})(?!\d)", Options);
     // "jam 3", "pukul 15.30", "kul 3", "at 9:15am", "@ 12:30"
-    private static readonly Regex Prefixed = new(@"(?:\b(?:jam|pukul|pkl|kul|at)\b|@)\s*(\d{1,2})(?:[.:](\d{2}))?(?!\d|[.:]\d)(?:\s*(am|pm)\b)?", Options);
+    private static readonly Regex Prefixed = new(@"(?:\b(?:jam|pukul|pkl|kul|at)\b|@)\s*([0-9]{1,2})(?:[.:]([0-9]{2}))?(?!\d|[.:]\d)(?:\s*(am|pm)\b)?", Options);
     // "15:30", "9:15am" (a bare dot, like "1.10", is a number, not a time)
-    private static readonly Regex Colon = new(@"\b(\d{1,2}):(\d{2})(?!\d)(?:\s*(am|pm)\b)?", Options);
+    private static readonly Regex Colon = new(@"\b([0-9]{1,2}):([0-9]{2})(?!\d)(?:\s*(am|pm)\b)?", Options);
     // "7pm", "10 am", "3.30pm"
-    private static readonly Regex AmPm = new(@"\b(\d{1,2})(?:[.:](\d{2}))?\s*(am|pm)\b", Options);
+    private static readonly Regex AmPm = new(@"\b([0-9]{1,2})(?:[.:]([0-9]{2}))?\s*(am|pm)\b", Options);
     // A period right after the time: "jam 7 malam", "kul 5 petang"
     private static readonly Regex PeriodAfter = new(@"\G\s+" + Periods + @"\b", Options);
     // A word that only joins the time to the task: "rapat pada jam 4"
@@ -41,7 +41,8 @@ public static class DuePhrase
 
         if (Find(text, RelativeIn, RelativeLater) is { } rel)
         {
-            int n = int.Parse(rel.Groups[1].Value);
+            // The patterns only take ASCII digits; TryParse is the second guard against a crash on "jam ３".
+            if (!int.TryParse(rel.Groups[1].Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int n)) return null;
             var unit = rel.Groups[2].Value.ToLowerInvariant();
             due = unit is "jam" or "hour" or "hours" or "hr" or "hrs" ? now.AddHours(n) : now.AddMinutes(n);
             if (n == 0) return null;
@@ -66,10 +67,11 @@ public static class DuePhrase
             var half = Half.Match(text);
             var time = half.Success ? half : Prefixed.Match(text) is { Success: true } p ? p
                      : Colon.Match(text) is { Success: true } c ? c : AmPm.Match(text);
-            if (time.Success)
+            if (time.Success && Number(time.Groups[1]) is { } parsedHour
+                && (half.Success || !time.Groups[2].Success || Number(time.Groups[2]) is not null))
             {
-                int h = int.Parse(time.Groups[1].Value);
-                int m = half.Success ? 30 : time.Groups[2].Success ? int.Parse(time.Groups[2].Value) : 0;
+                int h = parsedHour;
+                int m = half.Success ? 30 : time.Groups[2].Success ? Number(time.Groups[2])!.Value : 0;
                 if (half.Success) h -= 1;
                 if (time != half && time.Groups[3].Success) meridiem = time.Groups[3].Value.ToLowerInvariant();
                 if (h is >= 0 and <= 23 && m is >= 0 and <= 59 && !(meridiem is not null && (h == 0 || h > 12)))
@@ -101,6 +103,9 @@ public static class DuePhrase
         if (due is null) return null;
         return new Result(Strip(text, spans), due.Value);
     }
+
+    private static int? Number(Group g) =>
+        int.TryParse(g.Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int n) ? n : null;
 
     /// <summary>The first match of any of the patterns, earliest in the text.</summary>
     private static Match? Find(string text, params Regex[] patterns) =>

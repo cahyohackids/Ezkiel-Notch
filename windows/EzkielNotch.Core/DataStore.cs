@@ -24,6 +24,10 @@ public sealed class DataStore(string path)
 
     private readonly object _gate = new();
     private long _queued, _written;
+    /// <summary>An unreadable data.json that couldn't be moved aside yet: where it goes before the next write.</summary>
+    private string? _setAside;
+    private const int ReadAttempts = 5;
+    private static readonly TimeSpan ReadRetryDelay = TimeSpan.FromMilliseconds(200);
 
     /// <summary>A write failed (disk full, a locked file, no permission): the message, from the writing thread.</summary>
     public event Action<string>? SaveFailed;
@@ -34,11 +38,23 @@ public sealed class DataStore(string path)
     public AppData Load(DateTime? now = null)
     {
         LastRecovery = null;
-        string text;
-        try { text = File.ReadAllText(Path, Encoding.UTF8); }
-        catch (Exception) { return new AppData(); }
+        // Only a file that isn't there is a fresh start. One that's there but can't be read (locked by a sync or
+        // antivirus tool, no permission) gets a few more tries, then is handled like a damaged one: kept, never
+        // overwritten by an empty start.
+        string? text = null;
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                text = File.ReadAllText(Path, Encoding.UTF8);
+                break;
+            }
+            catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) { return new AppData(); }
+            catch (Exception) when (attempt < ReadAttempts) { Thread.Sleep(ReadRetryDelay); }
+            catch (Exception) { break; }
+        }
 
-        if (AppData.FromJson(text) is { } data)
+        if (text is not null && AppData.FromJson(text) is { } data)
         {
             RefreshBackup(now ?? DateTime.Now);
             return data;
@@ -46,7 +62,8 @@ public sealed class DataStore(string path)
 
         var stamp = (now ?? DateTime.Now).ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
         var broken = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Path)!, $"data.broken-{stamp}.json");
-        try { File.Move(Path, broken, overwrite: true); } catch (Exception) { }
+        // If it can't be moved aside now (still locked), the first save moves it before writing, or doesn't write.
+        try { File.Move(Path, broken, overwrite: true); } catch (Exception) { lock (_gate) _setAside = broken; }
 
         try
         {
@@ -86,6 +103,12 @@ public sealed class DataStore(string path)
                 try
                 {
                     Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
+                    if (_setAside is { } aside)
+                    {
+                        // Throws while it's still locked: then nothing is written over it.
+                        if (File.Exists(Path)) File.Move(Path, aside, overwrite: true);
+                        _setAside = null;
+                    }
                     var tmp = Path + ".tmp";
                     File.WriteAllText(tmp, text, new UTF8Encoding(false));
                     File.Move(tmp, Path, overwrite: true);

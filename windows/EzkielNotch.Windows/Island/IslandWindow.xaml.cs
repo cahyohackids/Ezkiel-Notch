@@ -105,8 +105,17 @@ public partial class IslandWindow : Window
         uint vk = choice switch { "controlOptionSpace" => 0x20u, "optionCommandI" => 0x49u, _ => 0x4Eu };
         HotKeyRegistered = Win32.RegisterHotKey(_hwnd, HotKeyId, Win32.MOD_CONTROL | Win32.MOD_ALT | Win32.MOD_NOREPEAT, vk);
         _registeredHotkey = choice;
-        if (!HotKeyRegistered) ShowToast(new ToastRequest(L("%@ is taken by another app", HotkeyLabel(choice))));
+        if (!HotKeyRegistered) ReportHotkeyTaken();
         Tray?.Relabel(HotkeyLabel(choice));
+    }
+
+    /// <summary>The shortcut couldn't be registered: a toast in the open island, else a peek (at launch the island is
+    /// closed, and a toast would never be seen). Clicking the peek opens Settings to pick another.</summary>
+    public void ReportHotkeyTaken()
+    {
+        var text = L("%@ is taken by another app", HotkeyLabel(Model.Settings.Hotkey));
+        if (Presentation == Presentation.Expanded) ShowToast(new ToastRequest(text));
+        else ShowPeek(text, L("Shortcut"), 6, room: Room.Settings, look: PeekLooks.Of(PeekKind.Keyboard));
     }
 
     public TrayIcon? Tray { get; set; }
@@ -156,6 +165,7 @@ public partial class IslandWindow : Window
                 Dispatcher.BeginInvoke(DispatcherPriority.Input, () => { if (!field.IsKeyboardFocused) field.Focus(); });
         };
         PreviewKeyDown += OnKey;
+        TrackPopups();
 
         // Drop files on the island: it opens Stash and keeps them there.
         Root.AllowDrop = true;
@@ -246,10 +256,11 @@ public partial class IslandWindow : Window
         Updates.Changed += () =>
         {
             if (Presentation == Presentation.Expanded && Selected == Room.Settings) CurrentPane?.Refresh();
-            // Announce a new version once, with a peek that opens Settings.
-            if (Updates.State == Updater.Phase.Available && Updates.Release is { } r && _announced != r.Version)
+            // Announce a new version once (remembered in data.json, like the Mac), with a peek that opens Settings.
+            if (Updates.State == Updater.Phase.Available && Updates.Release is { } r && Model.Data.AnnouncedVersion != r.Version)
             {
-                _announced = r.Version;
+                Model.Data.AnnouncedVersion = r.Version;
+                Model.SaveSoon();
                 ShowPeek(L("Ezkiel Notch %@ is out", string.Join('.', AppVersion.Parts(r.Version))), L("Open Settings to update"), 6, room: Room.Settings,
                          look: PeekLooks.Of(PeekKind.Update));
             }
@@ -366,7 +377,7 @@ public partial class IslandWindow : Window
     }
 
     /// <summary>Windows 10 2004 and later leave the window out of captures; older builds can only show it black.</summary>
-    private static void ExcludeFromCapture(nint hwnd, bool hidden)
+    internal static void ExcludeFromCapture(nint hwnd, bool hidden)
     {
         if (!hidden) Win32.SetWindowDisplayAffinity(hwnd, Win32.WDA_NONE);
         else if (!Win32.SetWindowDisplayAffinity(hwnd, Win32.WDA_EXCLUDEFROMCAPTURE)) Win32.SetWindowDisplayAffinity(hwnd, Win32.WDA_MONITOR);
@@ -391,8 +402,6 @@ public partial class IslandWindow : Window
     }
 
     /// <summary>Sources that read the outside world follow their settings (none of them in the self-test).</summary>
-    private string? _announced;
-
     private void ConfigureSources()
     {
         RegisterHotKey();
@@ -539,8 +548,7 @@ public partial class IslandWindow : Window
         Fade(PeekView, 0, 0.08);
         ReleasePeek();
         Fade(ExpandedView, 1, 0.22, delay: 0.08);
-        Root.Opacity = 1;
-        Root.IsHitTestVisible = true;
+        UpdateHiddenState();
     }
 
     public void Collapse()
@@ -657,8 +665,7 @@ public partial class IslandWindow : Window
         _liveShown = false;
         Fade(LiveView, 0, 0.08);
         UpdateClosedLyrics();
-        Root.Opacity = 1;
-        Root.IsHitTestVisible = true;
+        UpdateHiddenState();
         Apply(PeekShape, animate: true, bouncy: true);
         Fade(PeekView, 1, 0.2, delay: 0.1);
         _peekTimer?.Stop();
@@ -951,15 +958,50 @@ public partial class IslandWindow : Window
         if (IgnorePointer || _hwnd == 0 || !Win32.GetCursorPos(out var c) || !Win32.GetWindowRect(_hwnd, out var w)) return;
         var p = new Point((c.X - w.Left) / Screen.Scale, (c.Y - w.Top) / Screen.Scale);
         bool inside = InHotZone(p);
+        UpdateClickThrough(p);
         PointerMoved(inside);
 
         // A click on the lip opens it even with hover-to-open off.
         bool pressed = (Win32.GetAsyncKeyState(Win32.PrimaryButton) & 0x8000) != 0;
         if (Presentation == Presentation.Lip && inside && pressed) Expand();
         // A click anywhere else closes the open island (clicks there go to other apps, so we look).
-        // Not while a file is being dragged out of Stash or over the island.
+        // Not while a file is being dragged out of Stash or over the island, and not for a click in one of our own
+        // popups (a menu, the tray menu): what it does decides.
         if (StashPane.DraggingOut || _dragInside) return;
-        if (Presentation == Presentation.Expanded && !inside && pressed && !Pinned && !_menuOpen) Collapse();
+        if (Presentation == Presentation.Expanded && !inside && pressed && !Pinned && !_menuOpen && !OnOwnPopup(c))
+        {
+            Collapse();
+            _closedByPressAt = DateTime.UtcNow;
+        }
+    }
+
+    private DateTime _closedByPressAt = DateTime.MinValue;
+
+    /// <summary>A press outside just closed the island. The tray lion's click that ends that same press must not
+    /// open it again (a click on the lion closes an open island).</summary>
+    public bool JustClosedByPress => DateTime.UtcNow - _closedByPressAt < TimeSpan.FromMilliseconds(600);
+
+    /// <summary>The pointer is over another window of this app (a menu, a tooltip, the tray menu).</summary>
+    private bool OnOwnPopup(Win32.POINT c)
+    {
+        var root = Win32.GetAncestor(Win32.WindowFromPoint(c), Win32.GA_ROOT);
+        if (root == 0 || root == _hwnd) return false;
+        Win32.GetWindowThreadProcessId(root, out uint pid);
+        return pid == (uint)Environment.ProcessId;
+    }
+
+    private bool _clickThrough;
+
+    /// <summary>The glow or shadow around the island is drawn in the window too, and Windows gives every pixel that
+    /// isn't fully transparent the clicks. Outside the island's own shape they pass through to the app underneath.</summary>
+    private void UpdateClickThrough(Point p)
+    {
+        if (Mouse.Captured is not null) return;   // a drag inside the island keeps its window
+        bool through = Island.Effect is not null && !OnIsland(p);
+        if (through == _clickThrough) return;
+        _clickThrough = through;
+        var ex = Win32.GetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE);
+        Win32.SetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE, through ? ex | Win32.WS_EX_TRANSPARENT : ex & ~(nint)Win32.WS_EX_TRANSPARENT);
     }
 
     /// <summary>Hover state machine (also driven by the self-test).</summary>
@@ -1021,12 +1063,19 @@ public partial class IslandWindow : Window
         UpdateHiddenState();
     }
 
-    /// <summary>Over a fullscreen game, video or slides the lip steps away entirely.</summary>
+    /// <summary>Over a fullscreen game, video or slides the lip steps away entirely. Also the one place that shows
+    /// it again for a peek or an open island: the fade holds its value, so setting Root.Opacity directly is ignored.</summary>
     private void UpdateHiddenState()
     {
         bool hide = FullscreenActive && Model.Settings.HideInFullscreen && Presentation == Presentation.Lip;
-        var a = new DoubleAnimation(hide ? 0 : 1, TimeSpan.FromMilliseconds(180));
-        Root.BeginAnimation(OpacityProperty, a);
+        if (hide || (Presentation == Presentation.Lip && Root.Opacity < 1))
+            Root.BeginAnimation(OpacityProperty, new DoubleAnimation(hide ? 0 : 1, TimeSpan.FromMilliseconds(180)));
+        else
+        {
+            // Shown at once (a peek or the open island must never be invisible but clickable).
+            Root.BeginAnimation(OpacityProperty, null);
+            Root.Opacity = 1;
+        }
         Root.IsHitTestVisible = !hide;
     }
 
@@ -1225,23 +1274,31 @@ public partial class IslandWindow : Window
         return menu;
     }
 
-    private void ShowMenu()
+    private void ShowMenu() => BuildMenu().IsOpen = true;
+
+    /// <summary>Every context menu (this one, Stash's, any room's) holds the island while it's up, like the Mac's menu
+    /// tracking, so picking an item doesn't close it first. Menus and tooltips are windows of their own: they stay
+    /// out of screen sharing with the island.</summary>
+    private void TrackPopups()
     {
-        var menu = BuildMenu();
-        menu.Opened += (_, _) =>
+        EventManager.RegisterClassHandler(typeof(ContextMenu), ContextMenu.OpenedEvent, new RoutedEventHandler((sender, _) =>
         {
             _menuOpen = true;
-            // The menu is a window of its own: it stays out of screen sharing with the island.
-            if (Model.Settings.HideFromScreenShare && PresentationSource.FromVisual(menu) is HwndSource popup)
-                ExcludeFromCapture(popup.Handle, true);
-        };
-        menu.Closed += (_, _) =>
+            HidePopupFromCapture(sender as Visual);
+        }));
+        EventManager.RegisterClassHandler(typeof(ContextMenu), ContextMenu.ClosedEvent, new RoutedEventHandler((_, _) =>
         {
             _menuOpen = false;
             // "The pointer left" counts from when the menu went away.
             if (!Hovering) _outsideSince = DateTime.UtcNow;
-        };
-        menu.IsOpen = true;
+        }));
+        EventManager.RegisterClassHandler(typeof(ToolTip), ToolTip.OpenedEvent, new RoutedEventHandler((sender, _) => HidePopupFromCapture(sender as Visual)));
+    }
+
+    private void HidePopupFromCapture(Visual? popup)
+    {
+        if (popup is not null && PresentationSource.FromVisual(popup) is HwndSource source)
+            ExcludeFromCapture(source.Handle, Model.Settings.HideFromScreenShare);
     }
 
     // MARK: Self-test support

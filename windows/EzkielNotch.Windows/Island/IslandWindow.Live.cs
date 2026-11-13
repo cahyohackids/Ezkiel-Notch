@@ -315,7 +315,7 @@ public partial class IslandWindow
 
     // MARK: Rally hook (filled in by the calendar)
 
-    /// <summary>The next meeting starting within 5 minutes, when Rally is on.</summary>
-    public Meeting? MeetingSoon => !Model.Settings.Rally || !Model.Settings.RallyCountdown ? null : Rally.Upcoming.FirstOrDefault(m => m.Start > DateTime.UtcNow && m.Start - DateTime.UtcNow <= TimeSpan.FromMinutes(5));
+    /// <summary>The next meeting starting within 15 minutes, when Rally is on (the Mac's meetingSoon).</summary>
+    public Meeting? MeetingSoon => !Model.Settings.Rally || !Model.Settings.RallyCountdown ? null : Rally.Upcoming.FirstOrDefault(m => m.Start > DateTime.UtcNow && m.Start - DateTime.UtcNow <= TimeSpan.FromMinutes(15));
     private int MeetingMinutes => MeetingSoon is { } m ? Math.Max(1, (int)Math.Ceiling((m.Start - DateTime.UtcNow).TotalMinutes)) : 0;
 }
