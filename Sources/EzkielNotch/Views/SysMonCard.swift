@@ -43,19 +43,19 @@ struct SysMonCard: View {
     private func tile(icon: String, label: String, value: String, detail: String, color: Color, dot: Color? = nil,
                       help: String? = nil, spark: [Double], accent: Accent) -> some View {
         ZStack(alignment: .bottom) {
-            if spark.count > 1 {
-                Sparkline(values: spark)
-                    .fill(LinearGradient(colors: [accent.deep.opacity(0.28), accent.deep.opacity(0.02)], startPoint: .top, endPoint: .bottom))
-                    .overlay(Sparkline(values: spark, closed: false).stroke(accent.deep.opacity(0.75), lineWidth: 1))
-                    .frame(height: 18)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
-                    .allowsHitTesting(false)
-            }
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 3) {
                     Image(systemName: icon).font(.system(size: 8.5, weight: .semibold))
                     Text(L(label)).font(Theme.font(9, .medium)).lineLimit(1)
                     Spacer(minLength: 0)
+                    // The last two minutes, small beside the label, so it never sits on the numbers.
+                    if spark.count > 1 {
+                        Sparkline(values: spark)
+                            .fill(LinearGradient(colors: [accent.deep.opacity(0.3), accent.deep.opacity(0.03)], startPoint: .top, endPoint: .bottom))
+                            .overlay(Sparkline(values: spark, closed: false).stroke(accent.deep.opacity(0.85), lineWidth: 1))
+                            .frame(width: 30, height: 9)
+                            .allowsHitTesting(false)
+                    }
                     if let dot { Circle().fill(dot).frame(width: 5, height: 5) }
                 }
                 .foregroundStyle(Theme.mist)

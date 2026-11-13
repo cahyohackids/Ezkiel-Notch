@@ -302,7 +302,7 @@ public sealed class AskView : Grid
         text.Children.Add(detail);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
         buttons.Children.Add(Ui.Pill(L("Settings"), _w.OpenAskSettings, Accent.Den, prominent: e.NeedsSettings, glyph: "\uE713"));
-        if (e.Kind is AskErrorKind.NoKey or AskErrorKind.NoBalance)
+        if (e.Kind is AskErrorKind.NoKey or AskErrorKind.NoBalance or AskErrorKind.InvalidKey)
             buttons.Children.Add(Spaced(Ui.TextButton(L(e.Kind == AskErrorKind.NoKey ? "Get a key" : "Top up"), () => Files.Open(Ask.KeyPage))));
         if (canRetry && e.Kind != AskErrorKind.NoKey)
             buttons.Children.Add(Spaced(Ui.TextButton(L("Try again"), _w.AskRetry, Ui.Ink)));

@@ -1,3 +1,12 @@
+**New in 0.11 (with the Mac's 1.9):**
+
+- **Ask:** a quick AI box in the island (Ctrl+Alt+A or the lightbulb), answered with your own Ezkielyna key, kept encrypted for your Windows account (DPAPI). Copy the answer, make it a task, or save it as a note.
+- **Sync:** tasks, notes, water and focus history between your PCs and Macs through a OneDrive, iCloud or Dropbox folder.
+- **System monitor:** CPU, memory, network, battery and disk in Den, CPU % or network speed in the closed island, and a peek when something runs hot or full.
+- **Quick timers and downloads:** type "10m teh" in Den; downloads in progress show in the closed island.
+- **Settings like the Mac's:** General · Whiskers · Roar · Features · About, the Mac's header and icons.
+- **17 fixes:** peeks over fullscreen video, clicks next to a glowing island reach the app below, the tray lion closes an open island, menus no longer close it, damaged data.json is set aside instead of overwritten, and more.
+
 Ezkiel Notch is on Windows. Ezkiel the lion now lives at the top of your PC's screen too: hover (or click, or press Ctrl+Alt+N) and the island opens with the same rooms as the Mac.
 
 - **Den, Hunt, Scratch, Purr, Stash, Oasis, Roar and Settings**, in English or Bahasa Indonesia.

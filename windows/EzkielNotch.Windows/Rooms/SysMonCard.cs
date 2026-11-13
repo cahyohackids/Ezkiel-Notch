@@ -59,7 +59,12 @@ public sealed class SysMonCard : Grid
     {
         var g = new Grid();
         if (spark.Count > 1)
-            g.Children.Add(new Sparkline(spark, accent.Deep) { Height = 18, VerticalAlignment = VerticalAlignment.Bottom, IsHitTestVisible = false });
+            // The last two minutes, small at the top right beside the label, so it never sits on the numbers.
+            g.Children.Add(new Sparkline(spark, accent.Deep)
+            {
+                Width = 30, Height = 9, Margin = new Thickness(0, 6, 7, 0),
+                HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false,
+            });
         var text = new StackPanel { Margin = new Thickness(7, 4, 7, 4) };
         var head = new StackPanel { Orientation = Orientation.Horizontal };
         head.Children.Add(Ui.Glyph(glyph, 8.5, Ui.Mist));

@@ -476,7 +476,7 @@ enum Indonesian {
         "The AI service is having trouble": "Layanan AI sedang bermasalah",
         "Couldn't get an answer": "Tidak bisa mendapat jawaban",
         "Paste your Ezkielyna key in Settings › Features": "Tempel key Ezkielyna kamu di Pengaturan › Fitur",
-        "Check the key in Settings, or make a new one": "Periksa key di Pengaturan, atau buat yang baru",
+        "Wrong, expired or out of balance: check the key in Settings, or top up": "Salah, kedaluwarsa atau saldo habis: periksa key di Pengaturan, atau isi saldo",
         "Top up at api.ezkielyna.store, then ask again": "Isi saldo di api.ezkielyna.store, lalu tanya lagi",
         "Wait a moment and ask again": "Tunggu sebentar, lalu tanya lagi",
         "Check your connection and ask again": "Periksa koneksi, lalu tanya lagi",

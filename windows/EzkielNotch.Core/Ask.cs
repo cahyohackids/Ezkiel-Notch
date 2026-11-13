@@ -209,7 +209,7 @@ public sealed record AskError(AskErrorKind Kind, string Message = "", int Status
     public string Detail => Kind switch
     {
         AskErrorKind.NoKey => "Paste your Ezkielyna key in Settings › Features",
-        AskErrorKind.InvalidKey => "Check the key in Settings, or make a new one",
+        AskErrorKind.InvalidKey => "Wrong, expired or out of balance: check the key in Settings, or top up",
         AskErrorKind.NoBalance => "Top up at api.ezkielyna.store, then ask again",
         AskErrorKind.RateLimited => "Wait a moment and ask again",
         AskErrorKind.Offline => "Check your connection and ask again",

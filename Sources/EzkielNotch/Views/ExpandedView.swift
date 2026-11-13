@@ -60,12 +60,6 @@ struct ExpandedView: View {
                     .lineLimit(1)
                     .id(model.tab)
                     .transition(.opacity)
-                if model.settings.ask {
-                    IconButton(icon: "sparkles", label: L("Ask · %@", AppModel.askHotkeyLabel), size: 22,
-                               tint: model.askOn ? Theme.gold : Theme.mist) {
-                        model.setAsk(!model.askOn)
-                    }
-                }
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity)
@@ -74,8 +68,12 @@ struct ExpandedView: View {
 
             HStack(spacing: 4) {
                 Spacer(minLength: 0)
-                // The weather takes the clock's place (the menu bar keeps its own clock).
-                if let w = model.weather.now {
+                // Beside a camera housing each half is only ~115 pt: with the Ask button there, the clock and weather
+                // step aside (the menu bar keeps its own clock) so the title and the clock never get squeezed.
+                let tight = model.settings.ask && model.geometry.hasNotch && !model.isIsland
+                if tight {
+                    EmptyView()
+                } else if let w = model.weather.now {
                     WeatherChip(now: w, city: model.settings.weatherCity, fahrenheit: model.settings.fahrenheit)
                         .padding(.trailing, 4)
                 } else {
@@ -83,7 +81,16 @@ struct ExpandedView: View {
                         Text(tl.date, format: .dateTime.hour().minute())
                             .font(Theme.number(Theme.Size.secondary, .medium))
                             .foregroundStyle(Theme.mist)
+                            .lineLimit(1)
+                            .fixedSize()
                             .padding(.trailing, 4)
+                    }
+                }
+                // Ask sits with pin and collapse, as on Windows (the title keeps its room on the left).
+                if model.settings.ask {
+                    IconButton(icon: "sparkles", label: L("Ask · %@", AppModel.askHotkeyLabel), size: 24,
+                               tint: model.askOn ? Theme.gold : Theme.mist) {
+                        model.setAsk(!model.askOn)
                     }
                 }
                 IconButton(icon: model.pinned ? "pin.fill" : "pin",

@@ -218,7 +218,7 @@ public enum AskError: Error, Equatable {
     public var detail: String {
         switch self {
         case .noKey: return "Paste your Ezkielyna key in Settings › Features"
-        case .invalidKey: return "Check the key in Settings, or make a new one"
+        case .invalidKey: return "Wrong, expired or out of balance: check the key in Settings, or top up"
         case .noBalance: return "Top up at api.ezkielyna.store, then ask again"
         case .rateLimited: return "Wait a moment and ask again"
         case .offline: return "Check your connection and ask again"

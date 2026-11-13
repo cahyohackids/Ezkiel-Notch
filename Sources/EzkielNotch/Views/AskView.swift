@@ -212,7 +212,7 @@ private struct AskErrorCard: View {
                     .lineLimit(3)
                 HStack(spacing: 6) {
                     PillButton(title: "Settings", icon: "gearshape", prominent: error.needsSettings) { model.openAskSettings() }
-                    if error == .noKey || error == .noBalance {
+                    if error == .noKey || error == .noBalance || error == .invalidKey {
                         TextButton(title: error == .noKey ? "Get a key" : "Top up") {
                             NSWorkspace.shared.open(URL(string: Ask.keyPage)!)
                         }
