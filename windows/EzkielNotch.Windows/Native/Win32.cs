@@ -25,6 +25,20 @@ internal static partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool SetWindowPos(nint hWnd, nint after, int x, int y, int cx, int cy, uint flags);
 
+    // MARK: Screen capture
+
+    /// <summary>WDA_EXCLUDEFROMCAPTURE (Windows 10 2004+): screen sharing, screenshots and recordings leave the window out.
+    /// WDA_MONITOR (older builds): they see a black rectangle instead. WDA_NONE: captured like any window.</summary>
+    public const uint WDA_NONE = 0x00, WDA_MONITOR = 0x01, WDA_EXCLUDEFROMCAPTURE = 0x11;
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool SetWindowDisplayAffinity(nint hWnd, uint affinity);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool GetWindowDisplayAffinity(nint hWnd, out uint affinity);
+
     // MARK: Pointer
 
     [StructLayout(LayoutKind.Sequential)]
@@ -33,6 +47,19 @@ internal static partial class Win32
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool GetCursorPos(out POINT point);
+
+    /// <summary>The window under a screen point (layered windows' fully transparent pixels and click-through
+    /// windows are skipped, as for a click).</summary>
+    [LibraryImport("user32.dll")]
+    public static partial nint WindowFromPoint(POINT point);
+
+    public const uint GA_ROOT = 2;
+
+    [LibraryImport("user32.dll")]
+    public static partial nint GetAncestor(nint hWnd, uint flags);
+
+    /// <summary>Clicks pass through the whole window (with WS_EX_LAYERED).</summary>
+    public const int WS_EX_TRANSPARENT = 0x00000020;
 
     /// <summary>High bit set while the key (or mouse button: 0x01 = left) is down.</summary>
     [LibraryImport("user32.dll")]
@@ -145,6 +172,11 @@ internal static partial class Win32
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool SetForegroundWindow(nint hWnd);
+
+    /// <summary>A second launch (which has the foreground) lets the running copy take it. -1 = ASFW_ANY.</summary>
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool AllowSetForegroundWindow(int processId);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

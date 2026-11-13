@@ -16,6 +16,10 @@ public final class DataStore {
     /// Set by `load()` when the file had to be set aside.
     public private(set) var recovery: Recovery?
 
+    /// An unreadable data.json that couldn't be moved aside yet: where it goes before the next write (on `queue`).
+    private var setAside: URL?
+    private static let readAttempts = 5
+
     public init(url: URL) {
         self.url = url
     }
@@ -32,14 +36,29 @@ public final class DataStore {
     public func load(now: Date = Date()) -> AppData {
         recovery = nil
         let fm = FileManager.default
-        guard let raw = try? Data(contentsOf: url) else { return AppData() }
-        if let data = Self.decode(raw) {
+        // Only a file that isn't there is a fresh start. One that's there but can't be read gets a few more tries,
+        // then is handled like a damaged one: kept, never overwritten by an empty start.
+        var raw: Data?
+        for attempt in 1...Self.readAttempts {
+            if let read = try? Data(contentsOf: url) {
+                raw = read
+                break
+            }
+            if !fm.fileExists(atPath: url.path) { return AppData() }
+            if attempt < Self.readAttempts { Thread.sleep(forTimeInterval: 0.2) }
+        }
+        if let raw, let data = Self.decode(raw) {
             refreshBackup(now: now)
             return data
         }
         let stamp = Self.stamp(now)
         let broken = url.deletingLastPathComponent().appendingPathComponent("data.broken-\(stamp).json")
-        try? fm.moveItem(at: url, to: broken)
+        do {
+            try fm.moveItem(at: url, to: broken)
+        } catch {
+            // Still in the way: the first save moves it aside before writing, or doesn't write.
+            queue.sync { setAside = broken }
+        }
         if let backup = try? Data(contentsOf: backupURL), let data = Self.decode(backup) {
             let date = (try? fm.attributesOfItem(atPath: backupURL.path))?[.modificationDate] as? Date
             recovery = .restoredBackup(broken: broken, backupDate: date)
@@ -72,13 +91,18 @@ public final class DataStore {
 
     public func save(_ appData: AppData, synchronously: Bool = false) {
         let target = url
-        let work = {
+        let work = { [self] in
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             do {
                 let data = try encoder.encode(appData)
                 try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                if let aside = setAside {
+                    // Throws while it's still in the way: then nothing is written over it.
+                    if FileManager.default.fileExists(atPath: target.path) { try FileManager.default.moveItem(at: target, to: aside) }
+                    setAside = nil
+                }
                 try data.write(to: target, options: .atomic)
             } catch {
                 NSLog("Ezkiel Notch: couldn't save %@: %@", target.path, String(describing: error))

@@ -1,0 +1,221 @@
+{
+  "name": "delete-vs-edit",
+  "about": "A delete removes only the version it saw. T1: deleted here, edited on the PC afterwards: comes back. T2: deleted here, untouched there: gone. T3: deleted on the PC: gone here. T4: deleted on the PC, edited here: stays.",
+  "now": "2026-11-13T12:00:00Z",
+  "deviceId": "A-MAC",
+  "local": {
+    "tasks": [
+      {
+        "id": "T3",
+        "title": "T3",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      },
+      {
+        "id": "T4",
+        "title": "T4 edited",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      },
+      {
+        "id": "T5",
+        "title": "T5",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      }
+    ],
+    "notes": [],
+    "water": [],
+    "focusLog": []
+  },
+  "base": {
+    "format": 1,
+    "deviceId": "A-MAC",
+    "deviceName": "A-Mac",
+    "platform": "mac",
+    "appVersion": "1.9.0",
+    "written": "2026-11-13T10:00:00Z",
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "T1",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      },
+      {
+        "id": "T2",
+        "title": "T2",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      },
+      {
+        "id": "T3",
+        "title": "T3",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      },
+      {
+        "id": "T4",
+        "title": "T4",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      },
+      {
+        "id": "T5",
+        "title": "T5",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      }
+    ],
+    "notes": [],
+    "water": [],
+    "focusLog": [],
+    "tombstones": {
+      "tasks": [],
+      "notes": [],
+      "water": [],
+      "focusLog": []
+    }
+  },
+  "remotes": [
+    {
+      "format": 1,
+      "deviceId": "B-PC",
+      "deviceName": "B-Pc",
+      "platform": "windows",
+      "appVersion": "1.9.0",
+      "written": "2026-11-13T11:00:00Z",
+      "tasks": [
+        {
+          "id": "T1",
+          "title": "T1 by B",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T11:00:00Z"
+        },
+        {
+          "id": "T2",
+          "title": "T2",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T09:00:00Z"
+        },
+        {
+          "id": "T5",
+          "title": "T5",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T09:00:00Z"
+        }
+      ],
+      "notes": [],
+      "water": [],
+      "focusLog": [],
+      "tombstones": {
+        "tasks": [
+          {
+            "id": "T3",
+            "deleted": "2026-11-13T11:00:00Z",
+            "seen": "2026-11-13T09:00:00Z",
+            "by": "B-PC"
+          },
+          {
+            "id": "T4",
+            "deleted": "2026-11-13T11:00:00Z",
+            "seen": "2026-11-13T09:00:00Z",
+            "by": "B-PC"
+          }
+        ],
+        "notes": [],
+        "water": [],
+        "focusLog": []
+      }
+    }
+  ],
+  "expect": {
+    "data": {
+      "tasks": [
+        {
+          "id": "T1",
+          "title": "T1 by B",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T11:00:00Z"
+        },
+        {
+          "id": "T4",
+          "title": "T4 edited",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T12:00:00Z"
+        },
+        {
+          "id": "T5",
+          "title": "T5",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T09:00:00Z"
+        }
+      ],
+      "notes": [],
+      "water": [],
+      "focusLog": []
+    },
+    "tombstones": {
+      "tasks": [
+        {
+          "id": "T2",
+          "deleted": "2026-11-13T12:00:00Z",
+          "seen": "2026-11-13T09:00:00Z",
+          "by": "A-MAC"
+        },
+        {
+          "id": "T3",
+          "deleted": "2026-11-13T11:00:00Z",
+          "seen": "2026-11-13T09:00:00Z",
+          "by": "B-PC"
+        }
+      ],
+      "notes": [],
+      "water": [],
+      "focusLog": []
+    },
+    "changes": [
+      {
+        "kind": "tasks",
+        "id": "T1",
+        "change": "added",
+        "from": "B-PC"
+      },
+      {
+        "kind": "tasks",
+        "id": "T3",
+        "change": "removed",
+        "from": "B-PC"
+      }
+    ],
+    "skipped": []
+  }
+}

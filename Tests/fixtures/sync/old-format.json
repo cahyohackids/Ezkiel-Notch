@@ -1,0 +1,118 @@
+{
+  "name": "old-format",
+  "about": "data.json from before 1.9 (no modified) on both sides: the item's own time stands in (created, updated, date, start). T1 ties and stays; N1 is newer on the PC.",
+  "now": "2026-11-13T12:00:00Z",
+  "deviceId": "A-MAC",
+  "local": {
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "Old task",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T08:00:00Z",
+        "due": "2026-11-14T09:00:00Z"
+      }
+    ],
+    "notes": [
+      {
+        "id": "N1",
+        "title": "",
+        "body": "old note",
+        "updated": "2026-11-05T10:00:00Z"
+      }
+    ],
+    "water": [
+      {
+        "id": "W1",
+        "date": "2026-11-13T07:00:00Z",
+        "ml": 200
+      }
+    ],
+    "focusLog": []
+  },
+  "base": null,
+  "remotes": [
+    {
+      "format": 1,
+      "deviceId": "B-PC",
+      "deviceName": "B-Pc",
+      "platform": "windows",
+      "appVersion": "1.9.0",
+      "written": "2026-11-13T11:00:00Z",
+      "tasks": [
+        {
+          "id": "T1",
+          "title": "Old task (PC)",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T08:00:00Z"
+        }
+      ],
+      "notes": [
+        {
+          "id": "N1",
+          "title": "",
+          "body": "old note, edited on PC",
+          "updated": "2026-11-06T10:00:00Z"
+        }
+      ],
+      "water": [],
+      "focusLog": [],
+      "tombstones": {
+        "tasks": [],
+        "notes": [],
+        "water": [],
+        "focusLog": []
+      }
+    }
+  ],
+  "expect": {
+    "data": {
+      "tasks": [
+        {
+          "id": "T1",
+          "title": "Old task",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T08:00:00Z",
+          "modified": "2026-11-01T08:00:00Z",
+          "due": "2026-11-14T09:00:00Z"
+        }
+      ],
+      "notes": [
+        {
+          "id": "N1",
+          "title": "",
+          "body": "old note, edited on PC",
+          "updated": "2026-11-06T10:00:00Z",
+          "modified": "2026-11-06T10:00:00Z"
+        }
+      ],
+      "water": [
+        {
+          "id": "W1",
+          "date": "2026-11-13T07:00:00Z",
+          "ml": 200,
+          "modified": "2026-11-13T07:00:00Z"
+        }
+      ],
+      "focusLog": []
+    },
+    "tombstones": {
+      "tasks": [],
+      "notes": [],
+      "water": [],
+      "focusLog": []
+    },
+    "changes": [
+      {
+        "kind": "notes",
+        "id": "N1",
+        "change": "updated",
+        "from": "B-PC"
+      }
+    ],
+    "skipped": []
+  }
+}

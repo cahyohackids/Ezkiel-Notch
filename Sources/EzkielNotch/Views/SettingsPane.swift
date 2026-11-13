@@ -206,13 +206,28 @@ struct SettingsPane: View {
 
     @ViewBuilder
     private var features: some View {
+        // Ask: the AI box (its key, model and test live in AskView.swift).
+        AskSettingsCard(model: model, ask: model.ask)
+        // Sync between devices (tasks, notes, water, focus) through a cloud folder.
+        SyncCard(sync: model.sync)
         WeatherRow(model: model, weather: model.weather)
         ToggleRow(title: "Prowl", subtitle: "Green and orange dots while a camera or microphone is on", icon: "eye",
                   accent: Accent(light: Color(hex: 0x9BF0B4), deep: Color(hex: 0x30D158)), isOn: $model.settings.prowl)
         ToggleRow(title: "Rally", subtitle: rallySubtitle, icon: "calendar", accent: .rally, isOn: $model.settings.rally)
         if model.settings.rally {
-            ToggleRow(title: "Meeting countdown", subtitle: "\"in 5m\" in the closed notch", icon: "timer", accent: .rally,
+            ToggleRow(title: "Meeting countdown", subtitle: "\"Meeting in 7 min\" in the closed notch, from 10 min before", icon: "timer", accent: .rally,
                       isOn: $model.settings.rallyCountdown)
+        }
+        // Live activities: downloads in progress and quick timers in the closed notch.
+        ToggleRow(title: "Downloads in the notch", subtitle: "Progress while a browser downloads to ~/Downloads, then Open · Stash · Show. macOS asks for Downloads access once.",
+                  icon: "square.and.arrow.down", accent: .stash, isOn: $model.settings.liveDownloads)
+        OptionRow(title: "Timer sound", icon: "bell.badge") {
+            ForEach(TimerSounds.choices, id: \.self) { name in
+                Chip(title: name == "none" ? "None" : name, selected: TimerSounds.normalize(model.settings.timerSound) == name, accent: .den) {
+                    model.settings.timerSound = name
+                    if name != "none" { NSSound(named: name)?.play() }
+                }
+            }
         }
         OptionRow(title: "Purr source", icon: "waveform") {
             ForEach(MusicSource.allCases) { source in
@@ -243,6 +258,25 @@ struct SettingsPane: View {
                     model.settings.activeHourEnd = end
                 }
             }
+        }
+        // System monitor: the Den card, the closed pill and its peeks.
+        ToggleRow(title: "System monitor", subtitle: "CPU, memory, network, battery and disk in Den. Nothing is read while it's off.",
+                  icon: "gauge", accent: .den, isOn: $model.settings.sysmon)
+        if model.settings.sysmon {
+            OptionRow(title: "Closed notch", icon: "capsule") {
+                ForEach(SysPill.allCases) { pill in
+                    Chip(title: pill == .off ? "Off" : (pill == .cpu ? "CPU" : "Network"), selected: model.settings.sysmonPill == pill,
+                         accent: .den) { model.settings.sysmonPill = pill }
+                }
+            }
+            ToggleRow(title: "CPU busy", subtitle: "A peek after 30 s above 90%, with the busiest app", icon: "cpu", accent: .den,
+                      isOn: $model.settings.sysmonCpuAlert)
+            ToggleRow(title: "Memory pressure", subtitle: "A peek when macOS runs short of memory", icon: "memorychip", accent: .den,
+                      isOn: $model.settings.sysmonMemoryAlert)
+            ToggleRow(title: "Disk almost full", subtitle: "A peek under 5 GB free on the startup disk", icon: "internaldrive", accent: .den,
+                      isOn: $model.settings.sysmonDiskAlert)
+            ToggleRow(title: "Internet lost and back", subtitle: "Same switch as Whiskers › Wi-Fi & headphones", icon: "wifi",
+                      accent: .whiskers, isOn: $model.settings.connectionPeeks)
         }
     }
 

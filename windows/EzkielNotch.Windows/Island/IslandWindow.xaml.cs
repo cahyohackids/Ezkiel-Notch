@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -46,7 +47,7 @@ public partial class IslandWindow : Window
 
     /// <summary>Header 34 + tabs 30 + gap 10 + the room's pane + bottom 12, like the Mac's expandedSize.</summary>
     public double ExpandedHeight(Room room) =>
-        34 + 30 + 10 + (_panes.TryGetValue(room, out var pane) ? pane.DesiredHeight : RoomInfo.Of(room).PaneHeight) + 12;
+        34 + 30 + 10 + Math.Max(AskOpen ? AskPaneHeight : 0, _panes.TryGetValue(room, out var pane) ? pane.DesiredHeight : RoomInfo.Of(room).PaneHeight) + 12;
     private Shape ExpandedShape(Room room) => IsIsland ? new(IslandExpandedWidth, ExpandedHeight(room), 26, 0) : new(440, ExpandedHeight(room), 22, 13);
 
     public NotchModel Model { get; }
@@ -59,6 +60,9 @@ public partial class IslandWindow : Window
     public CameraMirror Mirror { get; }
     public Presentation Presentation { get; private set; } = Presentation.Lip;
     public bool Hovering { get; private set; }
+    /// <summary>Keep open (the Mac's pin): moving away, clicking elsewhere or switching apps doesn't close it.
+    /// Esc, the close button, the shortcut and unpinning still do.</summary>
+    public bool Pinned { get; private set; }
     public bool FullscreenActive { get; private set; }
     public bool HotKeyRegistered { get; private set; }
     /// <summary>Self-test: ignore the real pointer so a resting cursor can't change the outcome.</summary>
@@ -92,12 +96,7 @@ public partial class IslandWindow : Window
     private string? _registeredHotkey;
 
     /// <summary>The Mac's shortcut choices, with Ctrl+Alt for ⌃⌥ (⌥⌘I becomes Ctrl+Alt+I).</summary>
-    public static string HotkeyLabel(string choice) => choice switch
-    {
-        "controlOptionSpace" => "Ctrl+Alt+Space",
-        "optionCommandI" => "Ctrl+Alt+I",
-        _ => "Ctrl+Alt+N",
-    };
+    public static string HotkeyLabel(string choice) => NotchSettings.HotkeyLabel(choice);
 
     private void RegisterHotKey()
     {
@@ -107,8 +106,18 @@ public partial class IslandWindow : Window
         uint vk = choice switch { "controlOptionSpace" => 0x20u, "optionCommandI" => 0x49u, _ => 0x4Eu };
         HotKeyRegistered = Win32.RegisterHotKey(_hwnd, HotKeyId, Win32.MOD_CONTROL | Win32.MOD_ALT | Win32.MOD_NOREPEAT, vk);
         _registeredHotkey = choice;
-        if (!HotKeyRegistered) ShowToast(new ToastRequest(L("%@ is taken by another app", HotkeyLabel(choice))));
+        if (!HotKeyRegistered) ReportHotkeyTaken();
         Tray?.Relabel(HotkeyLabel(choice));
+        RenderPin();
+    }
+
+    /// <summary>The shortcut couldn't be registered: a toast in the open island, else a peek (at launch the island is
+    /// closed, and a toast would never be seen). Clicking the peek opens Settings to pick another.</summary>
+    public void ReportHotkeyTaken()
+    {
+        var text = L("%@ is taken by another app", HotkeyLabel(Model.Settings.Hotkey));
+        if (Presentation == Presentation.Expanded) ShowToast(new ToastRequest(text));
+        else ShowPeek(text, L("Shortcut"), 6, room: Room.Settings, look: PeekLooks.Of(PeekKind.Keyboard));
     }
 
     public TrayIcon? Tray { get; set; }
@@ -124,15 +133,24 @@ public partial class IslandWindow : Window
         Pounce = new PounceWatcher(Dispatcher);
         Pounce.Pounced += (path, screenshot) =>
         {
-            if (!(screenshot ? Model.Settings.PounceScreenshots : Model.Settings.PounceDownloads)) return;
+            if (!screenshot)
+            {
+                AnnounceDownload(path, followed: false);
+                return;
+            }
+            if (!Model.Settings.PounceScreenshots) return;
             if (Presentation == Presentation.Expanded) return;
-            ShowPeek(screenshot ? L("Screenshot") : L("Downloaded"), System.IO.Path.GetFileName(path), 6, room: Room.Stash, file: path);
+            ShowPeek(screenshot ? L("Screenshot") : L("Downloaded"), System.IO.Path.GetFileName(path), 6, room: Room.Stash, file: path,
+                     look: PeekLooks.Of(screenshot ? PeekKind.Screenshot : PeekKind.Download));
         };
         Roar.Updated += Model.UpdateBadges;
         Model.ForegroundApp = AppIdentity.Foreground;
         Model.LookingAtRoar = () => Presentation == Presentation.Expanded && Selected == Room.Roar;
         InitializeComponent();
+        InitLiveActivities();
         BuildTabs();
+        RenderPin();
+        InitAsk();
         ApplyStyle(animate: false);
         _pointer.Tick += (_, _) => PointerTick();
         _second.Tick += (_, _) => SecondTick();
@@ -156,6 +174,7 @@ public partial class IslandWindow : Window
                 Dispatcher.BeginInvoke(DispatcherPriority.Input, () => { if (!field.IsKeyboardFocused) field.Focus(); });
         };
         PreviewKeyDown += OnKey;
+        TrackPopups();
 
         // Drop files on the island: it opens Stash and keeps them there.
         Root.AllowDrop = true;
@@ -191,20 +210,40 @@ public partial class IslandWindow : Window
 
         Model.Changed += OnModelChanged;
         Model.Changed += _ => UpdateLive();
+        Model.Changed += _ => UpdateTabBadges();
         Model.Meetings = () => Rally.Upcoming;
         Mirror = new CameraMirror(Dispatcher);
         Mirror.Changed += RenderMirror;
+        // Chorus follows the song even while Purr is closed: the closed island sings along too. First, so a new
+        // track never shows the last one's line.
+        Media.Changed += FollowLyrics;
         Media.Changed += UpdateLive;
+        Media.Changed += UpdateTabBadges;
+        Lyrics.Changed += () => Dispatcher.BeginInvoke(UpdateLive);
+        Grid.SetRow(LiveLyric, 1);
+        LiveLyric.Visibility = Visibility.Collapsed;
+        LiveView.Children.Add(LiveLyric);
+        Media.Changed += RefreshPeekArtwork;
         Prowl.Changed += UpdateLive;
         Power.Changed += UpdateLive;
         Power.Notice += (kind, pct) =>
         {
-            // Whiskers: the battery, beside the camera (the Mac's wording).
+            // Whiskers: the battery as a ring beside the words (the Mac's ChargeRing and wording). The notice comes
+            // before Power.Charging is updated, so "charging" is read from the level: on AC and not yet full.
+            double level = pct / 100.0;
             switch (kind)
             {
-                case "plugged": ShowPeek(Power.Charging ? L("Charging") : L("Connected to power"), $"{L("Charger connected")} · {pct}%", 2.4); break;
-                case "unplugged": ShowPeek(L("On battery"), $"{L("Charger unplugged")} · {pct}%", 2.4); break;
-                default: ShowPeek(L("Battery low"), $"{(kind == "now" ? L("Plug in now") : L("Plug in soon"))} · {pct}%", 5, urgent: true); break;
+                case "plugged":
+                    ShowPeek(new PeekInfo(pct < 100 ? L("Charging") : L("Connected to power"), L("Charger connected"))
+                    { Look = PeekLooks.Of(PeekKind.Plugged), Progress = level, Charging = pct < 100 });
+                    break;
+                case "unplugged":
+                    ShowPeek(new PeekInfo(L("On battery"), L("Charger unplugged")) { Look = PeekLooks.Of(PeekKind.OnBattery, pct), Progress = level });
+                    break;
+                default:
+                    ShowPeek(new PeekInfo(L("Battery low"), kind == "now" ? L("Plug in now") : L("Plug in soon"))
+                    { Look = PeekLooks.Of(PeekKind.BatteryLow, pct), Progress = level, Seconds = 5, Urgent = true });
+                    break;
             }
         };
         Rally.Changed += () =>
@@ -213,26 +252,29 @@ public partial class IslandWindow : Window
             if (_panes.ContainsKey(Room.Hunt)) OnModelChanged(Room.Hunt);
         };
         Whiskers = new WhiskersWatcher(Dispatcher);
-        Whiskers.CapsLock += on => ShowPeek(on ? L("Caps Lock on") : L("Caps Lock off"), "", 1.4);
-        Whiskers.Keyboard += name => ShowPeek(name, L("Keyboard"), 1.6);
+        Whiskers.CapsLock += on => ShowPeek(on ? L("Caps Lock on") : L("Caps Lock off"), "", 1.4, look: PeekLooks.Of(on ? PeekKind.CapsOn : PeekKind.CapsOff));
+        Whiskers.Keyboard += name => ShowPeek(name, L("Keyboard"), 1.6, look: PeekLooks.Of(PeekKind.Keyboard));
         Whiskers.Network += (online, wifi) =>
         {
-            if (online) ShowPeek(wifi ? L("Wi-Fi connected") : L("Back online"), L("You're online again"));
-            else ShowPeek(L("Connection lost"), L("Check your network"));
+            if (online) ShowPeek(wifi ? L("Wi-Fi connected") : L("Back online"), L("You're online again"), look: PeekLooks.Of(wifi ? PeekKind.WifiOn : PeekKind.Online));
+            else ShowPeek(L("Connection lost"), L("Check your network"), look: PeekLooks.Of(PeekKind.Offline));
         };
         Whiskers.Output += (name, headphones, previous) =>
         {
-            if (headphones) ShowPeek(name, L("Connected"));
-            else if (previous is not null) ShowPeek(L("%@ disconnected", previous), L("Now on %@", name));
+            if (headphones) ShowPeek(name, L("Connected"), look: PeekLooks.Of(PeekKind.HeadphonesOn));
+            else if (previous is not null) ShowPeek(L("%@ disconnected", previous), L("Now on %@", name), look: PeekLooks.Of(PeekKind.HeadphonesOff));
         };
         Updates.Changed += () =>
         {
             if (Presentation == Presentation.Expanded && Selected == Room.Settings) CurrentPane?.Refresh();
-            // Announce a new version once, with a peek that opens Settings.
-            if (Updates.State == Updater.Phase.Available && Updates.Release is { } r && _announced != r.Version)
+            // Announce a new version once (remembered in data.json, like the Mac), with a peek that opens Settings.
+            if (Updates.State == Updater.Phase.Available && Updates.Release is { } r && Model.Data.AnnouncedVersion != r.Version)
             {
-                _announced = r.Version;
-                ShowPeek(L("Ezkiel Notch %@ is out", string.Join('.', AppVersion.Parts(r.Version))), L("Open Settings to update"), 6, room: Room.Settings);
+                Model.Data.AnnouncedVersion = r.Version;
+                Model.SaveSoon();
+                SettingsPane.Section = SettingsSection.About;
+                ShowPeek(L("Ezkiel Notch %@ is out", string.Join('.', AppVersion.Parts(r.Version))), L("Open Settings to update"), 6, room: Room.Settings,
+                         look: PeekLooks.Of(PeekKind.Update));
             }
         };
         Weather.Changed += () =>
@@ -243,9 +285,9 @@ public partial class IslandWindow : Window
         };
         Model.Peek += p =>
         {
-            if (Model.Settings.Sounds && p.Sound.Length > 0) Sounds.Play(p.Sound);
             if (Presentation == Presentation.Expanded) ShowToast(new ToastRequest($"{p.Title} · {p.Subtitle}"));
-            else ShowPeek(p.Title, p.Subtitle, urgent: p.Urgent, room: p.Room, app: p.App, link: p.Link);
+            // Plays its sound; shows the card only while the island is closed.
+            ShowPeek(PeekInfo.From(p));
         };
         Model.Toast += ShowToast;
         Model.Sound += name =>
@@ -260,7 +302,8 @@ public partial class IslandWindow : Window
         Media.TrackChanged += np =>
         {
             if (DateTime.UtcNow - launched < TimeSpan.FromSeconds(4) || Presentation == Presentation.Expanded) return;
-            ShowPeek(np.Title, np.Artist, room: Room.Purr);
+            // The album art on the left, an equalizer on the right, in the player's colour (the Mac's track peek).
+            ShowPeek(new PeekInfo(np.Title, np.Artist) { Room = Room.Purr, Look = PeekLooks.Track(np.AppId), Artwork = true });
         };
     }
 
@@ -278,6 +321,7 @@ public partial class IslandWindow : Window
         Win32.SetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE, ex | Win32.WS_EX_TOOLWINDOW | Win32.WS_EX_NOACTIVATE);
 
         RegisterHotKey();
+        ApplyScreenShare();
 
         Place();
         SystemEvents.DisplaySettingsChanged += (_, _) => Dispatcher.BeginInvoke(Place);
@@ -336,6 +380,24 @@ public partial class IslandWindow : Window
         Win32.SetWindowPos(_hwnd, Win32.HWND_TOPMOST, x, y, w, h, Win32.SWP_NOACTIVATE | Win32.SWP_SHOWWINDOW);
     }
 
+    // MARK: Hide from screen sharing (the Mac's sharingType = .none)
+
+    /// <summary>Teams, Zoom, Meet, screenshots and recordings leave the island out while the setting is on.</summary>
+    private void ApplyScreenShare()
+    {
+        if (_hwnd != 0) ExcludeFromCapture(_hwnd, Model.Settings.HideFromScreenShare);
+    }
+
+    /// <summary>Windows 10 2004 and later leave the window out of captures; older builds can only show it black.</summary>
+    internal static void ExcludeFromCapture(nint hwnd, bool hidden)
+    {
+        if (!hidden) Win32.SetWindowDisplayAffinity(hwnd, Win32.WDA_NONE);
+        else if (!Win32.SetWindowDisplayAffinity(hwnd, Win32.WDA_EXCLUDEFROMCAPTURE)) Win32.SetWindowDisplayAffinity(hwnd, Win32.WDA_MONITOR);
+    }
+
+    /// <summary>The island window's display affinity as Windows reports it (WDA_NONE when it can't tell).</summary>
+    public uint DisplayAffinity => _hwnd != 0 && Win32.GetWindowDisplayAffinity(_hwnd, out var a) ? a : Win32.WDA_NONE;
+
     private int _ticks;
 
     private void SecondTick()
@@ -344,7 +406,9 @@ public partial class IslandWindow : Window
         Model.Tick();
         if (DateTime.Now.Second == 0) Clock.Text = Lang.Time(DateTime.Now);
         if (Presentation == Presentation.Expanded) CurrentPane?.SecondTick();
+        SysMonTick();
         UpdateLive();
+        UpdateTabBadges();
         if (_ticks % 60 == 0) Rally.Tick(DateTime.UtcNow);
         if (_ticks % 600 == 0) _ = Weather.Refresh();
         // Updates: 30 s after launch, then once a day.
@@ -352,19 +416,34 @@ public partial class IslandWindow : Window
     }
 
     /// <summary>Sources that read the outside world follow their settings (none of them in the self-test).</summary>
-    private string? _announced;
-
     private void ConfigureSources()
     {
         RegisterHotKey();
+        Media.SetSource(Model.Settings.MusicSource);
+        FollowLyrics();
         if (SelfTesting) return;
         var s = Model.Settings;
         Whiskers.Configure(s.SystemOverlays, s.ConnectionPeeks);
         Roar.SetEnabled(s.Roar);
         Pounce.Configure(s.PounceScreenshots, s.PounceDownloads);
+        Downloads.Configure(s.LiveDownloads);
         Prowl.SetEnabled(s.Prowl);
         Rally.Configure(s.Rally, s.RallyCalendarUrl);
         Weather.Configure(s.WeatherCity.Length > 0 ? s.WeatherLatitude : null, s.WeatherCity.Length > 0 ? s.WeatherLongitude : null);
+    }
+
+    // MARK: Chorus (lyrics)
+
+    private string? _lyricsFor;
+
+    /// <summary>Lyrics follow the song while Chorus is on (the Mac asks LRCLIB once per track, never when it's off).
+    /// Only a new track or Chorus switching asks again, so a failed fetch doesn't retry on every media event.</summary>
+    private void FollowLyrics()
+    {
+        var song = Model.Settings.ShowLyrics ? Media.Current?.Song : null;
+        if (song?.Key == _lyricsFor) return;
+        _lyricsFor = song?.Key;
+        Lyrics.Load(song);
     }
 
     // MARK: Weather (in the header, where the clock is)
@@ -383,9 +462,9 @@ public partial class IslandWindow : Window
         bool f = Model.Settings.Fahrenheit;
         string T(double c) => $"{Math.Round(WeatherClient.Display(c, f)):0}°";
         var (glyph, color) = WeatherGlyph(w.Code, w.IsDay);
-        WeatherChip.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe UI Symbol"), FontSize = 13, Foreground = new SolidColorBrush(color), VerticalAlignment = VerticalAlignment.Center });
-        var temp = Ui.Number(T(w.Temperature), 12.5);
-        temp.Margin = new Thickness(4, 0, 0, 0);
+        WeatherChip.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe UI Symbol"), FontSize = 12, Foreground = new SolidColorBrush(color), VerticalAlignment = VerticalAlignment.Center });
+        var temp = Ui.Number(T(w.Temperature), 12, WeatherInk, FontWeights.Medium);
+        temp.Margin = new Thickness(3, 0, 0, 0);
         WeatherChip.Children.Add(temp);
         var parts = new List<string> { city, L(WeatherClient.Word(w.Code)), $"{T(w.Low)}–{T(w.High)}" };
         if (w.RainChance is int rain) parts.Add(L("%d%% rain", rain));
@@ -394,6 +473,8 @@ public partial class IslandWindow : Window
         // The weather takes the clock's place (the taskbar keeps its own clock).
         Clock.Visibility = Visibility.Collapsed;
     }
+
+    private static readonly Brush WeatherInk = Ui.Frozen(new SolidColorBrush(Color.FromArgb(0xD9, 0xF5, 0xF1, 0xEA)));
 
     private static (string, Color) WeatherGlyph(int code, bool day) => code switch
     {
@@ -478,12 +559,13 @@ public partial class IslandWindow : Window
         Presentation = Presentation.Expanded;
         _liveShown = false;
         Fade(LiveView, 0, 0.08);
+        UpdateClosedLyrics();
         ShowRoom(Selected);
         Apply(ExpandedShape(Selected), animate: true, bouncy: true);
         Fade(PeekView, 0, 0.08);
+        ReleasePeek();
         Fade(ExpandedView, 1, 0.22, delay: 0.08);
-        Root.Opacity = 1;
-        Root.IsHitTestVisible = true;
+        UpdateHiddenState();
     }
 
     public void Collapse()
@@ -492,6 +574,8 @@ public partial class IslandWindow : Window
         bool wasOpen = Presentation == Presentation.Expanded;
         Presentation = Presentation.Lip;
         _openedByKeyboard = false;
+        // Closing on purpose (Esc, the close button, the shortcut) also unpins: the next open is a normal one.
+        if (Pinned) SetPinned(false);
         if (wasOpen)
         {
             CurrentPane?.Shown(false);
@@ -500,13 +584,43 @@ public partial class IslandWindow : Window
         }
         Fade(ExpandedView, 0, 0.1);
         Fade(PeekView, 0, 0.1);
+        ReleasePeek();
         if (MirrorOpen) SetMirror(false);
+        HideAsk();
         _closedShape = null;
         _liveShown = false;
         _liveKey = "";
         UpdateLive();
         UpdateHiddenState();
     }
+
+    /// <summary>Pin or unpin. Pinning opens the island if it's closed; unpinning with the pointer away lets it
+    /// close after the usual short wait.</summary>
+    public void SetPinned(bool on)
+    {
+        if (Pinned == on) return;
+        Pinned = on;
+        RenderPin();
+        if (on)
+        {
+            if (Presentation != Presentation.Expanded) Expand();
+        }
+        else if (Presentation == Presentation.Expanded && !Hovering) _outsideSince = DateTime.UtcNow;
+    }
+
+    /// <summary>The header's two round buttons, as on the Mac: Keep open (pin / pin.fill, gold while pinned) and
+    /// Collapse (chevron.up; its tip names the shortcut).</summary>
+    private void RenderPin()
+    {
+        // Segoe's Pin and PinFill glyphs.
+        PinHost.Child = Ui.IconButton(Pinned ? "\uE842" : "\uE718",
+                                      Pinned ? L("Unpin · close when you move away") : L("Keep the notch open"),
+                                      () => SetPinned(!Pinned), 24, Pinned ? Gold : Ui.Mist);
+        CollapseHost.Child = Ui.IconButton("\uE70E", L("Collapse (Esc) · %@ toggles", HotkeyLabel(Model.Settings.Hotkey)), Collapse, 24, Ui.Mist);
+    }
+
+    /// <summary>Ezkielyna gold (the Mac's Theme.gold).</summary>
+    private static readonly Brush Gold = Ui.Frozen(new SolidColorBrush(Color.FromRgb(0xFF, 0xCF, 0x87)));
 
     /// <summary>The shortcut, the tray and the menu: opening this way means you're about to type, so the island
     /// takes the keyboard straight away (hovering open doesn't, until you click).</summary>
@@ -534,36 +648,59 @@ public partial class IslandWindow : Window
 
     /// <summary>A short message under the top edge. While something is fullscreen only urgent ones show.
     /// Clicking it opens its room.</summary>
-    public void ShowPeek(string title, string subtitle, double seconds = 3.4, bool urgent = false, Room? room = null, string? app = null, string? file = null, string? link = null)
+    public void ShowPeek(string title, string subtitle, double seconds = 3.4, bool urgent = false, Room? room = null, string? app = null, string? file = null, string? link = null,
+                         PeekLook? look = null)
+        => ShowPeek(new PeekInfo(title, subtitle) { Seconds = seconds, Urgent = urgent, Room = room, App = app, File = file, Link = link, Look = look });
+
+    /// <summary>What the peek on screen is (null when none is).</summary>
+    public PeekInfo? CurrentPeek => Presentation == Presentation.Peek ? _peek : null;
+    private PeekInfo? _peek;
+    private BitmapSource? _peekArt;
+
+    /// <summary>The rich card: the tinted icon on the left, a value, ring or equalizer on the right (the Mac's Peek).
+    /// It plays its sound also while the island is open (a toast shows instead); over fullscreen apps only urgent
+    /// ones show or sound, like the Mac.</summary>
+    public void ShowPeek(PeekInfo p)
     {
-        if (FullscreenActive && Model.Settings.HideInFullscreen && !urgent) return;
+        if (FullscreenActive && Model.Settings.HideInFullscreen && !p.Urgent) return;
+        if (Model.Settings.Sounds && p.Chime.Length > 0) Sounds.Play(p.Chime);
         if (Presentation == Presentation.Expanded) return;
-        PeekTitle.Text = title;
-        PeekSubtitle.Text = subtitle;
-        // An app's own news shows that app's icon; everything else, Ezkiel.
-        PeekIcon.Source = app is not null && AppIcons.Icon(app) is { } icon ? icon
-            : file is not null && Files.Thumbnail(file, 64) is { } thumb ? thumb : Rooms.PurrPane.Lion;
+        string? file = p.File, link = p.Link;
+        _peek = p;
+        PeekTitle.Text = p.Title;
+        PeekSubtitle.Text = p.Subtitle;
+        PeekSubtitle.Visibility = p.Subtitle.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        PeekLeading.Child = PeekLeft(p);
+        PeekTrailing.Child = PeekRight(p);
+        PeekTrailing.Visibility = PeekTrailing.Child is null ? Visibility.Collapsed : Visibility.Visible;
         PeekActions.Children.Clear();
         if (file is not null)
         {
             // Pounce: the file right where you need it.
-            PeekActions.Children.Add(Ui.TextButton(L("Copy"), () => { Files.Copy([file]); Collapse(); }, Accent.Stash.LightBrush));
+            if (p.OpensFile) PeekActions.Children.Add(Ui.TextButton(L("Open"), () => { Files.Open(file); Collapse(); }, Accent.Stash.LightBrush));
+            else PeekActions.Children.Add(Ui.TextButton(L("Copy"), () => { Files.Copy([file]); Collapse(); }, Accent.Stash.LightBrush));
             PeekActions.Children.Add(Ui.TextButton("Stash", () => { Model.AddToShelf([file]); Collapse(); }, Accent.Stash.LightBrush));
             PeekActions.Children.Add(Ui.TextButton(L("Show"), () => { Files.Reveal(file); Collapse(); }, Accent.Stash.LightBrush));
         }
         if (link is not null)
             PeekActions.Children.Add(Ui.Pill(L("Join"), () => { Files.Open(link); Collapse(); }, Accent.Rally, prominent: true, glyph: "\uE714"));
-        _peekRoom = room;
-        PeekView.Cursor = room is null ? null : Cursors.Hand;
+        foreach (var b in p.Buttons ?? [])
+        {
+            var pill = Ui.Pill(b.Title, () => { b.Run(); Collapse(); }, b.Accent, prominent: b.Prominent);
+            pill.Margin = new Thickness(PeekActions.Children.Count > 0 ? 6 : 0, 0, 0, 0);
+            PeekActions.Children.Add(pill);
+        }
+        _peekRoom = p.Room;
+        PeekView.Cursor = p.Room is null ? null : Cursors.Hand;
         Presentation = Presentation.Peek;
         _liveShown = false;
         Fade(LiveView, 0, 0.08);
-        Root.Opacity = 1;
-        Root.IsHitTestVisible = true;
+        UpdateClosedLyrics();
+        UpdateHiddenState();
         Apply(PeekShape, animate: true, bouncy: true);
         Fade(PeekView, 1, 0.2, delay: 0.1);
         _peekTimer?.Stop();
-        _peekTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(urgent ? Math.Max(seconds, 6) : seconds) };
+        _peekTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(p.Urgent ? Math.Max(p.Seconds, 6) : p.Seconds) };
         _peekTimer.Tick += (_, _) =>
         {
             // Hovering keeps it; leaving lets it go.
@@ -579,6 +716,52 @@ public partial class IslandWindow : Window
         if (Presentation != Presentation.Peek) return;
         if (_peekRoom is { } room) Select(room);
         Expand();
+    }
+
+    /// <summary>Left of the words (the Mac's order): the album art, an app's own icon, a file's thumbnail, Ezkiel,
+    /// then the look's glyph in its tint.</summary>
+    private FrameworkElement PeekLeft(PeekInfo p)
+    {
+        _peekArt = p.Artwork ? Media.Artwork : null;
+        if (p.Artwork && Media.Artwork is { } art) return PeekTints.ArtworkTile(art);
+        if (p.App is not null && AppIcons.Icon(p.App) is { } icon) return new Image { Source = icon, Width = 26, Height = 26 };
+        if (p.File is not null && Files.Thumbnail(p.File, 64) is { } thumb) return new Image { Source = thumb, Width = 26, Height = 26 };
+        if (p.Look is not { ShowsLion: false } look) return new Image { Source = Rooms.PurrPane.Lion, Width = 26, Height = 26 };
+        return PeekTints.GlyphTile(look.Glyph, p.Tint);
+    }
+
+    /// <summary>Right of the words, the first that applies: the battery ring, a big value, the equalizer for a new
+    /// song, or the glyph when Ezkiel is on the left.</summary>
+    private FrameworkElement? PeekRight(PeekInfo p)
+    {
+        if (p.Progress is { } level) return new ChargeRing(level, p.Tint, p.Charging, 32);
+        if (p.Value is { Length: > 0 } value) return Ui.Number(value, 15, PeekTints.Brush(p.Tint));
+        if (p.Artwork) return new EqualizerBars(true, (Media.ArtworkAccent?.Deep) ?? p.Tint, 12);
+        if (p.Look is { ShowsLion: true } look) return Ui.Glyph(look.Glyph, 13, PeekTints.Brush(p.Tint));
+        return null;
+    }
+
+    /// <summary>The album art usually arrives a moment after the new song: put it in the card that's showing.</summary>
+    private void RefreshPeekArtwork()
+    {
+        if (CurrentPeek is not { Artwork: true } p || ReferenceEquals(Media.Artwork, _peekArt)) return;
+        PeekLeading.Child = PeekLeft(p);
+        PeekTrailing.Child = PeekRight(p);
+    }
+
+    /// <summary>A closed card lets go of its content once it has faded, so a ring or equalizer never runs unseen.</summary>
+    private void ReleasePeek()
+    {
+        var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        t.Tick += (_, _) =>
+        {
+            t.Stop();
+            if (Presentation == Presentation.Peek) return;
+            PeekLeading.Child = null;
+            PeekTrailing.Child = null;
+            _peekArt = null;
+        };
+        t.Start();
     }
 
     private void Apply(Shape s, bool animate, bool bouncy = false)
@@ -742,8 +925,9 @@ public partial class IslandWindow : Window
         _lastKey = DateTime.UtcNow;
         if (e.Key == Key.Escape)
         {
-            // Esc leaves the field first (what you typed stays); a second Esc closes.
-            if (Keyboard.FocusedElement is TextBox) Focus();
+            // Esc puts the ask box away; otherwise it leaves the field first (what you typed stays); a second Esc closes.
+            if (AskOpen) SetAsk(false);
+            else if (Keyboard.FocusedElement is TextBox) Focus();
             else Collapse();
             e.Handled = true;
         }
@@ -758,6 +942,25 @@ public partial class IslandWindow : Window
             Select((Room)(e.Key - Key.D1));
             e.Handled = true;
         }
+        // ← → walk through the rooms while no field has the caret.
+        else if (Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.Left or Key.Right && Keyboard.FocusedElement is not TextBox)
+        {
+            SelectNeighbor(e.Key == Key.Left ? -1 : 1);
+            e.Handled = true;
+        }
+        // Ctrl+, opens Settings (the Mac's ⌘,).
+        else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.OemComma)
+        {
+            Select(Room.Settings);
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>The room before or after this one, wrapping around.</summary>
+    public void SelectNeighbor(int delta)
+    {
+        int count = RoomInfo.All.Length;
+        Select(RoomInfo.All[((int)Selected + delta % count + count) % count].Room);
     }
 
     // MARK: Pointer
@@ -787,15 +990,50 @@ public partial class IslandWindow : Window
         if (IgnorePointer || _hwnd == 0 || !Win32.GetCursorPos(out var c) || !Win32.GetWindowRect(_hwnd, out var w)) return;
         var p = new Point((c.X - w.Left) / Screen.Scale, (c.Y - w.Top) / Screen.Scale);
         bool inside = InHotZone(p);
+        UpdateClickThrough(p);
         PointerMoved(inside);
 
         // A click on the lip opens it even with hover-to-open off.
         bool pressed = (Win32.GetAsyncKeyState(Win32.PrimaryButton) & 0x8000) != 0;
         if (Presentation == Presentation.Lip && inside && pressed) Expand();
         // A click anywhere else closes the open island (clicks there go to other apps, so we look).
-        // Not while a file is being dragged out of Stash or over the island.
+        // Not while a file is being dragged out of Stash or over the island, and not for a click in one of our own
+        // popups (a menu, the tray menu): what it does decides.
         if (StashPane.DraggingOut || _dragInside) return;
-        if (Presentation == Presentation.Expanded && !inside && pressed) Collapse();
+        if (Presentation == Presentation.Expanded && !inside && pressed && !Pinned && !_menuOpen && !OnOwnPopup(c))
+        {
+            Collapse();
+            _closedByPressAt = DateTime.UtcNow;
+        }
+    }
+
+    private DateTime _closedByPressAt = DateTime.MinValue;
+
+    /// <summary>A press outside just closed the island. The tray lion's click that ends that same press must not
+    /// open it again (a click on the lion closes an open island).</summary>
+    public bool JustClosedByPress => DateTime.UtcNow - _closedByPressAt < TimeSpan.FromMilliseconds(600);
+
+    /// <summary>The pointer is over another window of this app (a menu, a tooltip, the tray menu).</summary>
+    private bool OnOwnPopup(Win32.POINT c)
+    {
+        var root = Win32.GetAncestor(Win32.WindowFromPoint(c), Win32.GA_ROOT);
+        if (root == 0 || root == _hwnd) return false;
+        Win32.GetWindowThreadProcessId(root, out uint pid);
+        return pid == (uint)Environment.ProcessId;
+    }
+
+    private bool _clickThrough;
+
+    /// <summary>The glow or shadow around the island is drawn in the window too, and Windows gives every pixel that
+    /// isn't fully transparent the clicks. Outside the island's own shape they pass through to the app underneath.</summary>
+    private void UpdateClickThrough(Point p)
+    {
+        if (Mouse.Captured is not null) return;   // a drag inside the island keeps its window
+        bool through = Island.Effect is not null && !OnIsland(p);
+        if (through == _clickThrough) return;
+        _clickThrough = through;
+        var ex = Win32.GetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE);
+        Win32.SetWindowLongPtr(_hwnd, Win32.GWL_EXSTYLE, through ? ex | Win32.WS_EX_TRANSPARENT : ex & ~(nint)Win32.WS_EX_TRANSPARENT);
     }
 
     /// <summary>Hover state machine (also driven by the self-test).</summary>
@@ -831,7 +1069,7 @@ public partial class IslandWindow : Window
             // idle field still lets go 20 s after the pointer left. A click elsewhere always closes it.
             var grace = Typing ? TimeSpan.FromSeconds(20) : TimeSpan.FromMilliseconds(500);
             if (Typing && now - _lastKey < TimeSpan.FromSeconds(60)) return;
-            if (_openedByKeyboard) return;
+            if (_openedByKeyboard || Pinned || _menuOpen || AskBusy) return;
             if (StashPane.DraggingOut || _dragInside) return;
             if (Presentation == Presentation.Expanded && now - _outsideSince > grace) Collapse();
         }
@@ -857,44 +1095,91 @@ public partial class IslandWindow : Window
         UpdateHiddenState();
     }
 
-    /// <summary>Over a fullscreen game, video or slides the lip steps away entirely.</summary>
+    /// <summary>Over a fullscreen game, video or slides the lip steps away entirely. Also the one place that shows
+    /// it again for a peek or an open island: the fade holds its value, so setting Root.Opacity directly is ignored.</summary>
     private void UpdateHiddenState()
     {
         bool hide = FullscreenActive && Model.Settings.HideInFullscreen && Presentation == Presentation.Lip;
-        var a = new DoubleAnimation(hide ? 0 : 1, TimeSpan.FromMilliseconds(180));
-        Root.BeginAnimation(OpacityProperty, a);
+        if (hide || (Presentation == Presentation.Lip && Root.Opacity < 1))
+            Root.BeginAnimation(OpacityProperty, new DoubleAnimation(hide ? 0 : 1, TimeSpan.FromMilliseconds(180)));
+        else
+        {
+            // Shown at once (a peek or the open island must never be invisible but clickable).
+            Root.BeginAnimation(OpacityProperty, null);
+            Root.Opacity = 1;
+        }
         Root.IsHitTestVisible = !hide;
     }
 
     // MARK: Rooms
 
+    private readonly List<(Border Pill, TabGlyph Glyph)> _tabs = [];
+    private int _hoveredTab = -1;
+
+    /// <summary>The Mac's tab strip: a glyph per room, the open one on a capsule in its accent (16% fill, 22% hairline),
+    /// a faint capsule on hover, and a dot when the room has something going on.</summary>
     private void BuildTabs()
     {
         Tabs.Children.Clear();
+        _tabs.Clear();
         foreach (var info in RoomInfo.All)
         {
             var room = info.Room;
-            var icon = new TextBlock
-            {
-                Text = info.Glyph,
-                FontFamily = (FontFamily)FindResource("Icons"),
-                FontSize = 14,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
+            int index = _tabs.Count;
+            var glyph = new TabGlyph(room);
             var pill = new Border
             {
+                Height = 28,
                 CornerRadius = new CornerRadius(14),
-                Child = icon,
+                Child = glyph,
                 Margin = new Thickness(1, 0, 1, 0),
+                VerticalAlignment = VerticalAlignment.Center,
                 Cursor = Cursors.Hand,
                 ToolTip = $"{info.Name} · {L(info.Subtitle)}",
                 Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0.5),
             };
+            AutomationProperties.SetName(pill, $"{info.Name}, {L(info.Subtitle)}");
+            pill.MouseEnter += (_, _) => { _hoveredTab = index; PaintTabs(); };
+            pill.MouseLeave += (_, _) => { if (_hoveredTab == index) _hoveredTab = -1; PaintTabs(); };
             pill.MouseLeftButtonUp += (_, _) => Select(room);
             Tabs.Children.Add(pill);
+            _tabs.Add((pill, glyph));
         }
+        UpdateTabBadges();
         Select(Selected);
+    }
+
+    private static readonly Brush TabHover = Ui.Frozen(new SolidColorBrush(Color.FromArgb(0x0D, 0xFF, 0xFF, 0xFF)));
+
+    private void PaintTabs()
+    {
+        for (int i = 0; i < _tabs.Count; i++)
+        {
+            var (pill, glyph) = _tabs[i];
+            var accent = RoomInfo.All[i].Accent;
+            bool on = i == (int)Selected, hover = i == _hoveredTab;
+            pill.Background = on ? accent.Tint(0x29) : hover ? TabHover : Brushes.Transparent;
+            pill.BorderBrush = on ? accent.Tint(0x38) : Brushes.Transparent;
+            glyph.SetState(on, hover);
+        }
+    }
+
+    /// <summary>The Mac's tab badges: Den while the timer runs, Purr while music plays, Roar with unread counts or
+    /// a live agent, Hunt with an overdue task or a meeting about to start.</summary>
+    private void UpdateTabBadges()
+    {
+        if (_tabs.Count != RoomInfo.All.Length) return;
+        var now = DateTime.UtcNow;
+        bool Show(Room room) => room switch
+        {
+            Room.Den => Model.Focus.IsRunning,
+            Room.Purr => Media.Current?.IsPlaying ?? false,
+            Room.Roar => Model.UnreadTotal > 0 || Model.LiveAgents.Count > 0,
+            Room.Hunt => Model.Data.Tasks.Any(t => !t.Done && t.Due is { } due && due <= now) || MeetingSoon is not null,
+            _ => false,
+        };
+        foreach (var info in RoomInfo.All) _tabs[(int)info.Room].Glyph.Badge = Show(info.Room);
     }
 
     private Pane PaneFor(Room room)
@@ -902,7 +1187,7 @@ public partial class IslandWindow : Window
         if (_panes.TryGetValue(room, out var pane)) return pane;
         pane = room switch
         {
-            Room.Den => new DenPane(Model),
+            Room.Den => new DenPane(Model) { SysMon = SysMon },
             Room.Hunt => new HuntPane(Model, Rally, () => SetMirror(true)),
             Room.Scratch => new ScratchPane(Model),
             Room.Oasis => new OasisPane(Model),
@@ -912,8 +1197,8 @@ public partial class IslandWindow : Window
             Room.Stash => new StashPane(Model),
             _ => throw new ArgumentOutOfRangeException(nameof(room)),
         };
-        if (pane is RoarPane roar) roar.OpenSettings += () => Select(Room.Settings);
-        if (pane is HuntPane hunt) hunt.OpenSettings += () => Select(Room.Settings);
+        if (pane is RoarPane roar) roar.OpenSettings += () => { SettingsPane.Section = SettingsSection.Roar; Select(Room.Settings); };
+        if (pane is HuntPane hunt) hunt.OpenSettings += () => { SettingsPane.Section = SettingsSection.Features; Select(Room.Settings); };
         if (pane is StashPane stash)
         {
             stash.ShareFiles += files =>
@@ -965,19 +1250,11 @@ public partial class IslandWindow : Window
     public void Select(Room room)
     {
         if (MirrorOpen && room != Selected) SetMirror(false);
+        HideAsk();
         Selected = room;
         var info = RoomInfo.Of(room);
         TabTitle.Text = info.Name;
-        TabSubtitle.Text = L(info.Subtitle);
-        for (int i = 0; i < Tabs.Children.Count; i++)
-        {
-            var pill = (Border)Tabs.Children[i];
-            var icon = (TextBlock)pill.Child;
-            var accent = RoomInfo.All[i].Accent.Deep;
-            bool on = i == (int)room;
-            pill.Background = on ? new SolidColorBrush(Color.FromArgb(0x29, accent.R, accent.G, accent.B)) : Brushes.Transparent;
-            icon.Foreground = on ? new SolidColorBrush(accent) : (Brush)FindResource("Mist");
-        }
+        PaintTabs();
         if (Presentation == Presentation.Expanded)
         {
             HideToast(immediately: true);
@@ -993,6 +1270,7 @@ public partial class IslandWindow : Window
             // Language switch: every room and the tabs say it again.
             foreach (var r in _panes.Keys) _stale.Add(r);
             BuildTabs();
+            RenderPin();
             Clock.Text = Lang.Time(DateTime.Now);
             UpdateWeatherChip();
             Tray?.Relabel(HotkeyLabel(Model.Settings.Hotkey));
@@ -1002,6 +1280,7 @@ public partial class IslandWindow : Window
         if (room == Room.Settings)
         {
             ConfigureSources();
+            ApplyScreenShare();
             UpdateWeatherChip();
             ApplyStyle(animate: true);
             // Settings feed Den, Oasis and the rest; the Settings room redraws itself.
@@ -1014,27 +1293,75 @@ public partial class IslandWindow : Window
         else _stale.Add(room.Value);
     }
 
-    private void OnCloseClick(object sender, RoutedEventArgs e) => Collapse();
+    /// <summary>Opens the island on a room and takes the keyboard (the tray, the menus, a second launch).</summary>
+    public void OpenRoom(Room room)
+    {
+        Select(room);
+        if (Presentation != Presentation.Expanded) Expand();
+        TakeKeyboard();
+    }
 
-    private void ShowMenu()
+    /// <summary>While the right-click menu is up, the island stays as it is (the Mac's "menu" blocker).</summary>
+    private bool _menuOpen;
+
+    /// <summary>The right-click menu, like the Mac's: open/close, Keep open, Open on hover, Notch or Island.</summary>
+    public ContextMenu BuildMenu()
     {
         var menu = new ContextMenu();
-        var open = new MenuItem { Header = Presentation == Presentation.Expanded ? L("Close") : L("Open") + $"  ({HotkeyLabel(Model.Settings.Hotkey)})" };
-        open.Click += (_, _) => Toggle();
-        var settings = new MenuItem { Header = L("Settings…") };
-        settings.Click += (_, _) =>
+        void Add(string header, Action click, bool? check = null)
         {
-            Select(Room.Settings);
-            if (Presentation != Presentation.Expanded) Expand();
-            TakeKeyboard();
-        };
-        var quit = new MenuItem { Header = L("Quit Ezkiel Notch") };
-        quit.Click += (_, _) => Application.Current.Shutdown();
-        menu.Items.Add(open);
-        menu.Items.Add(settings);
+            var item = new MenuItem { Header = header, IsChecked = check == true };
+            item.Click += (_, _) => click();
+            menu.Items.Add(item);
+        }
+        Add(Presentation == Presentation.Expanded ? L("Close") : L("Open") + $"  ({HotkeyLabel(Model.Settings.Hotkey)})", Toggle);
+        Add(L("Keep Open"), () => SetPinned(!Pinned), Pinned);
+        if (Model.Settings.Ask) Add(L("Ask…  %@", $"({AskHotkeyLabel})"), OpenAsk);
         menu.Items.Add(new Separator());
-        menu.Items.Add(quit);
-        menu.IsOpen = true;
+        Add(L("Open on Hover"), () =>
+        {
+            Model.Settings.ExpandOnHover = !Model.Settings.ExpandOnHover;
+            Model.SettingsChanged();
+        }, Model.Settings.ExpandOnHover);
+        menu.Items.Add(new Separator());
+        foreach (var (style, name) in new[] { ("notch", "Notch"), ("island", "Island") })
+            Add(L(name), () =>
+            {
+                if (Model.Settings.Style == style) return;
+                Model.Settings.Style = style;
+                Model.SettingsChanged();
+            }, Model.Settings.Style == style);
+        menu.Items.Add(new Separator());
+        Add(L("Settings…"), () => OpenRoom(Room.Settings));
+        Add(L("Quit Ezkiel Notch"), () => Application.Current.Shutdown());
+        return menu;
+    }
+
+    private void ShowMenu() => BuildMenu().IsOpen = true;
+
+    /// <summary>Every context menu (this one, Stash's, any room's) holds the island while it's up, like the Mac's menu
+    /// tracking, so picking an item doesn't close it first. Menus and tooltips are windows of their own: they stay
+    /// out of screen sharing with the island.</summary>
+    private void TrackPopups()
+    {
+        EventManager.RegisterClassHandler(typeof(ContextMenu), ContextMenu.OpenedEvent, new RoutedEventHandler((sender, _) =>
+        {
+            _menuOpen = true;
+            HidePopupFromCapture(sender as Visual);
+        }));
+        EventManager.RegisterClassHandler(typeof(ContextMenu), ContextMenu.ClosedEvent, new RoutedEventHandler((_, _) =>
+        {
+            _menuOpen = false;
+            // "The pointer left" counts from when the menu went away.
+            if (!Hovering) _outsideSince = DateTime.UtcNow;
+        }));
+        EventManager.RegisterClassHandler(typeof(System.Windows.Controls.ToolTip), System.Windows.Controls.ToolTip.OpenedEvent, new RoutedEventHandler((sender, _) => HidePopupFromCapture(sender as Visual)));
+    }
+
+    private void HidePopupFromCapture(Visual? popup)
+    {
+        if (popup is not null && PresentationSource.FromVisual(popup) is HwndSource source)
+            ExcludeFromCapture(source.Handle, Model.Settings.HideFromScreenShare);
     }
 
     // MARK: Self-test support

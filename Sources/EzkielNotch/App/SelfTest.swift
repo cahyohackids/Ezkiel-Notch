@@ -21,6 +21,8 @@ enum SelfTest {
         model.badges.simulate([])
         // Nor the real Spotify/Music: only the simulated song below.
         model.music.paused = true
+        // Nor the user's Ask key or the network: a key store in memory and a fake stream.
+        model.ask.reset(keys: MemoryAskKeys(), transport: FakeAskTransport(script: []))
         let saved = model.settings
 
         steps.append(("panel on screen", {
@@ -435,6 +437,107 @@ enum SelfTest {
             check(model.shapeRect.minY == 0 && model.shape.ear > 0, "back to a notch hanging from the top")
         }))
 
+        // Live activities: a download in progress, quick timers and the meeting countdown in the closed notch.
+        let fakeDownloads = FileManager.default.temporaryDirectory.appendingPathComponent("ezkiel-live-\(UUID().uuidString.prefix(6))")
+        let chrome = fakeDownloads.appendingPathComponent("Ezkiel-stickers.zip.crdownload")
+        let safari = fakeDownloads.appendingPathComponent("Lion-pack.dmg.download")
+        steps.append(("live download", {
+            model.collapse()
+            try? FileManager.default.createDirectory(at: safari, withIntermediateDirectories: true)
+            try? Data(count: 2_500_000).write(to: chrome)
+            try? Data(count: 600_000).write(to: safari.appendingPathComponent("Lion-pack.dmg"))
+            let plist: [String: Any] = ["DownloadEntryProgressTotalToLoad": 1_000_000, "DownloadEntryProgressBytesSoFar": 600_000]
+            try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+                .write(to: safari.appendingPathComponent("Info.plist"))
+            // Both off first, so the folder is watched afresh at the fake one.
+            model.settings.pounceDownloads = false
+            model.settings.liveDownloads = false
+            PounceWatcher.folderOverride = fakeDownloads
+            model.settings.liveDownloads = true
+            check(model.downloads.count == 2, "both partial downloads are followed (got \(model.downloads.count))")
+            check(model.downloads.first { $0.finalName == "Lion-pack.dmg" }?.fraction == 0.6, "Safari's bundle gives 60%")
+            check(model.closedLive == .download && model.showsWings, "a download in progress is live in the closed notch")
+        }))
+        steps.append(("live download grows", {
+            if let h = try? FileHandle(forWritingTo: chrome) {
+                h.seekToEndOfFile()
+                h.write(Data(count: 1_500_000))
+                try? h.close()
+            }
+        }))
+        steps.append(("live download pill", {
+            let lead = model.leadDownload
+            check(lead?.count == 2 && lead?.download.finalName == "Ezkiel-stickers.zip", "the largest download leads, with the count")
+            check(lead?.download.bytes == 4_000_000, "its size follows the file (\(lead?.download.bytes ?? 0))")
+        }))
+        steps.append(("live download percent", {
+            try? FileManager.default.removeItem(at: chrome)
+        }))
+        steps.append(("live download percent read", {}))
+        steps.append(("live download ring", {
+            check(model.leadDownload?.download.fraction == 0.6, "Safari's download shows its percent")
+            // It lands: the bundle goes, the file arrives.
+            try? FileManager.default.removeItem(at: safari)
+            try? Data(count: 1_000_000).write(to: fakeDownloads.appendingPathComponent("Lion-pack.dmg"))
+        }))
+        steps.append(("live download landing", {}))
+        steps.append(("live download done", {
+            check(model.downloads.isEmpty, "nothing in progress once it lands")
+            check(model.presentation == .peek && model.peek?.opensFile == true && model.peek?.file?.lastPathComponent == "Lion-pack.dmg",
+                  "a finished download peeks with Open · Stash · Show")
+        }))
+        steps.append(("timer pill", {
+            model.dismissPeek()
+            model.settings.liveDownloads = false
+            PounceWatcher.folderOverride = nil
+            try? FileManager.default.removeItem(at: fakeDownloads)
+            check(model.startTimer("timer 25m teh"), "typed words start a timer")
+            model.startTimer("Masak", seconds: 10 * 60)
+            check(model.data.timers.count == 2 && model.soonestTimer?.label == "Masak", "two timers run; the soonest leads")
+            check(model.closedLive == .timer && model.showsWings, "the soonest timer counts down in the closed notch")
+        }))
+        steps.append(("timer island", {
+            model.settings.style = .island
+            check(model.closedLive == .timer, "the island counts down too")
+        }))
+        steps.append(("timer done peek", {
+            model.settings.style = .notch
+            model.data.timers.append(QuickTimer(label: "Workout", seconds: 30 * 60, ends: Date().addingTimeInterval(-1)))
+            model.checkTimers(Date())
+            check(model.presentation == .peek && model.peek?.timer?.label == "Workout", "a finished timer peeks with +5 min · Stop")
+            check(!model.data.timers.contains { $0.label == "Workout" }, "and leaves the running list")
+        }))
+        steps.append(("timer snooze", {
+            if let t = model.peek?.timer { model.snoozeTimer(t) }
+            let again = model.data.timers.first { $0.label == "Workout" }
+            check(again.map { abs($0.remaining() - 300) < 3 } == true, "+5 min starts it again for five minutes")
+            model.data.timers = []
+            check(model.soonestTimer == nil, "no timers left")
+        }))
+        steps.append(("den timers", {
+            model.startTimer("Masak", seconds: 10 * 60)
+            model.expand(.den)
+            check(abs(model.shapeRect.height - model.expandedSize.height) < 0.5, "Den grows for its timers row")
+        }))
+        steps.append(("meeting pill", {
+            // Made here, not when the steps are listed: the steps before take minutes, and "7 min" would be 6 by then.
+            let soon = CalendarService.Meeting(id: "selftest-soon", title: "Standup", start: Date().addingTimeInterval(7 * 60 - 5),
+                                               end: Date().addingTimeInterval(22 * 60), link: nil, color: Accent.rally.deep)
+            model.collapse()
+            model.data.timers = []
+            model.simulateMeetings([soon])
+            model.settings.rally = true
+            model.settings.rallyCountdown = true
+            check(model.meetingSoon?.id == soon.id && model.closedLive == .meeting, "a meeting in 7 min counts down in the closed notch")
+            check(LivePill.meetingMinutes(start: soon.start) == 7, "it says 7 min")
+        }))
+        steps.append(("meeting pill off", {
+            model.settings.rallyCountdown = false
+            check(model.meetingSoon == nil, "Meeting countdown off hides it")
+            model.simulateMeetings([])
+            model.settings.rally = false
+        }))
+
         steps.append(("settings about", {
             model.settingsSection = .about
             let json = #"{"tag_name":"v9.9.0","html_url":"https://github.com/cahyohackids/Ezkiel-Notch/releases/tag/v9.9.0","draft":false,"prerelease":false,"assets":[{"name":"EzkielNotch-9.9.0-macOS-universal.dmg","browser_download_url":"https://github.com/cahyohackids/Ezkiel-Notch/releases/download/v9.9.0/EzkielNotch-9.9.0-macOS-universal.dmg"},{"name":"SHA256SUMS.txt","browser_download_url":"https://github.com/cahyohackids/Ezkiel-Notch/releases/download/v9.9.0/SHA256SUMS.txt"}]}"#
@@ -449,6 +552,167 @@ enum SelfTest {
             model.updates.simulate(nil)
         }))
 
+        // 1.9: Ask, with a fake stream and an in-memory key: never the network, never the user's Keychain.
+        let gate = AskGate()
+        let askLines = [
+            #"data: {"choices":[{"delta":{"role":"assistant","content":""}}]}"#,
+            #"data: {"choices":[{"delta":{"content":"Ibu kota Jepang adalah **Tokyo**."}}]}"#,
+            #"data: {"choices":[{"delta":{"content":"\n- Sejak 1869\n- Sekitar 14 juta penduduk"}}]}"#,
+            "data: [DONE]",
+        ]
+        steps.append(("ask no key", {
+            model.ask.reset(keys: MemoryAskKeys(), transport: FakeAskTransport(script: askLines, holdAfter: 2, gate: gate))
+            model.collapse()
+            model.setAsk(true)
+            check(model.askOn && model.presentation == .expanded, "Ask opens the notch with the ask box")
+            check(model.paneHeight >= NotchMetrics.askHeight && abs(model.shapeRect.height - model.expandedSize.height) < 0.5,
+                  "the open notch is tall enough for an answer")
+            model.ask.draft = "Ibu kota Jepang?"
+            model.askSend()
+            check(model.ask.error == .noKey && model.ask.phase == .failed, "without a key it says so, and asks nothing")
+        }))
+        steps.append(("ask streaming", {
+            check(model.ask.saveKey("sk-selftest-not-real"), "a key saves (to memory here)")
+            check(model.ask.error == nil, "saving a key clears the no-key message")
+            model.ask.draft = "Ibu kota Jepang?"
+            model.askSend()
+            check(model.ask.busy, "asking starts streaming")
+        }))
+        steps.append(("ask half way", {
+            check(model.ask.phase == .streaming && model.ask.answer.hasPrefix("Ibu kota Jepang"), "the answer shows as it streams")
+            gate.open()
+        }))
+        steps.append(("ask answer", {
+            check(model.ask.phase == .done && model.ask.answer.hasSuffix("14 juta penduduk"), "the whole answer arrives")
+            check(String(AskOverlay.rendered(model.ask.answer).characters).contains("• Sejak 1869"), "lists are tidied, bold is drawn")
+            let tasks = model.data.tasks.count, notes = model.data.notes.count
+            model.askMakeTask()
+            check(model.data.tasks.count == tasks + 1 && model.data.tasks.first?.title == "Ibu kota Jepang?", "Make task adds it to Hunt")
+            model.askSaveNote()
+            check(model.data.notes.count == notes + 1 && model.data.notes.first?.body.contains("Tokyo") == true, "Save as note puts it in Scratch")
+            check(model.ask.history.count == 1, "the session remembers the question (in memory only)")
+            model.clearToast()
+        }))
+        steps.append(("ask no balance", {
+            model.ask.reset(keys: MemoryAskKeys(), transport: FakeAskTransport(status: 402, script: [#"{"error":{"message":"Insufficient balance"}}"#]))
+            model.ask.saveKey("sk-selftest-not-real")
+            model.ask.draft = "Lagi?"
+            model.askSend()
+        }))
+        steps.append(("ask error shown", {
+            check(model.ask.error == .noBalance && model.ask.error?.needsSettings == true, "no balance reads as no balance, with Settings")
+            check(!model.settings.askModel.isEmpty, "a model is chosen")
+        }))
+        steps.append(("ask settings", {
+            model.ask.testKey()
+            model.openAskSettings()
+            check(!model.askOn && model.tab == .settings && model.settingsSection == .features, "Settings opens on Features")
+        }))
+        steps.append(("ask closed", {
+            check(AskError.http(status: 401, body: "").title == "That API key didn't work", "a 401 is a wrong key")
+            model.setAsk(true)
+            model.setAsk(false)
+            check(!model.askOn, "Esc or × puts the box away")
+            model.ask.reset(keys: MemoryAskKeys(), transport: FakeAskTransport(script: []))
+        }))
+
+        // 1.9: System monitor, with fake readings (CI has no battery and its CPU and network vary run to run).
+        steps.append(("sysmon den card", {
+            model.collapse()
+            var cpu: [Double] = [], memory: [Double] = [], down: [Double] = [], up: [Double] = []
+            for i in 0..<60 {
+                let x = Double(i)
+                cpu.append(28 + 14 * sin(x / 5) + (i % 9 == 0 ? 18 : 0))
+                memory.append(70 + x / 10)
+                down.append(300_000 + 900_000 * abs(sin(x / 7)))
+                up.append(20_000 + 30_000 * abs(cos(x / 4)))
+            }
+            model.sysmon.simulate(SysMonService.Reading(cpu: 34, memUsed: 6_549_825_126, memTotal: 8_589_934_592, pressure: .normal,
+                                                        down: 1_250_000, up: 42_000, online: true, diskFree: 120_400_000_000,
+                                                        diskTotal: 245_000_000_000, battery: 82, charging: false, onAC: false,
+                                                        batteryMinutes: 245),
+                                  cpu: cpu, memory: memory, down: down, up: up)
+            model.settings.sysmon = true
+            model.expand(.den)
+            check(model.paneHeight == NotchMetrics.paneHeight(.den) + NotchMetrics.sysmonCard, "Den grows by the system card")
+            check(abs(model.shapeRect.height - model.expandedSize.height) < 0.5, "the open notch fits Den with the card")
+            check(SysFormat.rate(1_250_000) == "1.3 MB/s" && SysFormat.memory(8_589_934_592) == "8 GB", "card numbers read as on Windows")
+        }))
+        steps.append(("sysmon pill cpu", {
+            model.settings.sysmonPill = .cpu
+            model.collapse()
+            check(model.sysmonPillShowing && model.showsWings, "the CPU pill shows in the closed notch")
+        }))
+        steps.append(("sysmon pill network", {
+            model.settings.sysmonPill = .network
+            check(model.sysmonPillShowing, "the network pill shows in the closed notch")
+        }))
+        steps.append(("sysmon cpu alert", {
+            var alerts = SysAlerts()
+            let fired = stride(from: 0.0, through: 60, by: 10).filter { alerts.feed("cpu", value: 97, at: $0) }
+            check(fired == [30], "CPU at 97% peeks once, after 30 s (got \(fired))")
+            model.showCpuPeek(97, top: "Xcode")
+            check(model.presentation == .peek && model.peek?.title == "CPU is busy" && model.peek?.tab == .den, "the CPU peek shows and opens Den")
+        }))
+        steps.append(("sysmon off", {
+            model.dismissPeek()
+            model.settings.sysmonPill = .off
+            model.settings.sysmon = false
+            model.sysmon.simulate(nil)
+            check(NotchMetrics.paneHeight(.den, sysmon: model.settings.sysmon) == NotchMetrics.paneHeight(.den), "Den is back to its own height")
+            check(!model.sysmonPillShowing, "no pill while the monitor is off")
+        }))
+
+        // 1.9: Sync. Two fake devices in a temp folder (never with the real data file: sync.json sits beside it).
+        let syncFolder = FileManager.default.temporaryDirectory.appendingPathComponent("ezkiel-sync-selftest-\(ProcessInfo.processInfo.processIdentifier)")
+        let isolated = model.dataFileURL.standardizedFileURL != DataStore.defaultURL().standardizedFileURL
+        var beforeSync: AppData?
+        steps.append(("sync two devices", {
+            guard isolated else { return print("  (sync skipped: run with --data <file>)") }
+            beforeSync = model.data
+            try? FileManager.default.removeItem(at: syncFolder)
+            let dir = SyncRunner.directory(syncFolder)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let now = SyncTime.string(SyncTime.ms(Date()))
+            func file(_ id: String, _ name: String, _ platform: String, tasks: [SyncJSON], notes: [SyncJSON], water: [SyncJSON]) -> SyncJSON {
+                .object(["format": .number(1), "deviceId": .string(id), "deviceName": .string(name), "platform": .string(platform),
+                         "appVersion": .string("1.9.0"), "written": .string(now), "tasks": .array(tasks), "notes": .array(notes),
+                         "water": .array(water), "focusLog": .array([]), "tombstones": .object([:])])
+            }
+            let pc = file("5E1F7E57-0000-4000-8000-0000000000A1", "Office PC", "windows",
+                          tasks: [.object(["id": .string("5E1F7E57-0000-4000-8000-000000000001"), "title": .string("Send the invoice (from the PC)"),
+                                           "done": .bool(false), "reminded": .bool(false), "created": .string(now), "modified": .string(now)])],
+                          notes: [], water: [.object(["id": .string("5E1F7E57-0000-4000-8000-000000000002"), "date": .string(now),
+                                                      "ml": .number(330), "modified": .string(now)])])
+            let mac = file("5E1F7E57-0000-4000-8000-0000000000B2", "Studio Mac", "mac", tasks: [],
+                           notes: [.object(["id": .string("5E1F7E57-0000-4000-8000-000000000003"), "title": .string("Synced note"),
+                                            "body": .string("Written on the other Mac"), "updated": .string(now), "modified": .string(now)])],
+                           water: [])
+            try? pc.encoded(pretty: true).write(to: dir.appendingPathComponent("5E1F7E57-0000-4000-8000-0000000000A1.json"))
+            try? mac.encoded(pretty: true).write(to: dir.appendingPathComponent("5E1F7E57-0000-4000-8000-0000000000B2.json"))
+            model.sync.simulate(folder: syncFolder.path, name: "Self-test Mac")
+        }))
+        steps.append(("sync merged", {
+            guard isolated else { return }
+            check(model.data.tasks.contains { $0.title == "Send the invoice (from the PC)" }, "sync brings in the PC's task")
+            check(model.data.notes.contains { $0.title == "Synced note" }, "sync brings in the other Mac's note")
+            check(model.data.water.filter { $0.id.uuidString == "5E1F7E57-0000-4000-8000-000000000002" }.count == 1, "a drink is counted once")
+            check(model.sync.config.devices.count == 2, "both other devices are listed (\(model.sync.config.devices.count))")
+            check(model.sync.config.lastError == nil, "no sync error (\(model.sync.config.lastError ?? ""))")
+            let own = SyncRunner.directory(syncFolder).appendingPathComponent("\(model.sync.config.deviceId).json")
+            check(FileManager.default.fileExists(atPath: own.path), "this Mac wrote its own file")
+            check(model.data.tasks.allSatisfy { $0.modified != nil }, "synced items carry a modified time")
+            model.settingsSection = .features
+            model.expand(.settings)
+        }))
+        steps.append(("sync stop", {
+            guard isolated else { return }
+            model.sync.stop()
+            check(!model.sync.config.enabled, "Stop syncing turns it off")
+            if let beforeSync { model.data = beforeSync }
+            try? FileManager.default.removeItem(at: syncFolder)
+        }))
+
         steps.append(("splash settles", {
             model.collapse()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -457,6 +721,7 @@ enum SelfTest {
         }))
         steps.append(("hotkey and icons", {
             check((NSApp.delegate as? AppDelegate)?.hotKeyRegistered == true, "global shortcut \(model.settings.hotkey.label) registered")
+            check((NSApp.delegate as? AppDelegate)?.askHotKeyRegistered == true, "Ask's shortcut \(AppModel.askHotkeyLabel) registered")
             check(IconRenderer.statusImage().isTemplate, "menu-bar lion is a template image")
             // Leave the settings as they were (the Rally step turned Calendar on).
             model.settings = saved
@@ -577,5 +842,45 @@ enum SelfTest {
     private static func check(_ ok: Bool, _ message: String) {
         print("  \(ok ? "✓" : "✗") \(message)")
         if !ok { failures.append(message) }
+    }
+}
+
+/// Self-test: lets a fake stream pause half way, so a snapshot shows an answer arriving.
+final class AskGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    var opened: Bool { lock.lock(); defer { lock.unlock() }; return isOpen }
+    func open() { lock.lock(); isOpen = true; lock.unlock() }
+}
+
+/// Self-test: answers from a list of lines, never the network.
+struct FakeAskTransport: AskTransport {
+    var status = 200
+    var script: [String]
+    /// Lines sent before waiting for the gate (nil: send everything).
+    var holdAfter: Int? = nil
+    var gate: AskGate? = nil
+
+    func lines(_ request: URLRequest) async throws -> (status: Int, contentType: String, lines: AsyncThrowingStream<String, Error>) {
+        let lines = script, holdAfter = self.holdAfter, gate = self.gate
+        let stream = AsyncThrowingStream<String, Error> { continuation in
+            let task = Task {
+                for (i, line) in lines.enumerated() {
+                    if let holdAfter, i == holdAfter, let gate {
+                        while !gate.opened, !Task.isCancelled { try? await Task.sleep(nanoseconds: 50_000_000) }
+                    }
+                    try? await Task.sleep(nanoseconds: 60_000_000)
+                    if Task.isCancelled { break }
+                    continuation.yield(line)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+        return (status, status == 200 ? "text/event-stream" : "application/json", stream)
+    }
+
+    func data(_ request: URLRequest) async throws -> (status: Int, body: Data) {
+        (status, Data(#"{"data":[{"id":"deepseek-v4.1-flash"},{"id":"deepseek-v4-pro-0813"}]}"#.utf8))
     }
 }

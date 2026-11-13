@@ -1,0 +1,206 @@
+{
+  "name": "logs",
+  "about": "Water and focus are logs: a union by id (W1 is on both, counted once), sorted by time. W2 was undone here: a tombstone. WOLD aged out here: trimmed, not deleted, and not brought back. Entries past 30 days (water) and 60 days (focus) are left out.",
+  "now": "2026-11-13T12:00:00Z",
+  "deviceId": "A-MAC",
+  "local": {
+    "tasks": [],
+    "notes": [],
+    "water": [
+      {
+        "id": "W1",
+        "date": "2026-11-13T08:00:00Z",
+        "ml": 250,
+        "modified": "2026-11-13T08:00:00Z"
+      },
+      {
+        "id": "W3",
+        "date": "2026-11-13T11:00:00Z",
+        "ml": 500
+      }
+    ],
+    "focusLog": [
+      {
+        "id": "F1",
+        "start": "2026-11-12T08:00:00Z",
+        "minutes": 25,
+        "modified": "2026-11-12T08:00:00Z"
+      },
+      {
+        "id": "F2",
+        "start": "2026-11-13T10:00:00Z",
+        "minutes": 50
+      }
+    ]
+  },
+  "base": {
+    "format": 1,
+    "deviceId": "A-MAC",
+    "deviceName": "A-Mac",
+    "platform": "mac",
+    "appVersion": "1.9.0",
+    "written": "2026-11-13T10:00:00Z",
+    "tasks": [],
+    "notes": [],
+    "water": [
+      {
+        "id": "W1",
+        "date": "2026-11-13T08:00:00Z",
+        "ml": 250,
+        "modified": "2026-11-13T08:00:00Z"
+      },
+      {
+        "id": "W2",
+        "date": "2026-11-13T09:00:00Z",
+        "ml": 250,
+        "modified": "2026-11-13T09:00:00Z"
+      },
+      {
+        "id": "WOLD",
+        "date": "2026-10-14T00:00:00Z",
+        "ml": 300,
+        "modified": "2026-10-14T00:00:00Z"
+      }
+    ],
+    "focusLog": [
+      {
+        "id": "F1",
+        "start": "2026-11-12T08:00:00Z",
+        "minutes": 25,
+        "modified": "2026-11-12T08:00:00Z"
+      }
+    ],
+    "tombstones": {
+      "tasks": [],
+      "notes": [],
+      "water": [],
+      "focusLog": []
+    }
+  },
+  "remotes": [
+    {
+      "format": 1,
+      "deviceId": "B-PC",
+      "deviceName": "B-Pc",
+      "platform": "windows",
+      "appVersion": "1.9.0",
+      "written": "2026-11-13T11:00:00Z",
+      "tasks": [],
+      "notes": [],
+      "water": [
+        {
+          "id": "W1",
+          "date": "2026-11-13T08:00:00Z",
+          "ml": 250,
+          "modified": "2026-11-13T08:00:00Z"
+        },
+        {
+          "id": "W2",
+          "date": "2026-11-13T09:00:00Z",
+          "ml": 250,
+          "modified": "2026-11-13T09:00:00Z"
+        },
+        {
+          "id": "WOLD",
+          "date": "2026-10-14T00:00:00Z",
+          "ml": 300,
+          "modified": "2026-10-14T00:00:00Z"
+        },
+        {
+          "id": "W4",
+          "date": "2026-11-13T10:00:00Z",
+          "ml": 250,
+          "modified": "2026-11-13T10:00:00Z"
+        },
+        {
+          "id": "WANCIENT",
+          "date": "2026-10-01T00:00:00Z",
+          "ml": 100,
+          "modified": "2026-10-01T00:00:00Z"
+        }
+      ],
+      "focusLog": [
+        {
+          "id": "F1",
+          "start": "2026-11-12T08:00:00Z",
+          "minutes": 25,
+          "modified": "2026-11-12T08:00:00Z"
+        },
+        {
+          "id": "F0",
+          "start": "2026-09-01T00:00:00Z",
+          "minutes": 25,
+          "modified": "2026-09-01T00:00:00Z"
+        }
+      ],
+      "tombstones": {
+        "tasks": [],
+        "notes": [],
+        "water": [],
+        "focusLog": []
+      }
+    }
+  ],
+  "expect": {
+    "data": {
+      "tasks": [],
+      "notes": [],
+      "water": [
+        {
+          "id": "W1",
+          "date": "2026-11-13T08:00:00Z",
+          "ml": 250,
+          "modified": "2026-11-13T08:00:00Z"
+        },
+        {
+          "id": "W4",
+          "date": "2026-11-13T10:00:00Z",
+          "ml": 250,
+          "modified": "2026-11-13T10:00:00Z"
+        },
+        {
+          "id": "W3",
+          "date": "2026-11-13T11:00:00Z",
+          "ml": 500,
+          "modified": "2026-11-13T12:00:00Z"
+        }
+      ],
+      "focusLog": [
+        {
+          "id": "F1",
+          "start": "2026-11-12T08:00:00Z",
+          "minutes": 25,
+          "modified": "2026-11-12T08:00:00Z"
+        },
+        {
+          "id": "F2",
+          "start": "2026-11-13T10:00:00Z",
+          "minutes": 50,
+          "modified": "2026-11-13T12:00:00Z"
+        }
+      ]
+    },
+    "tombstones": {
+      "tasks": [],
+      "notes": [],
+      "water": [
+        {
+          "id": "W2",
+          "deleted": "2026-11-13T12:00:00Z",
+          "seen": "2026-11-13T09:00:00Z",
+          "by": "A-MAC"
+        }
+      ],
+      "focusLog": []
+    },
+    "changes": [
+      {
+        "kind": "water",
+        "id": "W4",
+        "change": "added",
+        "from": "B-PC"
+      }
+    ],
+    "skipped": []
+  }
+}

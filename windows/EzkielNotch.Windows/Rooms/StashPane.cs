@@ -41,18 +41,22 @@ public sealed class StashPane(NotchModel model) : Pane(model, Room.Stash)
         var items = Model.Data.Shelf;
 
         var head = Columns(Auto, Star, Auto);
-        var title = Ui.Row(6, Ui.Label("Stash", Ui.Title, weight: FontWeights.SemiBold));
-        if (items.Count > 0) title.Children.Add(new Border { Child = Ui.Label(items.Count.ToString(), Ui.Secondary, Ui.Mist), Margin = new Thickness(6, 2, 0, 0) });
+        // The Mac's PaneHeader: a small semibold title with the count beside it.
+        var title = items.Count > 0
+            ? Ui.Row(6, Ui.Label("Stash", Ui.Secondary, weight: FontWeights.SemiBold), Ui.Label(items.Count.ToString(), Ui.Secondary, Ui.Mist))
+            : Ui.Row(6, Ui.Label("Stash", Ui.Secondary, weight: FontWeights.SemiBold));
         title.VerticalAlignment = VerticalAlignment.Center;
         head.Children.Add(At(title, 0));
-        var tools = new StackPanel { Orientation = Orientation.Horizontal };
+        var tools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         if (items.Count > 0)
         {
             tools.Children.Add(Ui.IconButton("", L("Share…"), () => ShareFiles?.Invoke(items.Select(r => r.Path).Where(Files.Exists).ToList()), 26, Ui.Mist));
-            tools.Children.Add(Ui.IconButton("", L("Clear Stash (you can undo)"), Model.ClearShelf, 26, Ui.Mist));
+            var clear = Ui.IconButton("", L("Clear Stash (you can undo)"), Model.ClearShelf, 26, Ui.Mist);
+            clear.Margin = new Thickness(6, 0, 0, 0);
+            tools.Children.Add(clear);
         }
         var add = Ui.IconButton("", L("Choose files…"), () => ChooseFiles?.Invoke(), 26, filled: Accent.Stash);
-        add.Margin = new Thickness(4, 0, 0, 0);
+        add.Margin = new Thickness(items.Count > 0 ? 6 : 0, 0, 0, 0);
         tools.Children.Add(add);
         head.Children.Add(At(tools, 2));
         Children.Add(At(head, 0, 0));
@@ -173,7 +177,7 @@ public sealed class StashPane(NotchModel model) : Pane(model, Room.Stash)
             if (Math.Abs(p.X - d.X) < 4 && Math.Abs(p.Y - d.Y) < 4) return;
             down = null;
             DraggingOut = true;
-            try { DragDrop.DoDragDrop(card, new DataObject(DataFormats.FileDrop, new[] { item.Path }), DragDropEffects.Copy | DragDropEffects.Move | DragDropEffects.Link); }
+            try { DragDrop.DoDragDrop(card, new DataObject(DataFormats.FileDrop, new[] { item.Path }), DragDropEffects.Copy | DragDropEffects.Link); }   // never Move: the file stays where it is
             catch (Exception) { }
             finally { DraggingOut = false; }
         };

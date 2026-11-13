@@ -32,8 +32,9 @@ public sealed class OasisPane(NotchModel model) : Pane(model, Room.Oasis)
         var right = new StackPanel();
 
         var head = Columns(Auto, Auto, Star, Auto);
-        head.Children.Add(At(Ui.Number($"{today} ml", Ui.Title), 0));
-        var of = Ui.Label(progress >= 1 ? L("goal reached") : L("of %d", goal), Ui.Secondary, progress >= 1 ? Accent.Oasis.LightBrush : Ui.Mist);
+        // Grouped like the Mac's ("1,150 ml", "of 2,000"; "1.150" in Indonesian).
+        head.Children.Add(At(Ui.Number($"{today.ToString("N0", Lang.Culture)} ml", Ui.Title), 0));
+        var of = Ui.Label(progress >= 1 ? L("goal reached") : L("of %d", goal.ToString("N0", Lang.Culture)), Ui.Secondary, progress >= 1 ? Accent.Oasis.LightBrush : Ui.Mist);
         of.Margin = new Thickness(6, 2, 0, 0);
         head.Children.Add(At(of, 1));
         if (streak > 0) head.Children.Add(At(Ui.Label(L("%d-day streak", streak), Ui.Caption, Ui.Mist, FontWeights.Medium), 3));

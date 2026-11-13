@@ -5,12 +5,14 @@ namespace EzkielNotch.Core;
 // The records in data.json. Field names, date format and decoding rules match the Mac app's NotchCore,
 // so one file works on both: copy it across and every task, note, clip, drink and focus session comes along.
 
-public sealed record TaskItem(Guid Id, string Title, bool Done, DateTime? Due, bool Reminded, DateTime Created)
+// Modified (sync, 1.9): when this version was made. Set by the sync; files from before 1.9 don't have it.
+
+public sealed record TaskItem(Guid Id, string Title, bool Done, DateTime? Due, bool Reminded, DateTime Created, DateTime? Modified = null)
 {
     public static TaskItem New(string title, DateTime? due = null) => new(Guid.NewGuid(), title, false, due, false, DateTime.UtcNow);
 }
 
-public sealed record NoteItem(Guid Id, string Title, string Body, DateTime Updated)
+public sealed record NoteItem(Guid Id, string Title, string Body, DateTime Updated, DateTime? Modified = null)
 {
     public static NoteItem New() => new(Guid.NewGuid(), "", "", DateTime.UtcNow);
 
@@ -37,13 +39,13 @@ public sealed record ShelfRecord(Guid Id, string Path, string? Bookmark, DateTim
     public string Name => Path.TrimEnd('\\', '/').Split('\\', '/').Last() is { Length: > 0 } n ? n : Path;
 }
 
-public sealed record WaterEntry(Guid Id, DateTime Date, int Ml)
+public sealed record WaterEntry(Guid Id, DateTime Date, int Ml, DateTime? Modified = null)
 {
     public static WaterEntry New(int ml, DateTime? at = null) => new(Guid.NewGuid(), at ?? DateTime.UtcNow, ml);
 }
 
 /// <summary>One finished focus session (breaks are not logged).</summary>
-public sealed record FocusEntry(Guid Id, DateTime Start, int Minutes)
+public sealed record FocusEntry(Guid Id, DateTime Start, int Minutes, DateTime? Modified = null)
 {
     public static FocusEntry New(DateTime start, int minutes) => new(Guid.NewGuid(), start, minutes);
 }
@@ -71,9 +73,18 @@ public sealed class NotchSettings
     public int BreakMinutes { get; set; } = 5;
     public bool HideInFullscreen { get; set; } = true;
     public bool QuietDuringFocus { get; set; } = true;
+    /// <summary>The closed island shows its wings (the live pill) only while something is live. Off: always.</summary>
+    public bool MinimalClosed { get; set; } = true;
+    /// <summary>Keep the island out of screen sharing, screenshots and recordings.</summary>
+    public bool HideFromScreenShare { get; set; }
     public AppLanguage Language { get; set; } = AppLanguage.Auto;
     /// <summary>Chorus (lyrics) beside Purr. Off until the user taps the lyrics button (LRCLIB is only asked then).</summary>
     public bool ShowLyrics { get; set; }
+    /// <summary>While Chorus is on, sing along under the closed island too.</summary>
+    public bool ClosedLyrics { get; set; } = true;
+    /// <summary>Which player Purr follows: "auto", "spotify" or "appleMusic" (see <see cref="Core.MusicSource"/>).
+    /// The Mac's "musicAllowed" (its Automation prompt) means nothing here and stays in the file as it was.</summary>
+    public string MusicSource { get; set; } = Core.MusicSource.Auto;
     /// <summary>Roar: unread counts from other apps (only the number, never the message).</summary>
     public bool Roar { get; set; } = true;
     /// <summary>Roar: peek when an app's unread count goes up.</summary>
@@ -109,6 +120,14 @@ public sealed class NotchSettings
     /// <summary>The global shortcut, in the Mac's names: controlOptionN = Ctrl+Alt+N, controlOptionSpace = Ctrl+Alt+Space,
     /// optionCommandI = Ctrl+Alt+I on Windows.</summary>
     public string Hotkey { get; set; } = "controlOptionN";
+
+    /// <summary>The Mac's shortcut choices, with Ctrl+Alt for ⌃⌥ (⌥⌘I becomes Ctrl+Alt+I).</summary>
+    public static string HotkeyLabel(string choice) => choice switch
+    {
+        "controlOptionSpace" => "Ctrl+Alt+Space",
+        "optionCommandI" => "Ctrl+Alt+I",
+        _ => "Ctrl+Alt+N",
+    };
     /// <summary>"notch" (hangs from the top edge) or "island" (a floating pill, like the Dynamic Island).</summary>
     public string Style { get; set; } = "notch";
     /// <summary>"small", "medium" or "large".</summary>
@@ -125,6 +144,22 @@ public sealed class NotchSettings
     public static readonly string[] EyeStyles = ["lion", "anime", "cat", "cute", "robot"];
     /// <summary>Ezkiel naps when nothing is going on.</summary>
     public bool MascotSleeps { get; set; } = true;
+    /// <summary>Live activities: a download in progress in Downloads shows in the closed island.</summary>
+    public bool LiveDownloads { get; set; }
+    /// <summary>Live activities: the sound a quick timer rings with (a Mac sound name, see TimerSounds; "none" for silence).</summary>
+    public string TimerSound { get; set; } = "Glass";
+    /// <summary>Ask: the AI box (header button, Ctrl+Alt+A). The API key itself is never in this file (DPAPI).</summary>
+    public bool Ask { get; set; } = true;
+    /// <summary>Ask: the model on api.ezkielyna.store.</summary>
+    public string AskModel { get; set; } = Core.Ask.DefaultModel;
+    /// <summary>System monitor: CPU, memory, network, battery and disk in Den (off until switched on; no sampling while off).</summary>
+    public bool Sysmon { get; set; }
+    /// <summary>System monitor: what the closed island shows while it's on ("off", "cpu" or "network", see <see cref="Core.SysPill"/>).</summary>
+    public string SysmonPill { get; set; } = Core.SysPill.Off;
+    /// <summary>System monitor peeks: CPU busy for 30 s, memory almost full, system drive under 5 GB.</summary>
+    public bool SysmonCpuAlert { get; set; } = true;
+    public bool SysmonMemoryAlert { get; set; } = true;
+    public bool SysmonDiskAlert { get; set; } = true;
 
     /// <summary>The settings object as read, Mac-only keys included.</summary>
     internal JsonObject Raw { get; set; } = [];
@@ -147,7 +182,14 @@ public sealed class NotchSettings
         s.BreakMinutes = Json.Int(o["breakMinutes"]) ?? s.BreakMinutes;
         s.HideInFullscreen = Json.Bool(o["hideInFullscreen"]) ?? s.HideInFullscreen;
         s.QuietDuringFocus = Json.Bool(o["quietDuringFocus"]) ?? s.QuietDuringFocus;
+        s.MinimalClosed = Json.Bool(o["minimalClosed"]) ?? s.MinimalClosed;
+        // Like the Mac: settings from before 1.3.1 (revision 1) get the calmer closed notch.
+        if ((Json.Int(o["defaultsRevision"]) ?? 1) < 2) s.MinimalClosed = true;
+        s.HideFromScreenShare = Json.Bool(o["hideFromScreenShare"]) ?? s.HideFromScreenShare;
         s.ShowLyrics = Json.Bool(o["showLyrics"]) ?? s.ShowLyrics;
+        s.ClosedLyrics = Json.Bool(o["closedLyrics"]) ?? s.ClosedLyrics;
+        // A source from a newer version that this one doesn't know falls back to Auto.
+        s.MusicSource = Core.MusicSource.Normalize(Json.String(o["musicSource"]));
         s.Roar = Json.Bool(o["roar"]) ?? s.Roar;
         s.RoarPeeks = Json.Bool(o["roarPeeks"]) ?? s.RoarPeeks;
         s.RoarMuted = o["roarMuted"] is JsonArray muted ? [.. muted.Select(Json.String).OfType<string>()] : s.RoarMuted;
@@ -176,6 +218,15 @@ public sealed class NotchSettings
         // A style from a newer version that this one doesn't know falls back to the lion's.
         s.EyeStyle = Json.String(o["eyeStyle"]) is { } eye && EyeStyles.Contains(eye) ? eye : "lion";
         s.MascotSleeps = Json.Bool(o["mascotSleeps"]) ?? s.MascotSleeps;
+        s.LiveDownloads = Json.Bool(o["liveDownloads"]) ?? s.LiveDownloads;
+        s.TimerSound = TimerSounds.Normalize(Json.String(o["timerSound"]));
+        s.Ask = Json.Bool(o["ask"]) ?? s.Ask;
+        s.AskModel = Json.String(o["askModel"]) is { Length: > 0 } askModel ? askModel : s.AskModel;
+        s.Sysmon = Json.Bool(o["sysmon"]) ?? s.Sysmon;
+        s.SysmonPill = Core.SysPill.Normalize(Json.String(o["sysmonPill"]));
+        s.SysmonCpuAlert = Json.Bool(o["sysmonCpuAlert"]) ?? s.SysmonCpuAlert;
+        s.SysmonMemoryAlert = Json.Bool(o["sysmonMemoryAlert"]) ?? s.SysmonMemoryAlert;
+        s.SysmonDiskAlert = Json.Bool(o["sysmonDiskAlert"]) ?? s.SysmonDiskAlert;
         s.Hotkey = Json.String(o["hotkey"]) is "controlOptionN" or "controlOptionSpace" or "optionCommandI" ? Json.String(o["hotkey"])! : s.Hotkey;
         s.Language = Json.String(o["language"]) switch
         {
@@ -202,7 +253,11 @@ public sealed class NotchSettings
         o["breakMinutes"] = BreakMinutes;
         o["hideInFullscreen"] = HideInFullscreen;
         o["quietDuringFocus"] = QuietDuringFocus;
+        o["minimalClosed"] = MinimalClosed;
+        o["hideFromScreenShare"] = HideFromScreenShare;
         o["showLyrics"] = ShowLyrics;
+        o["closedLyrics"] = ClosedLyrics;
+        o["musicSource"] = MusicSource;
         o["roar"] = Roar;
         o["roarPeeks"] = RoarPeeks;
         o["roarMuted"] = new JsonArray(RoarMuted.Select(m => (JsonNode?)m).ToArray());
@@ -229,9 +284,20 @@ public sealed class NotchSettings
         o["closedFace"] = ClosedFace;
         o["eyeStyle"] = EyeStyle;
         o["mascotSleeps"] = MascotSleeps;
+        o["liveDownloads"] = LiveDownloads;
+        o["timerSound"] = TimerSound;
+        o["ask"] = Ask;
+        o["askModel"] = AskModel;
+        o["sysmon"] = Sysmon;
+        o["sysmonPill"] = SysmonPill;
+        o["sysmonCpuAlert"] = SysmonCpuAlert;
+        o["sysmonMemoryAlert"] = SysmonMemoryAlert;
+        o["sysmonDiskAlert"] = SysmonDiskAlert;
         o["language"] = Language switch { AppLanguage.En => "en", AppLanguage.Id => "id", _ => "auto" };
-        // Without it the Mac would treat these as pre-1.3.1 settings and migrate them again.
-        o["defaultsRevision"] ??= CurrentRevision;
+        // Without it the Mac would treat these as pre-1.3.1 settings and migrate them again. These settings are
+        // migrated now (an old revision 1 stays behind would force the calmer closed island on every launch);
+        // a newer revision from a newer Mac is kept.
+        o["defaultsRevision"] = Math.Max(Json.Int(o["defaultsRevision"]) ?? 0, CurrentRevision);
         return o;
     }
 }
@@ -250,11 +316,17 @@ public sealed class AppData
     /// <summary>The Den timer, so a running session survives a restart.</summary>
     public FocusSnapshot? FocusState { get; set; }
     public NotchSettings Settings { get; set; } = new();
+    /// <summary>Quick timers ("Masak 10m"), so they survive a restart.</summary>
+    public List<QuickTimer> Timers { get; set; } = [];
+    /// <summary>The welcome note was offered once (the Mac's key, so a shared data.json doesn't offer it twice).</summary>
+    public bool Onboarded { get; set; }
+    /// <summary>The last version a "new version is out" peek announced (the Mac's key), so it shows once, not every launch.</summary>
+    public string? AnnouncedVersion { get; set; }
 
     /// <summary>Top-level keys this app doesn't use yet (the shelf, Scout's log, update state…), kept as read.</summary>
     private JsonObject _rest = [];
 
-    private static readonly string[] Known = ["tasks", "notes", "clips", "shelf", "water", "focusLog", "scoutLog", "focusState", "settings"];
+    private static readonly string[] Known = ["tasks", "notes", "clips", "shelf", "water", "focusLog", "scoutLog", "focusState", "settings", "onboarded", "timers", "announcedVersion"];
 
     /// <summary>Parses data.json. Returns null only when the file isn't a JSON object at all.
     /// Like the Mac: one damaged entry costs that entry, never the whole list.</summary>
@@ -276,6 +348,9 @@ public sealed class AppData
             ScoutLog = Json.List(o["scoutLog"], ScoutEvent.Read),
             FocusState = FocusSnapshot.Read(o["focusState"]),
             Settings = NotchSettings.Read(o["settings"]),
+            Onboarded = Json.Bool(o["onboarded"]) ?? false,
+            Timers = Json.List(o["timers"], QuickTimer.Read),
+            AnnouncedVersion = Json.String(o["announcedVersion"]),
         };
         foreach (var (key, value) in o)
             if (!Known.Contains(key)) d._rest[key] = value?.DeepClone();
@@ -293,12 +368,13 @@ public sealed class AppData
                 ["reminded"] = t.Reminded, ["created"] = Json.Date(t.Created),
             };
             if (t.Due is { } due) j["due"] = Json.Date(due);
+            if (t.Modified is { } modified) j["modified"] = Json.Date(modified);
             return (JsonNode)j;
         }).ToArray());
-        o["notes"] = new JsonArray(Notes.Select(n => (JsonNode)new JsonObject
+        o["notes"] = new JsonArray(Notes.Select(n => (JsonNode)WithModified(new JsonObject
         {
             ["id"] = Json.Id(n.Id), ["title"] = n.Title, ["body"] = n.Body, ["updated"] = Json.Date(n.Updated),
-        }).ToArray());
+        }, n.Modified)).ToArray());
         o["clips"] = new JsonArray(Clips.Select(c => (JsonNode)new JsonObject
         {
             ["id"] = Json.Id(c.Id), ["text"] = c.Text, ["captured"] = Json.Date(c.Captured),
@@ -309,33 +385,79 @@ public sealed class AppData
             if (r.Bookmark is not null) j["bookmark"] = r.Bookmark;
             return (JsonNode)j;
         }).ToArray());
-        o["water"] = new JsonArray(Water.Select(w => (JsonNode)new JsonObject
+        o["water"] = new JsonArray(Water.Select(w => (JsonNode)WithModified(new JsonObject
         {
             ["id"] = Json.Id(w.Id), ["date"] = Json.Date(w.Date), ["ml"] = w.Ml,
-        }).ToArray());
-        o["focusLog"] = new JsonArray(FocusLog.Select(f => (JsonNode)new JsonObject
+        }, w.Modified)).ToArray());
+        o["focusLog"] = new JsonArray(FocusLog.Select(f => (JsonNode)WithModified(new JsonObject
         {
             ["id"] = Json.Id(f.Id), ["start"] = Json.Date(f.Start), ["minutes"] = f.Minutes,
-        }).ToArray());
+        }, f.Modified)).ToArray());
         o["scoutLog"] = new JsonArray(ScoutLog.Select(e => (JsonNode)e.Write()).ToArray());
         if (FocusState is { } fs) o["focusState"] = fs.Write(); else o.Remove("focusState");
         o["settings"] = Settings.Write();
+        o["onboarded"] = Onboarded;
+        o["timers"] = new JsonArray(Timers.Select(t => (JsonNode)t.Write()).ToArray());
+        if (AnnouncedVersion is not null) o["announcedVersion"] = AnnouncedVersion; else o.Remove("announcedVersion");
         // The Mac writes sorted keys; matching it keeps diffs between the two small.
         return Json.Sorted(o)!.ToJsonString(Json.Pretty);
     }
 
-    // Each record needs every non-optional field, as the Mac's decoder does.
+    private static JsonObject WithModified(JsonObject o, DateTime? modified)
+    {
+        if (modified is { } m) o["modified"] = Json.Date(m);
+        return o;
+    }
+
+    /// <summary>Sync: the synced lists (tasks, notes, water, focusLog) exactly as data.json writes them.</summary>
+    public JsonObject SyncedJson()
+    {
+        var all = (JsonObject)JsonNode.Parse(ToJson())!;
+        var o = new JsonObject();
+        foreach (var kind in SyncMerge.Kinds) o[kind] = all[kind]?.DeepClone() ?? new JsonArray();
+        return o;
+    }
+
+    /// <summary>Sync: puts merged lists in. Returns whether anything changed. An entry that can't be read is skipped,
+    /// never the list.</summary>
+    public bool ApplySynced(JsonObject merged)
+    {
+        var tasks = Json.List(merged["tasks"], ReadTask);
+        var notes = Json.List(merged["notes"], ReadNote);
+        var water = Json.List(merged["water"], ReadWater);
+        var focus = Json.List(merged["focusLog"], ReadFocus);
+        bool changed = !tasks.SequenceEqual(Tasks) || !notes.SequenceEqual(Notes) || !water.SequenceEqual(Water) || !focus.SequenceEqual(FocusLog);
+        Tasks = tasks;
+        Notes = notes;
+        Water = water;
+        FocusLog = focus;
+        return changed;
+    }
+
+    /// <summary>Whether this version can load a synced entry. Ones it can't (a newer format, a broken file) are left out
+    /// of the merge: never kept here, so never in this device's file or base, so a later sync can't take them for
+    /// deleted. The other devices keep them.</summary>
+    public static bool CanHold(string kind, JsonNode? item) => item is JsonObject o && kind switch
+    {
+        "tasks" => ReadTask(o) is not null,
+        "notes" => ReadNote(o) is not null,
+        "water" => ReadWater(o) is not null,
+        "focusLog" => ReadFocus(o) is not null,
+        _ => true,
+    };
+
+    // Each record needs every non-optional field, as the Mac's decoder does. "modified" is optional (sync, 1.9).
 
     private static TaskItem? ReadTask(JsonObject o) =>
         Json.Guid(o["id"]) is { } id && Json.String(o["title"]) is { } title && Json.Bool(o["done"]) is { } done
         && Json.Bool(o["reminded"]) is { } reminded && Json.Date(o["created"]) is { } created
         && (o["due"] is null || Json.Date(o["due"]) is not null)
-            ? new TaskItem(id, title, done, Json.Date(o["due"]), reminded, created) : null;
+            ? new TaskItem(id, title, done, Json.Date(o["due"]), reminded, created, Json.Date(o["modified"])) : null;
 
     private static NoteItem? ReadNote(JsonObject o) =>
         Json.Guid(o["id"]) is { } id && Json.String(o["title"]) is { } title && Json.String(o["body"]) is { } body
         && Json.Date(o["updated"]) is { } updated
-            ? new NoteItem(id, title, body, updated) : null;
+            ? new NoteItem(id, title, body, updated, Json.Date(o["modified"])) : null;
 
     private static ClipItem? ReadClip(JsonObject o) =>
         Json.Guid(o["id"]) is { } id && Json.String(o["text"]) is { } text && Json.Date(o["captured"]) is { } captured
@@ -347,9 +469,9 @@ public sealed class AppData
 
     private static WaterEntry? ReadWater(JsonObject o) =>
         Json.Guid(o["id"]) is { } id && Json.Date(o["date"]) is { } date && Json.Int(o["ml"]) is { } ml
-            ? new WaterEntry(id, date, ml) : null;
+            ? new WaterEntry(id, date, ml, Json.Date(o["modified"])) : null;
 
     private static FocusEntry? ReadFocus(JsonObject o) =>
         Json.Guid(o["id"]) is { } id && Json.Date(o["start"]) is { } start && Json.Int(o["minutes"]) is { } minutes
-            ? new FocusEntry(id, start, minutes) : null;
+            ? new FocusEntry(id, start, minutes, Json.Date(o["modified"])) : null;
 }

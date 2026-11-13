@@ -30,20 +30,21 @@ public readonly record struct Accent(Color Light, Color Deep)
     public static Color Hex(uint rgb) => Color.FromRgb((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
 }
 
-/// <summary>One room: its name (a feature name, never translated), tab glyph, accent and pane height.</summary>
-public sealed record RoomInfo(Room Room, string Glyph, Accent Accent, double PaneHeight, string Subtitle)
+/// <summary>One room: its name (a feature name, never translated), accent, pane height and the subtitle the tab's
+/// tooltip shows (the Mac's NotchTab.subtitle). The tab glyph is drawn by TabGlyph.</summary>
+public sealed record RoomInfo(Room Room, Accent Accent, double PaneHeight, string Subtitle)
 {
     // Pane heights follow the Mac's NotchMetrics.paneHeight, so each tab is only as tall as its content.
     public static readonly RoomInfo[] All =
     [
-        new(Room.Den, "\uE916", Accent.Den, 160, "Focus timer"),
-        new(Room.Hunt, "\uE9D5", Accent.Hunt, 188, "Tasks"),
-        new(Room.Roar, "\uEA8F", Accent.Roar, 176, "Unread and agents"),
-        new(Room.Scratch, "\uE70B", Accent.Scratch, 180, "Notes and clips"),
-        new(Room.Purr, "\uE8D6", Accent.Purr, 122, "Now playing"),
-        new(Room.Stash, "\uE8B7", Accent.Stash, 128, "File shelf"),
-        new(Room.Oasis, "\uEC32", Accent.Oasis, 136, "Water"),
-        new(Room.Settings, "\uE713", Accent.Neutral, 196, "Settings"),
+        new(Room.Den, Accent.Den, 160, "Focus timer"),
+        new(Room.Hunt, Accent.Hunt, 188, "Tasks and meetings"),
+        new(Room.Roar, Accent.Roar, 176, "Unread and agents"),
+        new(Room.Scratch, Accent.Scratch, 180, "Notes and clips"),
+        new(Room.Purr, Accent.Purr, 122, "Now playing"),
+        new(Room.Stash, Accent.Stash, 128, "File shelf"),
+        new(Room.Oasis, Accent.Oasis, 136, "Water"),
+        new(Room.Settings, Accent.Neutral, 196, "Settings"),
     ];
 
     public string Name => Room.ToString();
@@ -66,7 +67,31 @@ public static class Ui
 
     public static readonly FontFamily Text = new("Segoe UI Variable Text, Segoe UI");
     public static readonly FontFamily Display = new("Segoe UI Variable Display, Segoe UI");
+    /// <summary>Semibold and bold text. WPF can't move Segoe UI Variable's weight axis: asking it for SemiBold still
+    /// draws the regular outlines, which is why titles looked lighter than the Mac's. Segoe UI ships real
+    /// Semibold and Bold faces, so weighted text uses it (same design, same metrics).</summary>
+    public static readonly FontFamily Strong = new("Segoe UI");
     public static readonly FontFamily Icons = new("Segoe Fluent Icons, Segoe MDL2 Assets");
+
+    /// <summary>The face for a weight: Segoe UI for SemiBold and up, else the Variable face.</summary>
+    public static FontFamily Face(FontWeight weight, bool display = false) =>
+        weight.ToOpenTypeWeight() >= 600 ? Strong : display ? Display : Text;
+
+    /// <summary>Sets a weight and the face that can draw it.</summary>
+    public static T Weight<T>(T t, FontWeight weight) where T : Control
+    {
+        t.FontWeight = weight;
+        t.FontFamily = Face(weight);
+        return t;
+    }
+
+    /// <summary>Sets a weight and the face that can draw it.</summary>
+    public static TextBlock Weight(TextBlock t, FontWeight weight)
+    {
+        t.FontWeight = weight;
+        t.FontFamily = Face(weight, t.FontFamily == Display);
+        return t;
+    }
 
     // Type scale (the Mac's, a touch larger: Segoe UI sets smaller than SF Pro at the same size).
     public const double Caption = 10.5, Secondary = 12, Body = 13, Title = 15;
@@ -80,7 +105,7 @@ public static class Ui
     public static TextBlock Label(string text, double size = Body, Brush? brush = null, FontWeight? weight = null, bool trim = true) => new()
     {
         Text = text,
-        FontFamily = Text,
+        FontFamily = Face(weight ?? FontWeights.Normal),
         FontSize = size,
         Foreground = brush ?? Ink,
         FontWeight = weight ?? FontWeights.Normal,
@@ -88,11 +113,12 @@ public static class Ui
         VerticalAlignment = VerticalAlignment.Center,
     };
 
-    /// <summary>Numbers: Display face with tabular digits, so counting down never jitters.</summary>
-    public static TextBlock Number(string text, double size, Brush? brush = null)
+    /// <summary>Numbers (the Mac's Theme.number): semibold by default, tabular digits, so counting down never jitters.</summary>
+    public static TextBlock Number(string text, double size, Brush? brush = null, FontWeight? weight = null)
     {
-        var t = Label(text, size, brush, FontWeights.SemiBold, trim: false);
-        t.FontFamily = Display;
+        var w = weight ?? FontWeights.SemiBold;
+        var t = Label(text, size, brush, w, trim: false);
+        t.FontFamily = Face(w, display: true);
         System.Windows.Documents.Typography.SetNumeralAlignment(t, FontNumeralAlignment.Tabular);
         return t;
     }
@@ -151,54 +177,79 @@ public static class Ui
         return e;
     }
 
-    /// <summary>A capsule button. Prominent ones carry the room's gradient.</summary>
+    /// <summary>A capsule button (the Mac's PillButton, 28 high). Prominent ones carry the room's gradient and the
+    /// Mac's hairline highlight along the top.</summary>
     public static Border Pill(string title, Action onClick, Accent accent, bool prominent = false, string? glyph = null, string? tip = null)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
         var fg = prominent ? OnAccent : Ink;
-        if (glyph is not null) row.Children.Add(new Border { Child = Glyph(glyph, 10.5, fg), Margin = new Thickness(0, 0, 6, 0) });
+        if (glyph is not null) row.Children.Add(new Border { Child = Glyph(glyph, 10.5, fg), Margin = new Thickness(0, 0, 5, 0) });
+        // 12 pt Segoe UI Semibold matches the Mac's 12.5 pt medium SF in width and weight.
         row.Children.Add(Label(title, Secondary, fg, FontWeights.SemiBold, trim: false));
         var b = new Border
         {
             Child = row,
-            Height = 26,
-            CornerRadius = new CornerRadius(13),
+            Height = 28,
+            CornerRadius = new CornerRadius(14),
             Padding = new Thickness(12, 0, 12, 0),
             Background = prominent ? accent.Vertical : SurfaceRaised,
+            BorderBrush = prominent ? Highlight : null,
+            BorderThickness = new Thickness(prominent ? 0.5 : 0),
         };
-        return Clickable(b, onClick, h => b.Opacity = h ? 0.88 : 1, tip);
+        var rest = b.Background;
+        return Clickable(b, onClick, h =>
+        {
+            if (prominent) b.Opacity = h ? 0.9 : 1;
+            else b.Background = h ? SurfaceHover : rest;
+        }, tip);
     }
 
-    /// <summary>A small selectable capsule (presets, filters).</summary>
+    /// <summary>The white hairline on top of an accent fill (the Mac's AccentFill stroke).</summary>
+    private static readonly Brush Highlight = Frozen(new LinearGradientBrush(
+        new GradientStopCollection { new(Color.FromArgb(0x73, 0xFF, 0xFF, 0xFF), 0), new(Color.FromArgb(0, 0xFF, 0xFF, 0xFF), 0.5) }, 90));
+
+    private static readonly Brush ChipRest = Frozen(new SolidColorBrush(Color.FromArgb(0x0F, 0xFF, 0xFF, 0xFF)));
+    private static readonly Brush ChipHover = Frozen(new SolidColorBrush(Color.FromArgb(0x19, 0xFF, 0xFF, 0xFF)));
+    private static readonly Brush ChipInk = Frozen(new SolidColorBrush(Color.FromArgb(0xD9, 0xF5, 0xF1, 0xEA)));
+
+    /// <summary>A small selectable capsule (presets, filters), the Mac's Chip: selected ones are filled with the
+    /// accent's gradient and dark text, the rest a faint capsule with ink text.</summary>
     public static Border Chip(string title, bool selected, Accent accent, Action onClick, bool enabled = true, string? tip = null)
     {
-        var label = Label(title, Caption + 0.5, selected ? accent.LightBrush : Mist, selected ? FontWeights.SemiBold : FontWeights.Medium, trim: false);
+        // Same width as before the restyle (Hunt's reminder row is tight at 440): 11 pt, 8 px sides.
+        var label = Label(title, Caption + 0.5, selected ? OnAccent : ChipInk, selected ? FontWeights.SemiBold : FontWeights.Medium, trim: false);
         var b = new Border
         {
             Child = label,
-            Height = 22,
-            CornerRadius = new CornerRadius(11),
+            Height = 24,
+            CornerRadius = new CornerRadius(12),
             Padding = new Thickness(8, 0, 8, 0),
-            Background = selected ? accent.Tint(0x38) : Frozen(new SolidColorBrush(Color.FromArgb(0x0F, 0xFF, 0xFF, 0xFF))),
+            Background = selected ? accent.Vertical : ChipRest,
+            BorderBrush = selected ? Highlight : null,
+            BorderThickness = new Thickness(selected ? 0.5 : 0),
             IsEnabled = enabled,
             Opacity = enabled ? 1 : 0.4,
         };
-        return Clickable(b, onClick, h => { if (!selected && enabled) b.Background = h ? SurfaceHover : Frozen(new SolidColorBrush(Color.FromArgb(0x0F, 0xFF, 0xFF, 0xFF))); }, tip);
+        return Clickable(b, onClick, h => { if (!selected && enabled) b.Background = h ? ChipHover : ChipRest; }, tip);
     }
 
-    /// <summary>A round icon button with a fixed glyph size.</summary>
-    public static Border IconButton(string glyph, string tip, Action onClick, double size = 26, Brush? tint = null, Accent? filled = null)
+    private static readonly Brush IconRest = Frozen(new SolidColorBrush(Color.FromArgb(0x12, 0xFF, 0xFF, 0xFF)));
+    private static readonly Brush IconHover = Frozen(new SolidColorBrush(Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF)));
+
+    /// <summary>A round icon button with a fixed glyph size, the Mac's IconButton: a faint disc behind the glyph
+    /// (brighter on hover), or the accent's gradient when filled. Plain ones (transport, steppers) show the disc only on hover.</summary>
+    public static Border IconButton(string glyph, string tip, Action onClick, double size = 26, Brush? tint = null, Accent? filled = null, bool plain = false)
     {
         var b = new Border
         {
             Width = size,
             Height = size,
             CornerRadius = new CornerRadius(size / 2),
-            Background = filled is { } f ? f.Vertical : Brushes.Transparent,
+            Background = filled is { } f ? f.Vertical : plain ? Brushes.Transparent : IconRest,
             Child = Glyph(glyph, size >= 28 ? 12 : 11, filled is not null ? OnAccent : tint ?? Ink),
         };
         var rest = b.Background;
-        return Clickable(b, onClick, h => b.Background = filled is not null ? rest : h ? SurfaceHover : rest, tip, 0.88);
+        return Clickable(b, onClick, h => b.Background = filled is not null ? rest : h ? IconHover : rest, tip, 0.88);
     }
 
     /// <summary>A text-only button with a padded hit area.</summary>
@@ -324,20 +375,36 @@ public static class Ui
         Focusable = false,
     };
 
-    /// <summary>Centred title + subtitle for an empty list.</summary>
-    public static FrameworkElement EmptyHint(string title, string subtitle)
+    /// <summary>The lion, as in the header and the empty states.</summary>
+    public static readonly System.Windows.Media.Imaging.BitmapImage Lion = MakeLion();
+
+    private static System.Windows.Media.Imaging.BitmapImage MakeLion()
     {
-        var s = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
-        var t = Label(title, Body, Mist, FontWeights.SemiBold);
-        t.HorizontalAlignment = HorizontalAlignment.Center;
-        var sub = Label(subtitle, Caption + 0.5, Faint, trim: false);
+        var b = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/Assets/lion.png"));
+        b.Freeze();
+        return b;
+    }
+
+    /// <summary>The Mac's EmptyHint: a still lion on the left, the title and the subtitle left-aligned beside it,
+    /// the pair centred in the room. A sleeping lion (dimmed) when the feature is off.</summary>
+    public static FrameworkElement EmptyHint(string title, string subtitle, bool sleeping = false)
+    {
+        var lion = new Image { Source = Lion, Width = 40, Height = 40, VerticalAlignment = VerticalAlignment.Center, Opacity = sleeping ? 0.6 : 1 };
+        var s = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+        var t = Label(title, Body, Ink, FontWeights.SemiBold);
+        var sub = Label(subtitle, Secondary, Mist, trim: false);
         sub.TextWrapping = TextWrapping.Wrap;
-        sub.TextAlignment = TextAlignment.Center;
-        sub.MaxWidth = 300;
-        sub.Margin = new Thickness(0, 3, 0, 0);
+        sub.Margin = new Thickness(0, 2, 0, 0);
         s.Children.Add(t);
         s.Children.Add(sub);
-        return s;
+        var pair = new DockPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        DockPanel.SetDock(lion, Dock.Left);
+        pair.Children.Add(lion);
+        pair.Children.Add(s);
+        // Wrap the text at the room's width (less the lion), like the Mac's HStack, and keep the pair centred.
+        var host = new Border { Child = pair, Background = Brushes.Transparent };
+        host.SizeChanged += (_, e) => sub.MaxWidth = t.MaxWidth = Math.Max(120, e.NewSize.Width - 40 - 12 - 8);
+        return host;
     }
 
     public static StackPanel Row(double spacing, params UIElement[] children)

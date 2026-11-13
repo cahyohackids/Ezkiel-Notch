@@ -21,6 +21,16 @@
     <None Include="Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- Shared with the Mac's Swift tests: both apps read typed times the same way. -->
     <None Include="..\..\Tests\fixtures\due-phrases.json" Link="Fixtures\due-phrases.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\Tests\fixtures\ai-sse.json" Link="Fixtures\ai-sse.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Shared with the Mac's Swift tests: both apps read typed timer lengths the same way. -->
+    <None Include="..\..\Tests\fixtures\timer-phrases.json" Link="Fixtures\timer-phrases.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Shared with the Mac's Swift tests: the system monitor alerts and formats the same way. -->
+    <None Include="..\..\Tests\fixtures\sysmon-alerts.json" Link="Fixtures\sysmon-alerts.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Sync merge cases, shared with the Mac's Swift tests: both must merge them the same way. -->
+    <None Include="..\..\Tests\fixtures\sync\*.json" LinkBase="Fixtures\sync" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

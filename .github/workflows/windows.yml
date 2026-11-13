@@ -2,7 +2,8 @@ name: Build Ezkiel Notch for Windows
 
 on:
   push:
-    branches: ["**"]
+    # desktop/* branches only start a Windows desktop (windows-desktop.yml).
+    branches: ["**", "!desktop/**"]
     paths: ["windows/**", ".github/workflows/windows.yml"]
   pull_request:
     paths: ["windows/**", ".github/workflows/windows.yml"]

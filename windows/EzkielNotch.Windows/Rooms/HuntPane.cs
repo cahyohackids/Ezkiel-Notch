@@ -169,13 +169,13 @@ public sealed class HuntPane(NotchModel model, RallyClient rally, Action openMir
     private static Border Stepper(string value, string tip, Action<int> step)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        row.Children.Add(Ui.IconButton("\uE76B", tip, () => step(-1), 20, Ui.Mist));
+        row.Children.Add(Ui.IconButton("\uE76B", tip, () => step(-1), 20, Ui.Mist, plain: true));
         var text = Ui.Label(value, Ui.Secondary, Ui.Ink, FontWeights.SemiBold);
         text.MinWidth = 18;
         text.TextAlignment = TextAlignment.Center;
         text.VerticalAlignment = VerticalAlignment.Center;
         row.Children.Add(text);
-        row.Children.Add(Ui.IconButton("\uE76C", tip, () => step(1), 20, Ui.Mist));
+        row.Children.Add(Ui.IconButton("\uE76C", tip, () => step(1), 20, Ui.Mist, plain: true));
         var pill = new Border { Child = row, Height = 24, CornerRadius = new CornerRadius(12), Background = Ui.Surface, ToolTip = tip };
         pill.MouseWheel += (_, e) => { step(e.Delta > 0 ? 1 : -1); e.Handled = true; };
         return pill;
@@ -187,6 +187,14 @@ public sealed class HuntPane(NotchModel model, RallyClient rally, Action openMir
         if (_input is null) return;
         var title = _input.Text.Trim();
         if (title.Length == 0) return;
+        // "timer 10m teh" starts a quick timer (Den shows it) instead of adding a task.
+        if (TimerPhrase.Command(title) is { } timer && Model.StartTimer(timer.Label, timer.Seconds) is not null)
+        {
+            _draft = "";
+            _input.Text = "";
+            Model.RaiseToast(L("Timer started · %@", QuickTimers.Short(timer.Seconds)));
+            return;
+        }
         var when = _picked is { } p ? p.ToUniversalTime() : Due.Date(_due, DateTime.UtcNow);
         if (Typed is { Title.Length: > 0 } typed)
         {

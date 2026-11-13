@@ -11,9 +11,11 @@ namespace EzkielNotch.Island;
 
 /// <summary>
 /// The closed island while something is live: the Mac's wings, as a small pill under the top edge.
-/// Left: the album art while music plays, else Ezkiel, plus Prowl's dots. Right, the first that applies:
-/// the Den countdown, a meeting soon, an AI agent, the equalizer, the unread count, charging, the water ring.
-/// Nothing live: back to the thin lip.
+/// Left: the album art while music plays, else Ezkiel, plus Prowl's dots. Right, the first that applies (Core's
+/// LiveKind order): the Den countdown, a meeting within 10 min, the soonest quick timer, a download in progress
+/// (those three put their icon on the left), an AI agent, the system monitor pill, the equalizer, the unread count,
+/// charging, the water ring.
+/// Nothing live: back to the thin lip, unless "Minimal closed island" is off (then the wings always show).
 /// </summary>
 public partial class IslandWindow
 {
@@ -24,6 +26,9 @@ public partial class IslandWindow
     public PowerWatcher Power { get; } = new();
 
     private bool _liveShown;
+    private bool _singing;
+    /// <summary>Chorus under the closed island: the line being sung.</summary>
+    internal readonly ClosedLyricLine LiveLyric = new();
     private string _liveKey = "";
     private TextBlock? _liveTimer;
     private Shape? _closedShape;
@@ -93,20 +98,41 @@ public partial class IslandWindow
             var s = Model.Settings;
             return Model.Focus.IsRunning || Media.Current?.IsPlaying == true || Power.Charging
                 || Model.LiveAgents.Count > 0 || (s.Prowl && (Prowl.MicInUse || Prowl.CameraInUse))
-                || MeetingSoon is not null || (s.Roar && Model.UnreadTotal > 0);
+                || MeetingSoon is not null || (s.Roar && Model.UnreadTotal > 0)
+                || Model.SoonestTimer is not null || LeadDownload is not null;
         }
     }
 
-    /// <summary>The closed shape: the island pill (wider while live), or in Notch style the live pill,
-    /// a small tab for Ezkiel's face, or just the thin lip when the face is off.</summary>
+    /// <summary>The closed island shows its wings (Mac: showsWings): while something is live, or always when
+    /// "Minimal closed island" is off. Over a fullscreen app with "Calm in fullscreen" on, never.</summary>
+    public bool ShowsWings => IsLive || ((!Model.Settings.MinimalClosed || SysPillOn) && !(FullscreenActive && Model.Settings.HideInFullscreen));
+
+    /// <summary>Chorus sings under the closed island (the Mac's showsClosedLyrics): Chorus and "Chorus under the
+    /// notch" on, a song playing with synced lyrics, and the island showing (not stepped away for fullscreen).</summary>
+    public bool ShowsClosedLyrics => IsLive && ClosedChorus.Shows(Model.Settings, Media.Current?.IsPlaying == true, Lyrics.State);
+
+    /// <summary>The closed shape: the island pill (wider with its wings), or in Notch style the live pill,
+    /// a small tab for Ezkiel's face, or just the thin lip when the face is off. While Chorus sings, a lyric band
+    /// below, at least 340 wide (the Mac's bodySize).</summary>
     private Shape ClosedShape()
     {
-        bool live = IsLive;
+        bool live = ShowsWings, sing = ShowsClosedLyrics;
         if (IsIsland)
         {
             double w = IslandCenter + (live ? 88 : 0), h = IslandHeight;
+            if (sing)
+            {
+                w = Math.Max(w, ClosedChorus.Width);
+                h += ClosedChorus.Band;
+            }
             if (Hovering) { w += 12; h += 2; }
-            return new(w, h, h / 2, 0);
+            // A pill while it's one row; with the lyric band, rounded corners the size of the pill's ends.
+            return new(w, h, Math.Min(h / 2, IslandHeight / 2 + 4), 0);
+        }
+        if (live && sing)
+        {
+            var bar = Hovering ? LiveHoverShape : LiveShape;
+            return bar with { Width = ClosedChorus.Width + (Hovering ? 12 : 0), Height = bar.Height + ClosedChorus.Band };
         }
         if (live) return Hovering ? LiveHoverShape : LiveShape;
         if (ShowsFace) return Hovering ? new(116, 24, 10, 7) : new(104, 22, 9, 6);
@@ -116,7 +142,11 @@ public partial class IslandWindow
     /// <summary>Called on every change that could start or end something live, and once a second.</summary>
     public void UpdateLive()
     {
-        if (Presentation != Presentation.Lip) return;
+        if (Presentation != Presentation.Lip)
+        {
+            UpdateClosedLyrics();   // open or peeking: the lyric band rests
+            return;
+        }
         var shape = ClosedShape();
         if (shape != _closedShape)
         {
@@ -124,13 +154,14 @@ public partial class IslandWindow
             _closedShape = shape;
             Apply(shape, animate: true, bouncy: grows);
         }
-        bool show = IsLive || ShowsFace;
+        bool show = ShowsWings || ShowsFace;
         if (show != _liveShown)
         {
             _liveShown = show;
             Fade(LiveView, show ? 1 : 0, show ? 0.22 : 0.1, delay: show ? 0.12 : 0);
             LiveView.IsHitTestVisible = false;
         }
+        UpdateClosedLyrics();
         if (!show) return;
         var key = LiveKey();
         if (key != _liveKey)
@@ -139,7 +170,23 @@ public partial class IslandWindow
             BuildLive();
         }
         if (_liveTimer is not null) _liveTimer.Text = FocusClock.Format(Model.Focus.Remaining(DateTime.UtcNow));
+        _liveTick?.Invoke();
+        UpdateSysPill();
         _eyes?.Set(EyesMood(), Hovering);
+    }
+
+    /// <summary>The lyric band under the closed island: shown, hidden, and kept on the current line.</summary>
+    private void UpdateClosedLyrics()
+    {
+        bool sing = Presentation == Presentation.Lip && ShowsClosedLyrics;
+        if (sing != _singing)
+        {
+            _singing = sing;
+            LiveLyricRow.Height = new GridLength(sing ? ClosedChorus.Band : 0);
+            LiveLyric.Visibility = sing ? Visibility.Visible : Visibility.Collapsed;
+            if (!sing) LiveLyric.Stop();
+        }
+        if (sing && Media.Current is { } np && Lyrics.State.Lines is { } lines) LiveLyric.Follow(np, lines);
     }
 
     /// <summary>Ezkiel's mood, as on the Mac: an agent working or waiting first, then happy, napping, focusing.</summary>
@@ -162,10 +209,12 @@ public partial class IslandWindow
     private string LiveKey()
     {
         var np = Media.Current;
-        return string.Join("|", IsLive, Model.Settings.ClosedFace, Model.Settings.EyeStyle, IsIsland, Model.Focus.IsRunning, Model.Focus.Mode,
+        return string.Join("|", ShowsWings, Model.Settings.ClosedFace, Model.Settings.EyeStyle, IsIsland, Model.Focus.IsRunning, Model.Focus.Mode,
             np?.IsPlaying == true ? np.TrackKey : "", Media.Artwork is not null,
             Prowl.MicInUse, Prowl.CameraInUse, Model.Settings.Prowl, MeetingSoon?.Title, MeetingMinutes, Model.LiveAgents.Count,
-            Model.LiveAgents.FirstOrDefault()?.Kind, Model.UnreadTotal, Power.Charging, Power.Percent, Lang.IsIndonesian);
+            Model.LiveAgents.FirstOrDefault()?.Kind, Model.UnreadTotal, Power.Charging, Power.Percent, Lang.IsIndonesian,
+            Math.Round(Model.WaterProgress, 2), ClosedLive, Model.Data.Timers.Count, LeadDownload?.Count, LeadDownload?.Download.FinalName,
+            LeadDownload?.Download.Fraction is not null, SysPillKey);
     }
 
     private void BuildLive()
@@ -174,23 +223,28 @@ public partial class IslandWindow
         LiveRight.Children.Clear();
         LiveCenter.Content = null;
         _liveTimer = null;
+        _liveTick = null;
+        _sysPillText = _sysPillGlyph = null;
         var np = Media.Current;
+        var kind = ClosedLive;
         var face = Model.Settings.ClosedFace;
-        bool live = IsLive;
+        bool live = ShowsWings;
 
         // Middle: Ezkiel's eyes (the closed island has no camera to make room for).
         if (face == "eyes")
         {
             _eyes ??= new EzkielEyes(IsIsland ? 10 : 9, Model.Settings.EyeStyle);
-            _eyes.Style = Model.Settings.EyeStyle;
+            _eyes.EyeStyle = Model.Settings.EyeStyle;
             LiveCenter.Content = _eyes;
         }
         else if (face == "lion" && !live)
             LiveCenter.Content = new Image { Source = PurrPane.Lion, Width = 18, Height = 18 };
         if (!live) return;
 
-        // Left: artwork while playing, else the lion when that's the face.
-        if (np?.IsPlaying == true && Media.Artwork is { } art)
+        // Left: a meeting, timer or download's own icon; else artwork while playing, else the lion when that's the face.
+        if (LiveActivityLeft(kind) is { } activity)
+            LiveLeft.Children.Add(activity);
+        else if (np?.IsPlaying == true && Media.Artwork is { } art)
             LiveLeft.Children.Add(new Border
             {
                 Width = 18,
@@ -214,11 +268,10 @@ public partial class IslandWindow
             _liveTimer = Ui.Number("", 12, accent.Vertical);
             LiveRight.Children.Add(_liveTimer);
         }
-        else if (MeetingSoon is { } meeting)
+        else if (OwnsLeftWing(kind))
         {
-            var t = Ui.Number(L("in %dm", MeetingMinutes), 12, Accent.Rally.Vertical);
-            t.ToolTip = meeting.Title;
-            LiveRight.Children.Add(t);
+            // "Meeting in 7 min", the soonest quick timer, a download: their count here, their icon on the left.
+            LiveActivityRight(kind);
         }
         else if (face != "eyes" && Model.LiveAgents.FirstOrDefault() is { } agent)
         {
@@ -232,6 +285,11 @@ public partial class IslandWindow
                 n.Margin = new Thickness(3, 0, 0, 0);
                 LiveRight.Children.Add(n);
             }
+        }
+        else if (SysPillOn)
+        {
+            // System monitor: CPU % or network speed, while the user asked for it here.
+            AddSysPill(LiveRight);
         }
         else if (np?.IsPlaying == true)
         {
@@ -272,7 +330,7 @@ public partial class IslandWindow
 
     // MARK: Rally hook (filled in by the calendar)
 
-    /// <summary>The next meeting starting within 5 minutes, when Rally is on.</summary>
-    public Meeting? MeetingSoon => !Model.Settings.Rally || !Model.Settings.RallyCountdown ? null : Rally.Upcoming.FirstOrDefault(m => m.Start > DateTime.UtcNow && m.Start - DateTime.UtcNow <= TimeSpan.FromMinutes(5));
-    private int MeetingMinutes => MeetingSoon is { } m ? Math.Max(1, (int)Math.Ceiling((m.Start - DateTime.UtcNow).TotalMinutes)) : 0;
+    /// <summary>The next meeting starting within 10 minutes (LivePill.MeetingWindow), when Rally and its countdown are on.</summary>
+    public Meeting? MeetingSoon => !Model.Settings.Rally || !Model.Settings.RallyCountdown ? null : Rally.Upcoming.FirstOrDefault(m => LivePill.MeetingMinutes(m.Start, DateTime.UtcNow) is not null);
+    private int MeetingMinutes => MeetingSoon is { } m ? LivePill.MeetingMinutes(m.Start, DateTime.UtcNow) ?? 1 : 0;
 }

@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using static EzkielNotch.Core.Lang;
 
 namespace EzkielNotch.Core;
@@ -6,7 +7,8 @@ namespace EzkielNotch.Core;
 public enum Room { Den, Hunt, Roar, Scratch, Purr, Stash, Oasis, Settings }
 
 /// <summary>A short message under the top edge. Sound is a Mac sound name; Windows maps it.</summary>
-public sealed record PeekRequest(string Title, string Subtitle, Room Room, string Sound, bool Urgent, string? App = null, string? Value = null, string? Link = null);
+public sealed record PeekRequest(string Title, string Subtitle, Room Room, string Sound, bool Urgent, string? App = null, string? Value = null, string? Link = null,
+                                 PeekLook? Look = null);
 
 /// <summary>A capsule at the bottom of the open island, optionally with an action (Undo).</summary>
 public sealed record ToastRequest(string Text, string? ActionTitle = null, Action? Action = null);
@@ -15,7 +17,7 @@ public sealed record ToastRequest(string Text, string? ActionTitle = null, Actio
 /// What the rooms show and do, without any UI (a port of the Mac's AppModel for Den, Hunt, Scratch and Oasis).
 /// The window listens to Changed, Peek, Toast and Sound; Tick() runs once a second.
 /// </summary>
-public sealed class NotchModel
+public sealed partial class NotchModel
 {
     public AppData Data { get; }
     public NotchSettings Settings => Data.Settings;
@@ -28,6 +30,8 @@ public sealed class NotchModel
     public event Action<ToastRequest>? Toast;
     /// <summary>Mac sound names: Glass, Ping, Purr, Tink, Bottle.</summary>
     public event Action<string>? Sound;
+    /// <summary>Data was handed to the store (the sync looks whether its lists changed).</summary>
+    public event Action? Saved;
 
     /// <summary>UTC clock; tests replace it.</summary>
     public Func<DateTime> Now { get; set; } = () => DateTime.UtcNow;
@@ -52,9 +56,26 @@ public sealed class NotchModel
         Data.Water = WaterLog.Pruned(Data.Water, now);
         Data.FocusLog = FocusStats.Pruned(Data.FocusLog, now);
         Focus = Data.FocusState is { } s ? FocusClock.From(s) : new FocusClock(Settings.FocusMinutes);
-        SelectedNoteId = Data.Notes.FirstOrDefault()?.Id;
         Lang.Choice = Settings.Language;
+        Onboard();
+        SelectedNoteId = Data.Notes.FirstOrDefault()?.Id;
     }
+
+    /// <summary>The first launch leaves a welcome note in Scratch, like the Mac. Only once (data.json's "onboarded"),
+    /// and not for someone who already uses the app (an update from a version without the flag).</summary>
+    private void Onboard()
+    {
+        if (Data.Onboarded) return;
+        bool fresh = Data.Notes.Count == 0 && Data.Tasks.Count == 0 && Data.Clips.Count == 0 && Data.Water.Count == 0 && Data.FocusLog.Count == 0;
+        if (fresh) Data.Notes.Add(WelcomeNote(NotchSettings.HotkeyLabel(Settings.Hotkey), Now()));
+        Data.Onboarded = true;
+        _dirty = true;
+    }
+
+    public static NoteItem WelcomeNote(string hotkey, DateTime now) =>
+        new(Guid.NewGuid(), L("Welcome to Ezkiel Notch"),
+            L("Your notes stay on this PC.\n\nHover the top of the screen to open the island. Den keeps your focus, Hunt your tasks, Stash your files. %@ opens it from anywhere.", hotkey),
+            now);
 
     // MARK: Saving
 
@@ -79,6 +100,7 @@ public sealed class NotchModel
         _tickCount++;
         var now = Now();
         if (Focus.IsFinished(now)) CompleteFocus(now);
+        CheckTimers(now);
         if (_tickCount % 5 == 0)
         {
             CheckTasks(now);
@@ -91,6 +113,7 @@ public sealed class NotchModel
             _dirty = false;
             Data.FocusState = Focus.Snapshot;
             Store?.Save(Data);
+            Saved?.Invoke();
         }
         // Said once a minute at most, on the UI thread (the write happens on another).
         if (_saveFailed && now - _saveWarned > TimeSpan.FromMinutes(1))
@@ -156,11 +179,11 @@ public sealed class NotchModel
             Peek?.Invoke(new PeekRequest(L("Focus complete"),
                 streak > 1 ? L("%d-day streak · take %d min", streak, Settings.BreakMinutes)
                            : L("Take a %d-minute break", Settings.BreakMinutes),
-                Room.Den, "Glass", Urgent: true));
+                Room.Den, "Glass", Urgent: true, Look: PeekLooks.Of(PeekKind.FocusDone)));
         }
         else
         {
-            Peek?.Invoke(new PeekRequest(L("Break complete"), L("Ready to focus again"), Room.Den, "Glass", Urgent: true));
+            Peek?.Invoke(new PeekRequest(L("Break complete"), L("Ready to focus again"), Room.Den, "Glass", Urgent: true, Look: PeekLooks.Of(PeekKind.BreakDone)));
         }
         Touch(Room.Den);
     }
@@ -219,7 +242,7 @@ public sealed class NotchModel
             var t = Data.Tasks[i];
             if (t.Done || t.Reminded || t.Due is not { } due || due > now) continue;
             Data.Tasks[i] = t with { Reminded = true };
-            Peek?.Invoke(new PeekRequest(L("Task due"), t.Title, Room.Hunt, "Ping", Urgent: true));
+            Peek?.Invoke(new PeekRequest(L("Task due"), t.Title, Room.Hunt, "Ping", Urgent: true, Look: PeekLooks.Of(PeekKind.TaskDue)));
             Touch(Room.Hunt);
             break;
         }
@@ -240,7 +263,7 @@ public sealed class NotchModel
             var lead = m.Start - now;
             if (lead <= TimeSpan.Zero || lead > TimeSpan.FromMinutes(5) || !_notifiedMeetings.Add(m.Id)) continue;
             Peek?.Invoke(new PeekRequest(m.Title, L("Starts %@ · in %d min", Lang.Time(m.Start), (int)Math.Ceiling(lead.TotalMinutes)),
-                                         Room.Hunt, "Glass", Urgent: true, Link: m.Link));
+                                         Room.Hunt, "Glass", Urgent: true, Link: m.Link, Look: PeekLooks.Of(PeekKind.Meeting)));
             break;
         }
     }
@@ -254,6 +277,16 @@ public sealed class NotchModel
         Data.Notes.Insert(0, note);
         SelectedNoteId = note.Id;
         NoteToFocus = note.Id;
+        Touch(Room.Scratch);
+    }
+
+    /// <summary>A finished note from elsewhere (Ask's "Save as note"), on top and selected.</summary>
+    public void AddNote(string title, string body)
+    {
+        var note = NoteItem.New() with { Title = title, Body = body };
+        ShowingCatch = false;
+        Data.Notes.Insert(0, note);
+        SelectedNoteId = note.Id;
         Touch(Room.Scratch);
     }
 
@@ -408,7 +441,7 @@ public sealed class NotchModel
                                   Settings.ActiveHourStart, Settings.ActiveHourEnd, now)) return;
         _lastWaterReminder = now;
         Peek?.Invoke(new PeekRequest(L("Time for a sip"), L("%d of %d ml today", WaterToday, Settings.WaterGoal),
-                                     Room.Oasis, "Purr", Urgent: false));
+                                     Room.Oasis, "Purr", Urgent: false, Look: PeekLooks.Of(PeekKind.Water)));
     }
 
     // MARK: Settings
@@ -452,7 +485,8 @@ public sealed class NotchModel
             if (_lastRoarPeek.TryGetValue(b.Id, out var last) && now - last < TimeSpan.FromSeconds(20)) continue;
             _lastRoarPeek[b.Id] = now;
             Peek?.Invoke(new PeekRequest(b.Name, was == 0 ? L("%d unread", b.Count) : L("%d new · %d unread", b.Count - was, b.Count),
-                                         Room.Roar, "", Urgent: false, App: b.Id, Value: b.Label));
+                                         Room.Roar, "", Urgent: false, App: b.Id, Value: b.Label,
+                                         Look: PeekLooks.Of(IsAiApp(b.Id) ? PeekKind.RoarAi : PeekKind.Roar)));
         }
         Changed?.Invoke(Room.Roar);
     }
@@ -524,7 +558,7 @@ public sealed class NotchModel
         if (FocusQuiet && e.Kind != ScoutKind.NeedsYou) return;
         var detail = string.Join(" · ", new[] { e.Project, e.Body.Length == 0 ? null : L(e.Body) }.Where(x => x is not null));
         Peek?.Invoke(new PeekRequest(L(e.Title), detail, Room.Roar, e.Kind == ScoutKind.NeedsYou ? "Tink" : "",
-                                     Urgent: e.Kind == ScoutKind.NeedsYou, App: e.AppBundleId));
+                                     Urgent: e.Kind == ScoutKind.NeedsYou, App: e.AppBundleId, Look: PeekLooks.Scout(e)));
     }
 
     /// <summary>An agent that never reported back (a closed terminal, a crash) doesn't stay live:
@@ -578,4 +612,21 @@ public sealed class NotchModel
         _dirty = true;
         Changed?.Invoke(everything ? null : Room.Settings);
     }
+
+    // MARK: Sync
+
+    /// <summary>Merged lists from other devices: shown, then on disk before the sync writes anything else.</summary>
+    public bool ApplySynced(JsonObject merged)
+    {
+        if (!Data.ApplySynced(merged)) return false;
+        if (SelectedNoteId is { } id && !Data.Notes.Any(n => n.Id == id)) SelectedNoteId = Data.Notes.FirstOrDefault()?.Id;
+        SaveNow();
+        foreach (var room in new[] { Room.Den, Room.Hunt, Room.Scratch, Room.Oasis }) Changed?.Invoke(room);
+        return true;
+    }
+
+    /// <summary>"Synced from <device>": something another device changed arrived here.</summary>
+    public void SyncPeek(string device, int changes) =>
+        Peek?.Invoke(new PeekRequest(L("Synced from %@", device), changes == 1 ? L("1 change") : L("%d changes", changes), Room.Settings, "",
+                                     Urgent: false, Look: new PeekLook("\uE895", PeekTint.Oasis)));
 }

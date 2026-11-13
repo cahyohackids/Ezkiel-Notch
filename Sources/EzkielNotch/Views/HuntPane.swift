@@ -187,6 +187,12 @@ struct HuntPane: View {
     private func add() {
         var title = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return }
+        // "timer 10m teh" starts a quick timer (Den shows it) instead of adding a task.
+        if let timer = TimerPhrase.command(title), model.startTimer(timer.label, seconds: timer.seconds) != nil {
+            model.showToast(L("Timer started · %@", QuickTimers.short(timer.seconds)))
+            draft = ""
+            return
+        }
         var due = picked ?? dueChoice.date()
         if let typed, !typed.title.isEmpty {
             title = typed.title

@@ -83,6 +83,7 @@ final class AppModel: ObservableObject {
         didSet {
             scheduleSave()
             if data.settings != oldValue.settings { applySettings(old: oldValue.settings) }
+            sync.localChanged()
         }
     }
     @Published private(set) var focus: FocusClock {
@@ -93,6 +94,8 @@ final class AppModel: ObservableObject {
     @Published var noteToFocus: UUID?
     @Published var loginItemError: String?
     @Published private(set) var stashItems: [StashItem] = []
+    /// Live activities: downloads in progress in ~/Downloads (only while "Downloads in the notch" is on).
+    @Published var downloads: [ActiveDownload] = []
 
     let chrome = NotchChrome()
     let music = MusicController()
@@ -108,7 +111,15 @@ final class AppModel: ObservableObject {
     let mirror = CameraMirror()
     /// Mirror covers the page of the open notch.
     @Published var mirrorOn = false
+    /// Ask: the AI box covers the page of the open notch (AppModel+Ask.swift).
+    let ask = AskModel()
+    @Published var askOn = false
     let scout = ScoutService()
+    /// System monitor: CPU, memory, network, disk and battery for the Den card, the closed pill and its peeks.
+    let sysmon = SysMonService()
+    var sysAlerts = SysAlerts()
+    /// Sync with other devices through a cloud folder (off until the user picks one).
+    let sync: SyncController
     /// Roar: when each app last peeked, so a busy chat doesn't peek on every message.
     var lastRoarPeek: [String: Date] = [:]
     /// Screens off or the session switched away: background work pauses.
@@ -147,9 +158,12 @@ final class AppModel: ObservableObject {
     var onCollapse: () -> Void = {}
     /// Provided by the app delegate: register the chosen global shortcut.
     var onHotkeyChange: (HotkeyChoice) -> Void = { _ in }
+    /// Provided by the app delegate: Ask's shortcut follows its switch.
+    var onAskChange: (Bool) -> Void = { _ in }
 
     init(store: DataStore = DataStore(url: DataStore.defaultURL())) {
         self.store = store
+        sync = SyncController(dataURL: store.url)
         var loaded = store.load()
         if loaded.notes.isEmpty && !loaded.onboarded {
             loaded.notes = [NoteItem(title: "Welcome to Ezkiel Notch",
@@ -173,13 +187,17 @@ final class AppModel: ObservableObject {
         system.onEvent = { [weak self] event in self?.systemEvent(event) }
         system.start()
         pounce.onScreenshot = { [weak self] url in self?.pounced(url, screenshot: true) }
-        pounce.onDownload = { [weak self] url in self?.pounced(url, screenshot: false) }
+        pounce.onDownload = { [weak self] url, followed in self?.downloadFinished(url, followed: followed) }
+        pounce.onProgress = { [weak self] active in self?.downloads = active }
         badges.onIncrease = { [weak self] badge, before in self?.badgeIncreased(badge, before: before) }
         scout.onEvent = { [weak self] event in self?.scoutReceived(event) }
+        ask.onBusyChange = { [weak self] busy in busy ? self?.block("ask") : self?.unblock("ask") }
         applySettings(old: nil)
         rebuildStash()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.reportRecovery() }
+        sync.model = self
+        sync.start()
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.checkForUpdates() }
         updater.beforeQuit = { [weak self] in self?.saveNow() }
         if loaded.settings.scout, !ProcessInfo.processInfo.arguments.contains("--self-test") { repairAgentLinks() }
@@ -226,6 +244,9 @@ final class AppModel: ObservableObject {
         music.start()
     }
 
+    /// The network as Whiskers last saw it (nil until the first report).
+    var networkOnline: Bool? { system.online }
+
     /// The data file in use (the default one, or `--data`).
     var dataFileURL: URL { store.url }
 
@@ -240,7 +261,7 @@ final class AppModel: ObservableObject {
         system.setCapsLockWatching(s.systemOverlays && !screensAsleep)
         music.allowed = s.musicAllowed
         pounce.setScreenshots(s.pounceScreenshots)
-        pounce.setDownloads(s.pounceDownloads)
+        pounce.setDownloads(finished: s.pounceDownloads, live: s.liveDownloads)
         calendar.setEnabled(s.rally)
         badges.readDock = s.roarFromDock
         badges.setEnabled(s.roar)
@@ -252,6 +273,11 @@ final class AppModel: ObservableObject {
         scout.setEnabled(s.scout)
         if !s.scout { agents = [:] }
         if old?.hotkey != s.hotkey { onHotkeyChange(s.hotkey) }
+        if old?.ask != s.ask {
+            onAskChange(s.ask)
+            if !s.ask, askOn { setAsk(false) }
+        }
+        sysmonSettingsChanged(old: old)
         if old?.musicSource != s.musicSource {
             music.source = s.musicSource
             if old != nil { music.refresh() }
@@ -300,17 +326,18 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// The meeting Rally counts down to in the closed notch (within 15 minutes).
+    /// The meeting Rally counts down to in the closed notch (within 10 minutes, LivePill.meetingWindow).
     var meetingSoon: CalendarService.Meeting? {
         guard settings.rally, settings.rallyCountdown else { return nil }
         let now = Date()
-        return calendar.upcoming.first { $0.start > now && $0.start.timeIntervalSince(now) <= 900 }
+        return calendar.upcoming.first { LivePill.meetingMinutes(start: $0.start, now: now) != nil }
     }
 
     /// True when the closed notch has something live to show in its wings.
     var hasLiveActivity: Bool {
         focus.isRunning || (music.nowPlaying?.isPlaying ?? false) || battery.state?.isCharging == true || meetingSoon != nil
             || !agents.isEmpty || prowl.micInUse || prowl.cameraInUse
+            || soonestTimer != nil || leadDownload != nil
     }
 
     /// Fullscreen calm: the setting is on and something is fullscreen on our display.
@@ -328,6 +355,7 @@ final class AppModel: ObservableObject {
         if !settings.minimalClosed { return true }
         // Unread messages are what Roar is for: the count stays visible in the calm closed notch.
         return chrome.hovering || hasLiveActivity || showsClosedLyrics || (settings.roar && unreadTotal > 0)
+            || (settings.sysmon && settings.sysmonPill != .off)
     }
 
     /// The closed notch grows a line underneath and sings along (Chorus).
@@ -338,7 +366,10 @@ final class AppModel: ObservableObject {
     /// Purr is taller while Chorus has lyrics to show.
     var purrShowsLyrics: Bool { settings.showLyrics && music.nowPlaying != nil }
 
-    var paneHeight: CGFloat { NotchMetrics.paneHeight(tab, lyrics: tab == .purr && purrShowsLyrics) }
+    var paneHeight: CGFloat {
+        let page = NotchMetrics.paneHeight(tab, lyrics: tab == .purr && purrShowsLyrics, sysmon: settings.sysmon)
+        return askOn ? max(page, NotchMetrics.askHeight) : page
+    }
 
     var bodySize: CGSize {
         let bar = rowHeight
@@ -486,6 +517,7 @@ final class AppModel: ObservableObject {
         peek = nil
         clearToast()
         if mirrorOn { setMirror(false) }
+        if askOn { askOn = false }
         onCollapse()
         updateMusicPolling()
     }
@@ -496,6 +528,7 @@ final class AppModel: ObservableObject {
 
     func select(_ newTab: NotchTab) {
         if newTab == .purr { allowMusic() }
+        if askOn { setAsk(false) }
         guard newTab != tab else { return }
         tabForward = newTab.index > tab.index
         noteInteraction()
@@ -625,7 +658,7 @@ final class AppModel: ObservableObject {
             }
             splash(p.isHUD ? 4 : 7)
         }
-        schedulePeekDismiss(after: p.isHUD ? 1.6 : (p.isRich ? 6 : 3.4))
+        schedulePeekDismiss(after: p.isHUD ? 1.6 : p.timer != nil ? 12 : (p.isRich ? 6 : 3.4))
     }
 
     private func schedulePeekDismiss(after delay: TimeInterval) {
@@ -741,8 +774,10 @@ final class AppModel: ObservableObject {
         tickCount += 1
         let now = Date()
         if focus.isFinished(at: now) { completeFocus() }
+        checkTimers(now)
         // Nobody is looking: only the timer above (and due reminders, once back) matter.
         if screensAsleep { return }
+        sysmonTick(now: now)
 
         guard tickCount % 5 == 0 else { return }
         checkTasks(now)
@@ -1188,7 +1223,10 @@ final class AppModel: ObservableObject {
     func setMirror(_ on: Bool) {
         noteInteraction()
         prowl.ignoreCamera = on
-        withAnimation(Theme.smooth) { mirrorOn = on }
+        withAnimation(Theme.smooth) {
+            mirrorOn = on
+            if on { askOn = false }
+        }
         if on { expand() }
     }
 
@@ -1404,6 +1442,22 @@ final class AppModel: ObservableObject {
     func saveNow() {
         saveWork?.cancel()
         store.save(data, synchronously: true)
+    }
+
+    // MARK: - Sync
+
+    /// Merged lists from other devices: shown, then on disk before the sync writes anything else.
+    func applySynced(_ merged: AppData) {
+        withAnimation(Theme.smooth) {
+            data = merged
+            if let id = selectedNoteID, !data.notes.contains(where: { $0.id == id }) { selectedNoteID = data.notes.first?.id }
+        }
+        saveNow()
+    }
+
+    func showSyncPeek(from device: String, changes: Int) {
+        showPeek(Peek(icon: "arrow.triangle.2.circlepath", title: L("Synced from %@", device),
+                      subtitle: changes == 1 ? L("1 change") : L("%d changes", changes), tint: Accent.oasis.deep, mood: .happy))
     }
 
     // MARK: - Self-test hooks

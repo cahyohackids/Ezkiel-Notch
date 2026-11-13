@@ -1,0 +1,177 @@
+{
+  "name": "tombstone-expiry",
+  "about": "Tombstones older than 30 days are ignored and dropped (T1 stays, OLD goes); a recent one is kept (T9). A device file nobody wrote for 30 days (C-MAC2) and a newer format (D-NEXT) are left out.",
+  "now": "2026-11-13T12:00:00Z",
+  "deviceId": "A-MAC",
+  "local": {
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "Kept",
+        "done": false,
+        "reminded": false,
+        "created": "2026-10-01T00:00:00Z",
+        "modified": "2026-10-01T00:00:00Z"
+      }
+    ],
+    "notes": [],
+    "water": [],
+    "focusLog": []
+  },
+  "base": {
+    "format": 1,
+    "deviceId": "A-MAC",
+    "deviceName": "A-Mac",
+    "platform": "mac",
+    "appVersion": "1.9.0",
+    "written": "2026-11-13T10:00:00Z",
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "Kept",
+        "done": false,
+        "reminded": false,
+        "created": "2026-10-01T00:00:00Z",
+        "modified": "2026-10-01T00:00:00Z"
+      }
+    ],
+    "notes": [],
+    "water": [],
+    "focusLog": [],
+    "tombstones": {
+      "tasks": [
+        {
+          "id": "OLD",
+          "deleted": "2026-10-10T00:00:00Z",
+          "seen": "2026-10-01T00:00:00Z",
+          "by": "A-MAC"
+        }
+      ],
+      "notes": [],
+      "water": [],
+      "focusLog": []
+    }
+  },
+  "remotes": [
+    {
+      "format": 1,
+      "deviceId": "B-PC",
+      "deviceName": "B-Pc",
+      "platform": "windows",
+      "appVersion": "1.9.0",
+      "written": "2026-11-13T11:00:00Z",
+      "tasks": [],
+      "notes": [],
+      "water": [],
+      "focusLog": [],
+      "tombstones": {
+        "tasks": [
+          {
+            "id": "T1",
+            "deleted": "2026-10-12T00:00:00Z",
+            "seen": "2026-10-01T00:00:00Z",
+            "by": "B-PC"
+          },
+          {
+            "id": "T9",
+            "deleted": "2026-11-01T00:00:00Z",
+            "seen": "2026-10-20T00:00:00Z",
+            "by": "B-PC"
+          }
+        ],
+        "notes": [],
+        "water": [],
+        "focusLog": []
+      }
+    },
+    {
+      "format": 1,
+      "deviceId": "C-MAC2",
+      "deviceName": "C-Mac2",
+      "platform": "mac",
+      "appVersion": "1.9.0",
+      "written": "2026-10-01T00:00:00Z",
+      "tasks": [
+        {
+          "id": "T7",
+          "title": "From a stale file",
+          "done": false,
+          "reminded": false,
+          "created": "2026-09-30T00:00:00Z",
+          "modified": "2026-09-30T00:00:00Z"
+        }
+      ],
+      "notes": [],
+      "water": [],
+      "focusLog": [],
+      "tombstones": {
+        "tasks": [],
+        "notes": [],
+        "water": [],
+        "focusLog": []
+      }
+    },
+    {
+      "format": 2,
+      "deviceId": "D-NEXT",
+      "deviceName": "D-Next",
+      "platform": "windows",
+      "appVersion": "1.9.0",
+      "written": "2026-11-13T11:00:00Z",
+      "tasks": [
+        {
+          "id": "T8",
+          "title": "From format 2",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-13T10:00:00Z",
+          "modified": "2026-11-13T10:00:00Z"
+        }
+      ],
+      "notes": [],
+      "water": [],
+      "focusLog": [],
+      "tombstones": {
+        "tasks": [],
+        "notes": [],
+        "water": [],
+        "focusLog": []
+      }
+    }
+  ],
+  "expect": {
+    "data": {
+      "tasks": [
+        {
+          "id": "T1",
+          "title": "Kept",
+          "done": false,
+          "reminded": false,
+          "created": "2026-10-01T00:00:00Z",
+          "modified": "2026-10-01T00:00:00Z"
+        }
+      ],
+      "notes": [],
+      "water": [],
+      "focusLog": []
+    },
+    "tombstones": {
+      "tasks": [
+        {
+          "id": "T9",
+          "deleted": "2026-11-01T00:00:00Z",
+          "seen": "2026-10-20T00:00:00Z",
+          "by": "B-PC"
+        }
+      ],
+      "notes": [],
+      "water": [],
+      "focusLog": []
+    },
+    "changes": [],
+    "skipped": [
+      "C-MAC2",
+      "D-NEXT"
+    ]
+  }
+}

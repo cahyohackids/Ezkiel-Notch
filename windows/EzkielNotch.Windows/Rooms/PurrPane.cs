@@ -19,6 +19,9 @@ public sealed class PurrPane : Pane
     private readonly LyricsClient _lyrics;
     private ProgressBarView? _progress;
     private ChorusView? _chorus;
+    private EqualizerBars? _bars;
+    /// <summary>On screen in the open island: only then do the equalizer and Chorus run.</summary>
+    private bool _onScreen;
     private string? _shownKey;
     private bool? _shownPlaying;
 
@@ -37,7 +40,7 @@ public sealed class PurrPane : Pane
             // A new song or play/pause redraws; position ticks only move the bar.
             if (np?.TrackKey != _shownKey || np?.IsPlaying != _shownPlaying) Refresh();
             else _progress?.Update();
-            if (Model.Settings.ShowLyrics) _lyrics.Load(np?.Song);
+            // The window loads the lyrics for each new track (the closed island sings along too).
         };
         _lyrics.Changed += () => Dispatcher.BeginInvoke(() => _chorus?.SetState(_lyrics.State));
     }
@@ -56,6 +59,7 @@ public sealed class PurrPane : Pane
         _shownPlaying = np?.IsPlaying;
         _progress = null;
         _chorus = null;
+        _bars = null;
         if (np is null)
         {
             Children.Add(EmptyState());
@@ -71,6 +75,14 @@ public sealed class PurrPane : Pane
 
     public override void SecondTick() => _progress?.Update();
 
+    /// <summary>Closed, or another room: the equalizer and Chorus stop (no timers or frame callbacks unseen).</summary>
+    public override void Shown(bool visible)
+    {
+        _onScreen = visible;
+        if (_bars is not null) _bars.Paused = !visible;
+        if (_chorus is not null) _chorus.Paused = !visible;
+    }
+
     // MARK: Layouts
 
     private Grid Player(NowPlaying np)
@@ -83,7 +95,7 @@ public sealed class PurrPane : Pane
         right.Children.Add(_progress);
         var row = Columns(Auto, Star, Auto);
         row.Children.Add(At(Transport(np, 34), 0));
-        var tools = Ui.Row(2, LyricsButton(), OpenButton(np));
+        var tools = Ui.Row(8, OutputButton(), LyricsButton(), OpenButton(np));
         tools.VerticalAlignment = VerticalAlignment.Center;
         row.Children.Add(At(tools, 2));
         right.Children.Add(row);
@@ -107,7 +119,7 @@ public sealed class PurrPane : Pane
         left.Children.Add(row);
         g.Children.Add(At(left, 0));
 
-        _chorus = new ChorusView(_media, Accent, () => _lyrics.Retry(_media.Current?.Song));
+        _chorus = new ChorusView(_media, Accent, () => _lyrics.Retry(_media.Current?.Song)) { Paused = !_onScreen };
         _chorus.SetState(_lyrics.State);
         g.Children.Add(At(Ui.Card(_chorus, 12), 2));
         return g;
@@ -118,7 +130,7 @@ public sealed class PurrPane : Pane
     private StackPanel TitleBlock(NowPlaying np, double titleSize)
     {
         var s = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        var player = Ui.Row(5, Ui.Label(np.PlayerName, Ui.Caption, Ui.Mist, FontWeights.Medium), new EqualizerBars(np.IsPlaying, Accent.Deep, 8));
+        var player = Ui.Row(5, Ui.Label(np.PlayerName, Ui.Caption, Ui.Mist, FontWeights.Medium), _bars = new EqualizerBars(np.IsPlaying, Accent.Deep, 8) { Paused = !_onScreen });
         s.Children.Add(player);
         s.Children.Add(Ui.Label(np.Title, titleSize, weight: FontWeights.SemiBold));
         var sub = string.Join(" · ", new[] { np.Artist, np.Album }.Where(x => !string.IsNullOrWhiteSpace(x)));
@@ -159,7 +171,7 @@ public sealed class PurrPane : Pane
     private StackPanel Transport(NowPlaying np, double play)
     {
         var p = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        p.Children.Add(Ui.IconButton("", L("Previous track"), _media.Previous, 28));
+        p.Children.Add(Ui.IconButton("", L("Previous track"), _media.Previous, 28, plain: true));
         var playButton = new Border
         {
             Width = play,
@@ -170,7 +182,7 @@ public sealed class PurrPane : Pane
             Child = Ui.Glyph(np.IsPlaying ? "" : "", play * 0.36, Ui.OnAccent),
         };
         p.Children.Add(Ui.Clickable(playButton, _media.PlayPause, tip: np.IsPlaying ? L("Pause") : L("Play"), pressScale: 0.86));
-        p.Children.Add(Ui.IconButton("", L("Next track"), _media.Next, 28));
+        p.Children.Add(Ui.IconButton("", L("Next track"), _media.Next, 28, plain: true));
         return p;
     }
 
@@ -180,7 +192,8 @@ public sealed class PurrPane : Pane
         return Ui.IconButton("", on ? L("Hide Chorus (lyrics)") : L("Show Chorus: synced lyrics from LRCLIB"), () =>
         {
             Model.Settings.ShowLyrics = !Model.Settings.ShowLyrics;
-            Model.SaveSoon();
+            // A setting like any other: saved, and Settings' Chorus switch follows.
+            Model.SettingsChanged();
             if (!Model.Settings.ShowLyrics) _lyrics.Load(null);
             Refresh();
             HeightChanged?.Invoke();
@@ -201,26 +214,46 @@ public sealed class PurrPane : Pane
         try { Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true }); } catch (Exception) { }
     }
 
+    /// <summary>The Mac's empty Purr: the lion, "Open Spotify or Music", and Spotify, Music, Refresh and Sound output.
+    /// Music opens Media Player, Windows' own music app.</summary>
     private Grid EmptyState()
     {
-        var g = Columns(Auto, Px(14), Star);
+        var g = Columns(Auto, Px(12), Auto);
         g.VerticalAlignment = VerticalAlignment.Center;
         g.HorizontalAlignment = HorizontalAlignment.Center;
-        g.Children.Add(At(new Image { Source = Lion, Width = 44, Height = 44 }, 0));
+        g.Children.Add(At(new Image { Source = Lion, Width = 44, Height = 44, VerticalAlignment = VerticalAlignment.Center }, 0));
         var s = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        s.Children.Add(Ui.Label(L("Nothing playing"), Ui.Body, weight: FontWeights.SemiBold));
-        var hint = Ui.Label(L("Play something in Spotify, Media Player or a browser"), Ui.Secondary, Ui.Mist);
-        hint.Margin = new Thickness(0, 1, 0, 6);
-        s.Children.Add(hint);
-        s.Children.Add(Ui.Row(6,
-            Ui.Pill("Spotify", () => Open("spotify:"), new Accent(Accent.Hex(0x7CF0A6), Accent.Hex(0x1DB954)), prominent: true),
-            Ui.Pill("Media Player", () => Open("mswindowsmusic:"), Accent.Neutral),
-            Ui.IconButton("", L("Refresh"), _media.Refresh, 26, Ui.Mist)));
+        s.Children.Add(Ui.Label(L("Open Spotify or Music"), Ui.Body, weight: FontWeights.SemiBold));
+        // With a Purr source chosen in Settings, other players don't count: say so.
+        if (Model.Settings.MusicSource != MusicSource.Auto)
+        {
+            var hint = Ui.Label(L("Purr follows only %@ · Settings › Purr source", SourceName(Model.Settings.MusicSource)), Ui.Secondary, Ui.Mist);
+            hint.Margin = new Thickness(0, 2, 0, 0);
+            s.Children.Add(hint);
+        }
+        var buttons = Ui.Row(6,
+            Ui.Pill("Spotify", () => Open("spotify:"), new Accent(Accent.Hex(0x7CF0A6), Accent.Hex(0x1ED760)), prominent: true),
+            Ui.Pill("Music", () => Open("mswindowsmusic:"), Accent.Neutral, tip: "Media Player"),
+            Ui.IconButton("\uE72C", L("Refresh"), _media.Refresh, 26, Ui.Mist),
+            OutputButton());
+        buttons.Margin = new Thickness(0, 6, 0, 0);
+        s.Children.Add(buttons);
         g.Children.Add(At(s, 2));
         return g;
     }
 
-    internal static readonly System.Windows.Media.Imaging.BitmapImage Lion = new(new Uri("pack://application:,,,/Assets/lion.png"));
+    /// <summary>Where the sound goes (the Mac's AirPlay output button): Windows' sound output settings.</summary>
+    private static Border OutputButton() => Ui.IconButton("\uE7F5", L("Sound output"), () => Open("ms-settings:sound"), 26, Ui.Mist);
+
+    /// <summary>The Purr source chips' names ("auto" is translated where it's shown).</summary>
+    internal static string SourceName(string source) => source switch
+    {
+        MusicSource.Spotify => "Spotify",
+        MusicSource.AppleMusic => "Apple Music",
+        _ => L("Auto"),
+    };
+
+    internal static System.Windows.Media.Imaging.BitmapImage Lion => Ui.Lion;
 }
 
 /// <summary>The bar with elapsed and remaining time. Drag (or click) to seek.</summary>
@@ -309,6 +342,20 @@ internal sealed class EqualizerBars : StackPanel
     private readonly Rectangle[] _bars = new Rectangle[3];
     private readonly System.Windows.Threading.DispatcherTimer? _timer;
     private readonly Random _random = new();
+    private bool _paused;
+
+    /// <summary>Stopped while its room isn't on screen (the closed island's and a peek's own bars never pause).</summary>
+    public bool Paused
+    {
+        get => _paused;
+        set
+        {
+            _paused = value;
+            if (_timer is null) return;
+            if (value) _timer.Stop();
+            else if (IsLoaded) _timer.Start();
+        }
+    }
 
     public EqualizerBars(bool playing, Color color, double height)
     {
@@ -327,7 +374,7 @@ internal sealed class EqualizerBars : StackPanel
             if (!IsVisible) return;
             foreach (var b in _bars) b.Height = height * (0.3 + _random.NextDouble() * 0.7);
         };
-        Loaded += (_, _) => _timer.Start();
+        Loaded += (_, _) => { if (!_paused) _timer.Start(); };
         Unloaded += (_, _) => _timer.Stop();
     }
 }
@@ -348,6 +395,27 @@ internal sealed class ChorusView : Grid
     private double _from, _to;
     private DateTime _glideStart;
     private bool _gliding;
+    private bool _paused;
+
+    /// <summary>Stopped while Purr isn't on screen; back on the current line when it is again.</summary>
+    public bool Paused
+    {
+        get => _paused;
+        set
+        {
+            _paused = value;
+            if (value)
+            {
+                _timer.Stop();
+                StopGlide();
+            }
+            else if (IsLoaded)
+            {
+                _timer.Start();
+                Follow(force: true);
+            }
+        }
+    }
 
     public ChorusView(MediaWatcher media, Accent accent, Action retry)
     {
@@ -356,7 +424,7 @@ internal sealed class ChorusView : Grid
         _retry = retry;
         ClipToBounds = true;
         _timer.Tick += (_, _) => Follow();
-        Loaded += (_, _) => _timer.Start();
+        Loaded += (_, _) => { if (!_paused) _timer.Start(); };
         Unloaded += (_, _) => { _timer.Stop(); StopGlide(); };
         SizeChanged += (_, _) => { Pad(); Follow(force: true); };
     }
@@ -457,7 +525,7 @@ internal sealed class ChorusView : Grid
             var t = (TextBlock)((Border)_list.Children[i + 1]).Child;
             bool now = i == index;
             t.Foreground = now ? Ui.Ink : i < (index ?? 0) ? Ui.Faint : Ui.Mist;
-            t.FontWeight = now ? FontWeights.SemiBold : FontWeights.Normal;
+            Ui.Weight(t, now ? FontWeights.SemiBold : FontWeights.Normal);
             t.FontSize = now ? Ui.Body + 1.5 : Ui.Body;
         }
         _list.UpdateLayout();

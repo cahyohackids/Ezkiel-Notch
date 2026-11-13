@@ -69,6 +69,12 @@ struct DenPane: View {
             }
 
             stats
+
+            TimersRow(model: model)
+            if model.settings.sysmon {
+                SysMonCard(sysmon: model.sysmon)
+                    .transition(.opacity)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }

@@ -139,7 +139,11 @@ struct CompactView: View {
 
     @ViewBuilder
     private var leftWing: some View {
-        if let np = music.nowPlaying, np.isPlaying, let art = music.artwork {
+        if model.closedLiveOwnsLeftWing {
+            // A meeting, a quick timer or a download: its own icon here, its count on the right.
+            LiveWingIcon(model: model)
+                .transition(.scale.combined(with: .opacity))
+        } else if let np = music.nowPlaying, np.isPlaying, let art = music.artwork {
             Image(nsImage: art)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
@@ -188,15 +192,32 @@ struct CompactView: View {
             }
             .transition(.scale.combined(with: .opacity))
         } else if let meeting = model.meetingSoon {
-            TimelineView(.everyMinute) { tl in
-                let minutes = max(1, Int((meeting.start.timeIntervalSince(tl.date) / 60).rounded(.up)))
-                Text(L("in %dm", minutes))
+            // "Meeting in 7 min": the calendar on the left, the minutes here.
+            TimelineView(.periodic(from: .now, by: 15)) { tl in
+                let minutes = LivePill.meetingMinutes(start: meeting.start, now: tl.date) ?? 1
+                Text(L("%d min", minutes))
                     .font(Theme.number(11, .semibold))
                     .foregroundStyle(Accent.rally.linear)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .help(L("Meeting in %d min", minutes) + " · " + meeting.title)
+                    .accessibilityLabel(L("Meeting in %d min", minutes) + ", " + meeting.title)
             }
-            .help(meeting.title)
             .transition(.scale.combined(with: .opacity))
+        } else if let timer = model.soonestTimer {
+            TimelineView(.periodic(from: .now, by: 1)) { tl in
+                Text(FocusClock.format(timer.remaining(at: tl.date)))
+                    .font(Theme.number(11, .semibold))
+                    .foregroundStyle(Accent.den.linear)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .help(AppModel.timerName(timer) + (model.data.timers.count > 1 ? " · " + L("%d timers", model.data.timers.count) : ""))
+            .transition(.scale.combined(with: .opacity))
+        } else if let lead = model.leadDownload {
+            LiveDownloadValue(download: lead.download)
+                .help(lead.count > 1 ? L("%d downloads", lead.count) + " · " + lead.download.finalName : lead.download.finalName)
+                .transition(.scale.combined(with: .opacity))
         } else if model.settings.closedFace != .eyes, let agent = model.liveAgents.first {
             // Scout: an agent is working (calm pulse) or waiting for you (amber).
             let waiting = agent.kind == .needsYou
@@ -212,6 +233,10 @@ struct CompactView: View {
             .foregroundStyle(waiting ? Accent.den.linear : Accent.scout.linear)
             .help(waiting ? L(agent.title) : "\(L(agent.title))\(agent.project.map { " · \($0)" } ?? "")")
             .transition(.scale.combined(with: .opacity))
+        } else if model.settings.sysmon && model.settings.sysmonPill != .off {
+            // System monitor: CPU % or network speed, while the user asked for it here.
+            SysMonPill(sysmon: model.sysmon, kind: model.settings.sysmonPill)
+                .transition(.scale.combined(with: .opacity))
         } else if let np = music.nowPlaying, np.isPlaying {
             EqualizerBars(playing: true, color: music.artworkAccent?.deep ?? np.player.tint, height: 12)
                 .transition(.scale.combined(with: .opacity))
@@ -328,7 +353,18 @@ struct PeekView: View {
 
     @ViewBuilder
     private var richActions: some View {
-        if let file = peek.file {
+        if let timer = peek.timer {
+            HStack(spacing: 6) {
+                PillButton(title: "+5 min", icon: "plus", accent: .den) { model.snoozeTimer(timer) }
+                PillButton(title: "Stop", icon: "stop.fill", prominent: true, accent: .den) { model.stopTimer(timer) }
+            }
+        } else if let file = peek.file, peek.opensFile {
+            HStack(spacing: 6) {
+                IconButton(icon: "arrow.up.forward.app", label: "Open", size: 26) { model.openFile(file) }
+                IconButton(icon: "tray.and.arrow.down", label: "Add to Stash", size: 26) { model.stashFile(file) }
+                IconButton(icon: "magnifyingglass", label: "Show in Finder", size: 26) { model.reveal(file) }
+            }
+        } else if let file = peek.file {
             HStack(spacing: 6) {
                 IconButton(icon: "doc.on.doc", label: "Copy", size: 26) { model.copyFile(file) }
                 IconButton(icon: "tray.and.arrow.down", label: "Add to Stash", size: 26) { model.stashFile(file) }

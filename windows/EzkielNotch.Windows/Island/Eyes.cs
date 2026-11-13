@@ -40,7 +40,7 @@ public sealed class EzkielEyes : FrameworkElement
     public double Wide { get => (double)GetValue(WideProperty); set => SetValue(WideProperty, value); }
 
     /// <summary>"lion", "anime", "cat", "cute" or "robot" (Settings.EyeStyle).</summary>
-    public string Style
+    public string EyeStyle
     {
         get => _style;
         set

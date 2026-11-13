@@ -9,14 +9,18 @@ public struct TaskItem: Codable, Identifiable, Equatable {
     public var due: Date?
     public var reminded: Bool
     public var created: Date
+    /// Sync: when this version was made (set by the sync, missing in files from before 1.9).
+    public var modified: Date?
 
-    public init(id: UUID = UUID(), title: String, done: Bool = false, due: Date? = nil, reminded: Bool = false, created: Date = Date()) {
+    public init(id: UUID = UUID(), title: String, done: Bool = false, due: Date? = nil, reminded: Bool = false, created: Date = Date(),
+                modified: Date? = nil) {
         self.id = id
         self.title = title
         self.done = done
         self.due = due
         self.reminded = reminded
         self.created = created
+        self.modified = modified
     }
 }
 
@@ -25,12 +29,15 @@ public struct NoteItem: Codable, Identifiable, Equatable {
     public var title: String
     public var body: String
     public var updated: Date
+    /// Sync: when this version was made (set by the sync, missing in files from before 1.9).
+    public var modified: Date?
 
-    public init(id: UUID = UUID(), title: String = "", body: String = "", updated: Date = Date()) {
+    public init(id: UUID = UUID(), title: String = "", body: String = "", updated: Date = Date(), modified: Date? = nil) {
         self.id = id
         self.title = title
         self.body = body
         self.updated = updated
+        self.modified = modified
     }
 
     /// Title shown in lists: the explicit title, else the first line of the body.
@@ -75,11 +82,14 @@ public struct WaterEntry: Codable, Identifiable, Equatable {
     public var id: UUID
     public var date: Date
     public var ml: Int
+    /// Sync: when this version was made (set by the sync, missing in files from before 1.9).
+    public var modified: Date?
 
-    public init(id: UUID = UUID(), date: Date = Date(), ml: Int) {
+    public init(id: UUID = UUID(), date: Date = Date(), ml: Int, modified: Date? = nil) {
         self.id = id
         self.date = date
         self.ml = ml
+        self.modified = modified
     }
 }
 
@@ -191,6 +201,22 @@ public struct NotchSettings: Codable, Equatable {
     public var closedFace: ClosedFace = .eyes
     /// Which eyes: Ezkiel's lion eyes, sparkly anime eyes, a cat's, cute round ones or robot LEDs.
     public var eyeStyle: EyeStyle = .lion
+    /// Live activities: a download in progress in ~/Downloads shows in the closed notch (macOS asks for Downloads access once).
+    public var liveDownloads: Bool = false
+    /// Live activities: the sound a quick timer rings with (a Mac sound name; "none" for silence).
+    public var timerSound: String = "Glass"
+    /// Ask: the AI box (header button, ⌃⌥A). The API key itself is never in this file (Keychain).
+    public var ask: Bool = true
+    /// Ask: the model on api.ezkielyna.store.
+    public var askModel: String = Ask.defaultModel
+    /// System monitor: CPU, memory, network, battery and disk in Den (off until switched on; no sampling while off).
+    public var sysmon: Bool = false
+    /// System monitor: what the closed notch shows while it's on.
+    public var sysmonPill: SysPill = .off
+    /// System monitor peeks: CPU busy for 30 s, memory pressure high, startup disk under 5 GB.
+    public var sysmonCpuAlert: Bool = true
+    public var sysmonMemoryAlert: Bool = true
+    public var sysmonDiskAlert: Bool = true
     /// Bumped when defaults change in a way existing users should get too (see the decoder).
     public var defaultsRevision: Int = NotchSettings.currentRevision
     public static let currentRevision = 2
@@ -253,6 +279,16 @@ public struct NotchSettings: Codable, Equatable {
         closedFace = (try? c.decode(ClosedFace.self, forKey: .closedFace)) ?? (showMascot ? .eyes : .off)
         // An eye style from a newer version that this one doesn't know falls back to the lion's.
         eyeStyle = (try? c.decode(EyeStyle.self, forKey: .eyeStyle)) ?? d.eyeStyle
+        liveDownloads = (try? c.decode(Bool.self, forKey: .liveDownloads)) ?? d.liveDownloads
+        timerSound = (try? c.decode(String.self, forKey: .timerSound)) ?? d.timerSound
+        ask = (try? c.decode(Bool.self, forKey: .ask)) ?? d.ask
+        askModel = (try? c.decode(String.self, forKey: .askModel)).flatMap { $0.isEmpty ? nil : $0 } ?? d.askModel
+        sysmon = (try? c.decode(Bool.self, forKey: .sysmon)) ?? d.sysmon
+        // A pill from a newer version that this one doesn't know falls back to none.
+        sysmonPill = (try? c.decode(SysPill.self, forKey: .sysmonPill)) ?? d.sysmonPill
+        sysmonCpuAlert = (try? c.decode(Bool.self, forKey: .sysmonCpuAlert)) ?? d.sysmonCpuAlert
+        sysmonMemoryAlert = (try? c.decode(Bool.self, forKey: .sysmonMemoryAlert)) ?? d.sysmonMemoryAlert
+        sysmonDiskAlert = (try? c.decode(Bool.self, forKey: .sysmonDiskAlert)) ?? d.sysmonDiskAlert
         let revision = (try? c.decode(Int.self, forKey: .defaultsRevision)) ?? 1
         if revision < 2 {
             // 1.3.1: calmer defaults. Only values still at the old default move; choices the user made stay.
@@ -284,6 +320,8 @@ public struct AppData: Codable, Equatable {
     /// Update check: when GitHub was last asked, and the newest version already announced with a peek.
     public var lastUpdateCheck: Date?
     public var announcedVersion: String?
+    /// Quick timers ("Masak 10m"), so they survive a restart.
+    public var timers: [QuickTimer] = []
 
     public init() {}
 
@@ -302,6 +340,7 @@ public struct AppData: Codable, Equatable {
         onboarded = (try? c.decode(Bool.self, forKey: .onboarded)) ?? false
         lastUpdateCheck = try? c.decode(Date.self, forKey: .lastUpdateCheck)
         announcedVersion = try? c.decode(String.self, forKey: .announcedVersion)
+        timers = c.lossy([QuickTimer].self, forKey: .timers)
     }
 }
 

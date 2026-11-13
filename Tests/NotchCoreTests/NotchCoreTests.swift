@@ -283,6 +283,27 @@ final class DataSafetyTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: broken.path))
     }
 
+    /// A data.json that's there but can't be read is never treated as "no data": it's reported and kept aside,
+    /// and the next save doesn't write over it.
+    func testUnreadableFileIsKeptNotOverwritten() throws {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("ezk-\(UUID().uuidString)")
+        let store = DataStore(url: dir.appendingPathComponent("data.json"))
+        // A directory where the file should be: it exists, but reading it fails (also when the tests run as root).
+        try fm.createDirectory(at: store.url, withIntermediateDirectories: true)
+        try Data("keep".utf8).write(to: store.url.appendingPathComponent("inside.txt"))
+        _ = store.load()
+        guard case .startedFresh(let broken)? = store.recovery else { return XCTFail("expected a recovery, not a fresh start") }
+        store.save(AppData(), synchronously: true)
+        XCTAssertEqual(try String(contentsOf: broken.appendingPathComponent("inside.txt"), encoding: .utf8), "keep")
+        XCTAssertNoThrow(try Data(contentsOf: store.url))
+
+        // A missing file is still a quiet fresh start.
+        let fresh = DataStore(url: dir.appendingPathComponent("none/data.json"))
+        _ = fresh.load()
+        XCTAssertNil(fresh.recovery)
+    }
+
     func testCalmerDefaultsMigrate() throws {
         let old = #"{"hoverDelay":0.12,"minimalClosed":false}"#
         let s = try JSONDecoder().decode(NotchSettings.self, from: Data(old.utf8))
@@ -350,5 +371,111 @@ final class DuePhraseTests: XCTestCase {
             let want = due.map { "\(title) · \($0)" } ?? "(none)"
             XCTAssertEqual(got, want, text)
         }
+    }
+}
+
+final class SysMonTests: XCTestCase {
+    /// Every case in the fixture the Windows tests read too.
+    private func fixture() throws -> [String: Any] {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../fixtures/sysmon-alerts.json").standardized
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    }
+
+    private func num(_ any: Any?) -> Double? { (any as? NSNumber)?.doubleValue }
+
+    func testDefaultRulesMatchTheFixture() throws {
+        let root = try fixture()
+        let rules = (root["rules"] as? [[String: Any]] ?? []).map {
+            SysAlertRule(id: $0["id"] as? String ?? "", above: $0["above"] as? Bool ?? true, on: num($0["on"]) ?? 0,
+                         off: num($0["off"]) ?? 0, sustain: num($0["sustain"]) ?? 0, cooldown: num($0["cooldown"]) ?? 0)
+        }
+        XCTAssertEqual(rules, SysAlerts.defaultRules)
+        let alerts = SysAlerts()
+        XCTAssertEqual(alerts.spacing, num(root["spacing"]))
+        XCTAssertEqual(alerts.maxGap, num(root["maxGap"]))
+    }
+
+    func testAlertsFromTheFixture() throws {
+        let root = try fixture()
+        for c in root["alerts"] as? [[String: Any]] ?? [] {
+            let name = c["name"] as? String ?? "?"
+            var samples: [(Double, String, Double)] = []
+            for s in c["samples"] as? [[String: Any]] ?? [] {
+                let id = s["id"] as? String ?? "", v = num(s["v"]) ?? 0
+                if let t = num(s["t"]) {
+                    samples.append((t, id, v))
+                } else if let from = num(s["from"]), let to = num(s["to"]), let step = num(s["step"]) {
+                    for t in stride(from: from, through: to, by: step) { samples.append((t, id, v)) }
+                }
+            }
+            var alerts = SysAlerts()
+            var fired: [String] = []
+            for (t, id, v) in samples where alerts.feed(id, value: v, at: t) { fired.append("\(Int(t)) \(id)") }
+            let want = (c["fires"] as? [[String: Any]] ?? []).map { "\(Int(num($0["t"]) ?? -1)) \($0["id"] as? String ?? "")" }
+            XCTAssertEqual(fired, want, name)
+        }
+    }
+
+    func testCountersCpuMemoryAndSeries() throws {
+        let root = try fixture()
+        for c in root["memoryLoad"] as? [[String: Any]] ?? [] {
+            let table: [String: MemoryPressure] = ["normal": .normal, "warning": .warning, "critical": .critical]
+            let pressure = (c["pressure"] as? String).flatMap { table[$0] }
+            XCTAssertEqual(SysMemory.alertLoad(usedPercent: num(c["used"]) ?? 0, pressure: pressure), num(c["load"]))
+        }
+        for c in root["counterDelta"] as? [[String: Any]] ?? [] {
+            let d = SysCounters.delta(previous: UInt64(num(c["previous"]) ?? 0), current: UInt64(num(c["current"]) ?? 0),
+                                      bits: Int(num(c["bits"]) ?? 64))
+            XCTAssertEqual(d.map { Double($0) }, num(c["delta"]), "\(c)")
+        }
+        for c in root["rates"] as? [[String: Any]] ?? [] {
+            func counters(_ any: Any?) -> [String: UInt64] { (any as? [String: Any] ?? [:]).mapValues { UInt64(num($0) ?? 0) } }
+            let r = SysCounters.rate(previous: counters(c["previous"]), current: counters(c["current"]),
+                                     seconds: num(c["seconds"]) ?? 0, bits: Int(num(c["bits"]) ?? 64))
+            XCTAssertEqual(r, num(c["rate"]), "\(c)")
+        }
+        for c in root["cpu"] as? [[String: Any]] ?? [] {
+            let p = SysCPU.percent(previousBusy: UInt64(num(c["previousBusy"]) ?? 0), previousIdle: UInt64(num(c["previousIdle"]) ?? 0),
+                                   busy: UInt64(num(c["busy"]) ?? 0), idle: UInt64(num(c["idle"]) ?? 0))
+            XCTAssertEqual(p, num(c["percent"]), "\(c)")
+        }
+        let s = try XCTUnwrap(root["series"] as? [String: Any])
+        var series = SysSeries(capacity: Int(num(s["capacity"]) ?? 0))
+        for v in s["push"] as? [Any] ?? [] { series.append(num(v) ?? 0) }
+        XCTAssertEqual(series.values, (s["values"] as? [Any] ?? []).compactMap(num))
+        for n in s["normalized"] as? [[String: Any]] ?? [] {
+            XCTAssertEqual(series.normalized(floor: num(n["floor"]) ?? 0), (n["values"] as? [Any] ?? []).compactMap(num))
+        }
+    }
+
+    func testFormatsFromTheFixture() throws {
+        let root = try fixture()
+        let format = try XCTUnwrap(root["format"] as? [String: Any])
+        let fns: [String: (Double) -> String] = [
+            "rate": SysFormat.rate, "compactRate": SysFormat.compactRate, "memory": SysFormat.memory,
+            "disk": SysFormat.disk, "percent": SysFormat.percent, "minutes": { SysFormat.minutes(Int($0)) },
+        ]
+        XCTAssertEqual(Set(format.keys), Set(fns.keys))
+        for (key, fn) in fns {
+            for pair in format[key] as? [[Any]] ?? [] {
+                XCTAssertEqual(fn(num(pair[0]) ?? -1), pair[1] as? String, "\(key)(\(pair[0]))")
+            }
+        }
+    }
+
+    func testSettingsRoundTripAndDefaults() throws {
+        let json = #"{"sysmon":true,"sysmonPill":"network","sysmonCpuAlert":false,"sysmonMemoryAlert":true,"sysmonDiskAlert":false}"#
+        let s = try JSONDecoder().decode(NotchSettings.self, from: Data(json.utf8))
+        XCTAssertTrue(s.sysmon)
+        XCTAssertEqual(s.sysmonPill, .network)
+        XCTAssertFalse(s.sysmonCpuAlert)
+        XCTAssertFalse(s.sysmonDiskAlert)
+        let again = try JSONDecoder().decode(NotchSettings.self, from: JSONEncoder().encode(s))
+        XCTAssertEqual(again, s)
+        let fresh = try JSONDecoder().decode(NotchSettings.self, from: Data(#"{"sysmonPill":"gpu"}"#.utf8))
+        XCTAssertFalse(fresh.sysmon)
+        XCTAssertEqual(fresh.sysmonPill, .off)
+        XCTAssertTrue(fresh.sysmonCpuAlert && fresh.sysmonMemoryAlert && fresh.sysmonDiskAlert)
     }
 }

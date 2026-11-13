@@ -46,6 +46,17 @@ public class DataFormatTests
         Assert.Equal(2, (int)s["defaultsRevision"]!);
     }
 
+    /// <summary>The "new version is out" peek is remembered in the Mac's key, so it isn't shown again every launch.</summary>
+    [Fact]
+    public void AnnouncedVersionRoundTrips()
+    {
+        var d = AppData.FromJson(Fixture("mac-data.json"))!;
+        Assert.Equal("1.5.0", d.AnnouncedVersion);
+        d.AnnouncedVersion = "1.9.0";
+        Assert.Equal("1.9.0", AppData.FromJson(d.ToJson())!.AnnouncedVersion);
+        Assert.False(JsonNode.Parse(new AppData().ToJson())!.AsObject().ContainsKey("announcedVersion"));
+    }
+
     [Fact]
     public void WritesTheMacsDateUuidAndKeyFormat()
     {
@@ -127,6 +138,43 @@ public class DataStoreTests : IDisposable
         Assert.Empty(store.Load().Tasks);
         Assert.IsType<DataStore.StartedFresh>(store.LastRecovery);
         Assert.False(File.Exists(DataPath));
+    }
+
+    /// <summary>A data.json that's there but locked for a moment (a sync tool, antivirus) is read once it's free,
+    /// not replaced by an empty start.</summary>
+    [Fact]
+    public void ALockedFileIsReadOnceItsFree()
+    {
+        var store = new DataStore(DataPath);
+        var d = new AppData();
+        d.Tasks.Add(TaskItem.New("jangan hilang"));
+        store.Save(d, synchronously: true);
+        var lockFile = new FileStream(DataPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        _ = Task.Run(async () => { await Task.Delay(300); lockFile.Dispose(); });
+        var loaded = new DataStore(DataPath).Load();
+        Assert.Equal("jangan hilang", loaded.Tasks.Single().Title);
+    }
+
+    /// <summary>A data.json that stays unreadable is handled like a damaged one: the user is told, and the next save
+    /// never writes over the original (it's kept as data.broken-….json).</summary>
+    [Fact]
+    public void AnUnreadableFileIsKeptNotOverwritten()
+    {
+        var store = new DataStore(DataPath);
+        var d = new AppData();
+        d.Tasks.Add(TaskItem.New("jangan hilang"));
+        store.Save(d, synchronously: true);
+        var original = File.ReadAllText(DataPath);
+        DataStore.Recovery? recovery;
+        using (new FileStream(DataPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.Empty(store.Load().Tasks);
+            recovery = store.LastRecovery;
+            Assert.IsType<DataStore.StartedFresh>(recovery);
+            store.Save(new AppData(), synchronously: true);   // e.g. onboarding, while it's still locked
+        }
+        store.Save(new AppData(), synchronously: true);
+        Assert.Equal(original, File.ReadAllText(recovery!.Broken));
     }
 
     [Fact]
@@ -751,5 +799,544 @@ public class GlassSettingTests
         Assert.True(again.Settings.IslandGlass);
         Assert.Equal("anime", again.Settings.EyeStyle);
         Assert.False(AppData.FromJson("{}")!.Settings.IslandGlass);
+    }
+}
+
+public class ClosedAndSharingSettingTests
+{
+    /// <summary>The Mac's minimalClosed and hideFromScreenShare come through to Windows and back.</summary>
+    [Fact]
+    public void MinimalClosedAndHideFromScreenShareRoundTrip()
+    {
+        var d = AppData.FromJson("""{"settings":{"minimalClosed":false,"hideFromScreenShare":true,"defaultsRevision":2}}""")!;
+        Assert.False(d.Settings.MinimalClosed);
+        Assert.True(d.Settings.HideFromScreenShare);
+        var again = AppData.FromJson(d.ToJson())!;
+        Assert.False(again.Settings.MinimalClosed);
+        Assert.True(again.Settings.HideFromScreenShare);
+    }
+
+    [Fact]
+    public void DefaultsMatchTheMac()
+    {
+        var d = AppData.FromJson("{}")!;
+        Assert.True(d.Settings.MinimalClosed);
+        Assert.False(d.Settings.HideFromScreenShare);
+        var written = JsonNode.Parse(d.ToJson())!["settings"]!;
+        Assert.True(written["minimalClosed"]!.GetValue<bool>());
+        Assert.False(written["hideFromScreenShare"]!.GetValue<bool>());
+    }
+
+    /// <summary>A wrong type falls back to the default instead of failing the file.</summary>
+    [Fact]
+    public void WrongTypesFallBack()
+    {
+        var d = AppData.FromJson("""{"settings":{"minimalClosed":"no","hideFromScreenShare":1,"defaultsRevision":2}}""")!;
+        Assert.True(d.Settings.MinimalClosed);
+        Assert.False(d.Settings.HideFromScreenShare);
+    }
+
+    /// <summary>Like the Mac's decoder: settings from before 1.3.1 (no revision, or 1) get the minimal closed notch.</summary>
+    [Fact]
+    public void OldSettingsGetTheMinimalClosedNotch()
+    {
+        Assert.True(AppData.FromJson("""{"settings":{"minimalClosed":false}}""")!.Settings.MinimalClosed);
+        Assert.True(AppData.FromJson("""{"settings":{"minimalClosed":false,"defaultsRevision":1}}""")!.Settings.MinimalClosed);
+    }
+
+    /// <summary>Old settings are migrated once: they're written back as the current revision, so turning the minimal
+    /// closed island off sticks across launches (revision 1 stayed and re-forced it every time). A newer revision
+    /// from a newer Mac is kept.</summary>
+    [Fact]
+    public void OldSettingsAreMigratedOnce()
+    {
+        var d = AppData.FromJson("""{"settings":{"minimalClosed":false,"defaultsRevision":1}}""")!;
+        d.Settings.MinimalClosed = false;   // the user turns it off again
+        var json = d.ToJson();
+        Assert.Equal(NotchSettings.CurrentRevision, (int)JsonNode.Parse(json)!["settings"]!["defaultsRevision"]!);
+        Assert.False(AppData.FromJson(json)!.Settings.MinimalClosed);
+        var newer = AppData.FromJson("""{"settings":{"defaultsRevision":7}}""")!.ToJson();
+        Assert.Equal(7, (int)JsonNode.Parse(newer)!["settings"]!["defaultsRevision"]!);
+    }
+
+    /// <summary>The Mac's older showMascot is only read (no face when off) and written back as it was.</summary>
+    [Fact]
+    public void ShowMascotIsKeptAsRead()
+    {
+        var d = AppData.FromJson("""{"settings":{"showMascot":false,"defaultsRevision":2}}""")!;
+        Assert.Equal("off", d.Settings.ClosedFace);
+        var written = JsonNode.Parse(d.ToJson())!["settings"]!;
+        Assert.False(written["showMascot"]!.GetValue<bool>());
+    }
+}
+
+public class MusicSettingTests
+{
+    /// <summary>The Mac's closedLyrics and musicSource come through to Windows and back, in the Mac's names.</summary>
+    [Fact]
+    public void ClosedLyricsAndMusicSourceRoundTrip()
+    {
+        var d = AppData.FromJson("""{"settings":{"closedLyrics":false,"musicSource":"spotify","showLyrics":true}}""")!;
+        Assert.False(d.Settings.ClosedLyrics);
+        Assert.Equal(MusicSource.Spotify, d.Settings.MusicSource);
+        d.Settings.MusicSource = MusicSource.AppleMusic;
+        var json = JsonNode.Parse(d.ToJson())!["settings"]!;
+        Assert.Equal("appleMusic", json["musicSource"]!.GetValue<string>());
+        Assert.False(json["closedLyrics"]!.GetValue<bool>());
+        var again = AppData.FromJson(d.ToJson())!;
+        Assert.False(again.Settings.ClosedLyrics);
+        Assert.Equal("appleMusic", again.Settings.MusicSource);
+    }
+
+    [Fact]
+    public void MissingOrUnknownMusicSettingsUseTheMacDefaults()
+    {
+        var d = AppData.FromJson("{}")!;
+        Assert.True(d.Settings.ClosedLyrics);
+        Assert.Equal("auto", d.Settings.MusicSource);
+        // A source from a newer version, or a value of the wrong type.
+        Assert.Equal("auto", AppData.FromJson("""{"settings":{"musicSource":"tidal"}}""")!.Settings.MusicSource);
+        Assert.Equal("auto", AppData.FromJson("""{"settings":{"musicSource":3,"closedLyrics":"yes"}}""")!.Settings.MusicSource);
+        Assert.True(AppData.FromJson("""{"settings":{"closedLyrics":"yes"}}""")!.Settings.ClosedLyrics);
+    }
+
+    /// <summary>musicAllowed is the Mac's Automation prompt; Windows needs no permission and leaves it as it was.</summary>
+    [Theory]
+    [InlineData("""{"settings":{"musicAllowed":false}}""", false)]
+    [InlineData("""{"settings":{"musicAllowed":true}}""", true)]
+    [InlineData("{}", null)]
+    public void MusicAllowedIsKeptUntouched(string text, bool? want)
+    {
+        var json = JsonNode.Parse(AppData.FromJson(text)!.ToJson())!["settings"]!;
+        Assert.Equal(want, json["musicAllowed"]?.GetValue<bool>());
+    }
+}
+
+public class MusicSourceTests
+{
+    private const string SpotifyDesktop = "Spotify.exe";
+    private const string SpotifyStore = "SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify";
+    private const string AppleMusicApp = "AppleInc.AppleMusicWin_nzyj5cx40ttqa!App";
+    private const string ITunes = "iTunes.exe";
+    private const string Chrome = "Chrome";
+    private const string MediaPlayer = "Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic";
+
+    [Fact]
+    public void KnowsThePlayersByTheirAppIds()
+    {
+        Assert.True(MusicSource.IsSpotify(SpotifyDesktop));
+        Assert.True(MusicSource.IsSpotify(SpotifyStore));
+        Assert.True(MusicSource.IsAppleMusic(AppleMusicApp));
+        Assert.True(MusicSource.IsAppleMusic(ITunes));
+        Assert.False(MusicSource.IsSpotify(Chrome));
+        Assert.False(MusicSource.IsAppleMusic(MediaPlayer));
+        Assert.True(MusicSource.Allows("auto", Chrome));
+        Assert.True(MusicSource.Allows("something-new", Chrome));   // unknown = Auto
+        Assert.False(MusicSource.Allows("spotify", AppleMusicApp));
+        Assert.True(MusicSource.Allows("appleMusic", ITunes));
+    }
+
+    [Fact]
+    public void AutoPrefersWhatsPlayingThenWindowsCurrentThenTheFirst()
+    {
+        MusicSource.Session S(string id, bool playing = false, bool current = false) => new(id, playing, current);
+        Assert.Null(MusicSource.Pick("auto", []));
+        Assert.Equal(1, MusicSource.Pick("auto", [S(Chrome, current: true), S(SpotifyDesktop, playing: true)]));
+        Assert.Equal(0, MusicSource.Pick("auto", [S(Chrome, current: true), S(SpotifyDesktop)]));
+        Assert.Equal(0, MusicSource.Pick("auto", [S(Chrome), S(SpotifyDesktop)]));
+        Assert.Equal(1, MusicSource.Pick("auto", [S(Chrome, playing: true), S(SpotifyDesktop, playing: true, current: true)]));
+    }
+
+    [Fact]
+    public void AChosenSourceFollowsOnlyThatPlayer()
+    {
+        MusicSource.Session S(string id, bool playing = false, bool current = false) => new(id, playing, current);
+        // Spotify paused still beats a browser that's playing.
+        Assert.Equal(1, MusicSource.Pick("spotify", [S(Chrome, playing: true, current: true), S(SpotifyStore)]));
+        Assert.Null(MusicSource.Pick("spotify", [S(Chrome, playing: true), S(AppleMusicApp)]));
+        Assert.Equal(2, MusicSource.Pick("appleMusic", [S(SpotifyDesktop, playing: true), S(ITunes), S(AppleMusicApp, playing: true)]));
+    }
+}
+
+public class ClosedChorusTests
+{
+    private static readonly IReadOnlyList<LyricLine> Lines = Lrc.Parse("[00:10.00]First\n[00:12.00]\n[00:15.00]Second\n[00:15.00]Echo\n[00:20.00]Last");
+
+    [Fact]
+    public void ShowsTheLineBeingSungOrANote()
+    {
+        Assert.Equal("♪", ClosedChorus.Line(2, Lines));          // before the first line
+        Assert.Equal("First", ClosedChorus.Line(9.9, Lines));    // a moment early, like Chorus beside Purr
+        Assert.Equal("♪", ClosedChorus.Line(13, Lines));         // an empty line between verses
+        Assert.Equal("Last", ClosedChorus.Line(300, Lines));
+        Assert.Equal("♪", ClosedChorus.Line(5, []));
+    }
+
+    [Fact]
+    public void WakesUpWhenTheNextLineStarts()
+    {
+        Assert.Equal(10 - 2 - ClosedChorus.Lead, ClosedChorus.UntilNextLine(2, Lines)!.Value, 6);
+        Assert.Equal(15 - 13 - ClosedChorus.Lead, ClosedChorus.UntilNextLine(13, Lines)!.Value, 6);
+        // Two lines on one time stamp: the next change is the one after both.
+        Assert.Equal(20 - 16 - ClosedChorus.Lead, ClosedChorus.UntilNextLine(16, Lines)!.Value, 6);
+        Assert.Null(ClosedChorus.UntilNextLine(25, Lines));
+        Assert.Null(ClosedChorus.UntilNextLine(0, []));
+    }
+
+    [Fact]
+    public void SingsOnlyWhileEverythingIsOn()
+    {
+        var on = new NotchSettings { ShowLyrics = true };
+        var synced = new LyricsState(LyricsKind.Synced, Lines);
+        Assert.True(on.ClosedLyrics);
+        Assert.True(ClosedChorus.Shows(on, playing: true, synced));
+        Assert.False(ClosedChorus.Shows(on, playing: false, synced));
+        Assert.False(ClosedChorus.Shows(new NotchSettings { ShowLyrics = true, ClosedLyrics = false }, true, synced));
+        Assert.False(ClosedChorus.Shows(new NotchSettings(), true, synced));
+        Assert.False(ClosedChorus.Shows(on, true, new LyricsState(LyricsKind.Plain, Text: "words")));
+        Assert.False(ClosedChorus.Shows(on, true, new LyricsState(LyricsKind.Synced, [])));
+    }
+
+    [Fact]
+    public void LoadingNothingWhenIdleSaysNothing()
+    {
+        var client = new LyricsClient(new HttpClient());
+        int changes = 0;
+        client.Changed += () => changes++;
+        client.Load(null);
+        client.Load(null);
+        Assert.Equal(0, changes);
+        client.Preview(Lines, new SongInfo("t", "a", "b", 30));
+        client.Load(null);
+        Assert.Equal(2, changes);
+        Assert.Equal(LyricsKind.Idle, client.State.Kind);
+    }
+}
+
+[Collection("Lang")]
+public class PeekLookTests
+{
+    /// <summary>The Mac's peeks keep their colour on Windows: a glyph and a tint for every kind.</summary>
+    [Fact]
+    public void EveryKindHasAGlyphAndTheMacsTint()
+    {
+        foreach (var kind in Enum.GetValues<PeekKind>())
+        {
+            var look = PeekLooks.Of(kind, 50);
+            Assert.True(look.Glyph.Length == 1 && look.Glyph[0] >= '', $"{kind} has a Segoe icon glyph");
+        }
+        Assert.Equal(PeekTint.Teal, PeekLooks.Of(PeekKind.CapsOn).Tint);
+        Assert.Equal(PeekTint.Neutral, PeekLooks.Of(PeekKind.CapsOff).Tint);
+        Assert.Equal(PeekTint.Whiskers, PeekLooks.Of(PeekKind.Keyboard).Tint);
+        Assert.Equal(PeekTint.Berry, PeekLooks.Of(PeekKind.Offline).Tint);
+        Assert.Equal("Funk", PeekLooks.Of(PeekKind.Offline).Sound);
+        Assert.Equal(PeekTint.Teal, PeekLooks.Of(PeekKind.HeadphonesOn).Tint);
+        Assert.Equal(PeekTint.Berry, PeekLooks.Of(PeekKind.BatteryLow, 9).Tint);
+        Assert.Equal(PeekTint.Gold, PeekLooks.Of(PeekKind.OnBattery, 60).Tint);
+        Assert.True(PeekLooks.Of(PeekKind.FocusDone).ShowsLion);
+        Assert.False(PeekLooks.Of(PeekKind.Meeting).ShowsLion);
+        // Every tint is its own colour, and the room tints are the rooms' deep accents.
+        var tints = Enum.GetValues<PeekTint>();
+        Assert.Equal(tints.Length, tints.Select(PeekLooks.Rgb).Distinct().Count());
+        Assert.Equal(0xFF9500u, PeekLooks.Rgb(PeekTint.Den));
+        Assert.Equal(0x6FD6B4u, PeekLooks.Rgb(PeekTint.Teal));
+    }
+
+    [Theory]
+    [InlineData(5, "")]
+    [InlineData(20, "")]
+    [InlineData(50, "")]
+    [InlineData(80, "")]
+    [InlineData(100, "")]
+    public void BatteryGlyphFollowsTheMacsSteps(int percent, string glyph) => Assert.Equal(glyph, PeekLooks.Battery(percent));
+
+    [Fact]
+    public void ScoutAndTrackLooks()
+    {
+        var needs = PeekLooks.Scout(ScoutEvent.New("claude", ScoutKind.NeedsYou, "Claude needs you"));
+        Assert.Equal(PeekTint.Den, needs.Tint);
+        Assert.Equal("Tink", needs.Sound);
+        var done = PeekLooks.Scout(ScoutEvent.New("codex", ScoutKind.Done, "Codex finished"));
+        Assert.Equal(PeekTint.Scout, done.Tint);
+        Assert.Equal("", done.Sound);
+        Assert.Equal(PeekTint.Spotify, PeekLooks.Track("Spotify.exe").Tint);
+        Assert.Equal(PeekTint.AppleMusic, PeekLooks.Track("AppleInc.AppleMusicWin_nzyj5cx40ttqa!App").Tint);
+        Assert.Equal(PeekTint.Purr, PeekLooks.Track("Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic").Tint);
+    }
+
+    [Fact]
+    public void ModelPeeksCarryTheirLook()
+    {
+        Lang.Choice = AppLanguage.En;
+        var peeks = new List<PeekRequest>();
+        var m = new NotchModel(new AppData());
+        m.Peek += peeks.Add;
+        var now = DateTime.UtcNow;
+        m.Now = () => now;
+        m.AddTask("call", now.AddMinutes(-1));
+        for (int i = 0; i < 5; i++) m.Tick();   // due tasks are checked every fifth second
+        m.UpdateBadges([new Badge("Claude", "Claude", 1, "1", now)]);
+        m.UpdateBadges([new Badge("Claude", "Claude", 1, "1", now), new Badge("WhatsApp", "WhatsApp", 3, "3", now)]);
+        var task = peeks.Single(p => p.Room == Room.Hunt);
+        Assert.Equal(PeekTint.Hunt, task.Look?.Tint);
+        Assert.True(task.Look?.ShowsLion);
+        Assert.Equal(PeekTint.Scout, peeks.Single(p => p.Title == "Claude").Look?.Tint);   // an AI app's badge is Scout's colour
+        var roar = peeks.Single(p => p.Title == "WhatsApp");
+        Assert.Equal(PeekTint.Roar, roar.Look?.Tint);
+        Assert.Equal("3", roar.Value);
+    }
+
+    [Fact]
+    public void RingGeometry()
+    {
+        Assert.Equal(2.4, RingMath.LineWidth(20), 6);
+        Assert.Equal(3.2, RingMath.LineWidth(32), 6);
+        Assert.Equal(14.4, RingMath.Radius(32, 3.2), 6);
+        var (s, e, large) = RingMath.Arc(0.25, 10, 10, 8);
+        Assert.Equal((10.0, 2.0), (Math.Round(s.X, 6), Math.Round(s.Y, 6)));   // 12 o'clock
+        Assert.Equal((18.0, 10.0), (Math.Round(e.X, 6), Math.Round(e.Y, 6)));  // 3 o'clock, clockwise
+        Assert.False(large);
+        (_, e, large) = RingMath.Arc(0.75, 10, 10, 8);
+        Assert.Equal((2.0, 10.0), (Math.Round(e.X, 6), Math.Round(e.Y, 6)));
+        Assert.True(large);
+        (_, e, _) = RingMath.Arc(2, 10, 10, 8);   // clamped to a full turn
+        Assert.Equal((10.0, 2.0), (Math.Round(e.X, 6), Math.Round(e.Y, 6)));
+        Assert.Equal("80", RingMath.Label(0.8));
+        Assert.Equal("100", RingMath.Label(1.4));
+        Assert.Equal("0", RingMath.Label(-1));
+    }
+
+    /// <summary>Each Mac sound name is its own Windows sound, so a task due never sounds like a lost connection.</summary>
+    [Fact]
+    public void EachMacSoundIsDistinct()
+    {
+        string[] used = ["Glass", "Ping", "Tink", "Pop", "Bottle", "Purr", "Funk"];
+        foreach (var name in used) Assert.NotEmpty(Chimes.Candidates(name));
+        var firsts = Chimes.Names.Select(n => Chimes.Candidates(n)[0]).ToList();
+        Assert.Equal(firsts.Count, firsts.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.All(Chimes.Names, n => Assert.All(Chimes.Candidates(n), f => Assert.EndsWith(".wav", f)));
+        Assert.Empty(Chimes.Candidates("NoSuchSound"));
+        Assert.Contains(Chimes.Fallback("NoSuchSound"), new[] { "Asterisk", "Beep", "Exclamation", "Hand", "Question" });
+        Assert.NotEqual(Chimes.Fallback("Funk"), Chimes.Fallback("Glass"));
+    }
+}
+
+[Collection("Lang")]
+public class ParityUxTests
+{
+    [Fact]
+    public void AFirstLaunchLeavesOneWelcomeNote()
+    {
+        Lang.Choice = AppLanguage.En;
+        var d = new AppData();
+        var m = new NotchModel(d);
+        var note = Assert.Single(d.Notes);
+        Assert.Equal("Welcome to Ezkiel Notch", note.Title);
+        Assert.Contains("Ctrl+Alt+N", note.Body);
+        Assert.Equal(note.Id, m.SelectedNoteId);
+        Assert.True(d.Onboarded);
+        Assert.True((bool)JsonNode.Parse(d.ToJson())!["onboarded"]!);   // the Mac's key
+
+        // Deleted later: it doesn't come back.
+        d.Notes.Clear();
+        var again = AppData.FromJson(d.ToJson())!;
+        new NotchModel(again);
+        Assert.Empty(again.Notes);
+    }
+
+    [Fact]
+    public void TheWelcomeNoteFollowsTheLanguageAndSkipsExistingUsers()
+    {
+        var id = AppData.FromJson("""{"settings":{"language":"id","hotkey":"controlOptionSpace"}}""")!;
+        new NotchModel(id);
+        Assert.Equal("Selamat datang di Ezkiel Notch", id.Notes.Single().Title);
+        Assert.Contains("Ctrl+Alt+Space", id.Notes.Single().Body);
+        Lang.Choice = AppLanguage.En;
+
+        // An update from a version without the flag: someone with tasks gets no surprise note.
+        var used = new AppData();
+        used.Tasks.Add(TaskItem.New("x"));
+        new NotchModel(used);
+        Assert.Empty(used.Notes);
+        Assert.True(used.Onboarded);
+
+        // The Mac already welcomed them.
+        var mac = AppData.FromJson("""{"onboarded":true}""")!;
+        new NotchModel(mac);
+        Assert.Empty(mac.Notes);
+    }
+
+    [Fact]
+    public void QuietDuringFocusHoldsRoarAndFinishedAgents()
+    {
+        Lang.Choice = AppLanguage.En;
+        var peeks = new List<PeekRequest>();
+        var m = new NotchModel(new AppData());
+        m.Peek += peeks.Add;
+        m.FocusStartPause();
+        Assert.True(m.FocusQuiet);
+        var t = DateTime.UtcNow;
+        m.UpdateBadges([new Badge("WhatsApp", "WhatsApp", 2, "2", t)]);
+        m.ScoutReceived(ScoutEvent.New("claude", ScoutKind.Done, "Claude finished", session: "a"));
+        Assert.Empty(peeks);
+        // Something that needs you still gets through.
+        m.ScoutReceived(ScoutEvent.New("claude", ScoutKind.NeedsYou, "Claude needs you", session: "b"));
+        Assert.Single(peeks);
+
+        // Off: everything peeks again.
+        m.Settings.QuietDuringFocus = false;
+        Assert.False(m.FocusQuiet);
+        m.UpdateBadges([new Badge("Teams", "Teams", 1, "1", t)]);
+        m.ScoutReceived(ScoutEvent.New("claude", ScoutKind.Done, "Claude finished", session: "c"));
+        Assert.Equal(3, peeks.Count);
+    }
+
+    [Fact]
+    public void ASecondLaunchAsksToOpenWithoutLookingLikeAnEvent()
+    {
+        Assert.True(ScoutWire.IsOpenCommand(ScoutWire.OpenCommand));
+        Assert.True(ScoutWire.IsOpenCommand(""" { "command" : "open" } """));
+        Assert.Null(ScoutWire.Decode(ScoutWire.OpenCommand));
+        Assert.False(ScoutWire.IsOpenCommand(ScoutWire.Encode(ScoutEvent.New("script", ScoutKind.Info, "open"))));
+        Assert.False(ScoutWire.IsOpenCommand("not json"));
+    }
+
+    [Fact]
+    public void HotkeyLabelsMatchTheMacChoices()
+    {
+        Assert.Equal("Ctrl+Alt+N", NotchSettings.HotkeyLabel("controlOptionN"));
+        Assert.Equal("Ctrl+Alt+Space", NotchSettings.HotkeyLabel("controlOptionSpace"));
+        Assert.Equal("Ctrl+Alt+I", NotchSettings.HotkeyLabel("optionCommandI"));
+        Assert.Equal("Ctrl+Alt+N", NotchSettings.HotkeyLabel("something else"));
+    }
+}
+
+public class SysMonTests
+{
+    private static JsonNode Fixture() =>
+        JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "sysmon-alerts.json")))!;
+
+    private static double? Num(JsonNode? n) => n is JsonValue v && v.TryGetValue(out double d) ? d : null;
+
+    [Fact]
+    public void DefaultRulesMatchTheFixture()
+    {
+        var root = Fixture();
+        var rules = root["rules"]!.AsArray().Select(r => new SysAlertRule(r!["id"]!.GetValue<string>(), r["above"]!.GetValue<bool>(),
+            Num(r["on"])!.Value, Num(r["off"])!.Value, Num(r["sustain"])!.Value, Num(r["cooldown"])!.Value)).ToArray();
+        Assert.Equal(SysAlerts.DefaultRules, rules);
+        var alerts = new SysAlerts();
+        Assert.Equal(Num(root["spacing"]), alerts.Spacing);
+        Assert.Equal(Num(root["maxGap"]), alerts.MaxGap);
+    }
+
+    /// <summary>Every alert case in the fixture the Mac's tests read too.</summary>
+    [Fact]
+    public void AlertsFromTheFixture()
+    {
+        var failures = new List<string>();
+        foreach (var c in Fixture()["alerts"]!.AsArray())
+        {
+            var samples = new List<(double T, string Id, double V)>();
+            foreach (var s in c!["samples"]!.AsArray())
+            {
+                string id = s!["id"]!.GetValue<string>();
+                double v = Num(s["v"])!.Value;
+                if (Num(s["t"]) is { } t) samples.Add((t, id, v));
+                else
+                    for (double x = Num(s["from"])!.Value; x <= Num(s["to"])!.Value; x += Num(s["step"])!.Value) samples.Add((x, id, v));
+            }
+            var alerts = new SysAlerts();
+            var fired = samples.Where(s => alerts.Feed(s.Id, s.V, s.T)).Select(s => $"{(int)s.T} {s.Id}").ToList();
+            var want = c["fires"]!.AsArray().Select(f => $"{(int)Num(f!["t"])!.Value} {f["id"]!.GetValue<string>()}").ToList();
+            if (!fired.SequenceEqual(want)) failures.Add($"{c["name"]}: got [{string.Join(", ", fired)}], want [{string.Join(", ", want)}]");
+        }
+        Assert.True(failures.Count == 0, string.Join("\n", failures));
+    }
+
+    [Fact]
+    public void CountersCpuMemoryAndSeries()
+    {
+        var root = Fixture();
+        foreach (var c in root["memoryLoad"]!.AsArray())
+        {
+            MemoryPressure? p = c!["pressure"]?.GetValue<string>() switch
+            {
+                "normal" => MemoryPressure.Normal,
+                "warning" => MemoryPressure.Warning,
+                "critical" => MemoryPressure.Critical,
+                _ => null,
+            };
+            Assert.Equal(Num(c["load"]), SysMemory.AlertLoad(Num(c["used"])!.Value, p));
+        }
+        foreach (var c in root["counterDelta"]!.AsArray())
+        {
+            var d = SysCounters.Delta((ulong)Num(c!["previous"])!.Value, (ulong)Num(c["current"])!.Value, (int)Num(c["bits"])!.Value);
+            Assert.Equal(Num(c["delta"]), d is { } x ? (double?)x : null);
+        }
+        foreach (var c in root["rates"]!.AsArray())
+        {
+            static Dictionary<string, ulong> Counters(JsonNode? n) => n!.AsObject().ToDictionary(p => p.Key, p => (ulong)Num(p.Value)!.Value);
+            var r = SysCounters.Rate(Counters(c!["previous"]), Counters(c["current"]), Num(c["seconds"])!.Value, (int)Num(c["bits"])!.Value);
+            Assert.Equal(Num(c["rate"]), r);
+        }
+        foreach (var c in root["cpu"]!.AsArray())
+        {
+            var p = SysCpu.Percent((ulong)Num(c!["previousBusy"])!.Value, (ulong)Num(c["previousIdle"])!.Value,
+                                   (ulong)Num(c["busy"])!.Value, (ulong)Num(c["idle"])!.Value);
+            Assert.Equal(Num(c["percent"]), p);
+        }
+        var s = root["series"]!;
+        var series = new SysSeries((int)Num(s["capacity"])!.Value);
+        foreach (var v in s["push"]!.AsArray()) series.Append(Num(v)!.Value);
+        Assert.Equal(s["values"]!.AsArray().Select(v => Num(v)!.Value), series.Values);
+        foreach (var n in s["normalized"]!.AsArray())
+            Assert.Equal(n!["values"]!.AsArray().Select(v => Num(v)!.Value), series.Normalized(Num(n["floor"])!.Value));
+    }
+
+    [Fact]
+    public void FormatsFromTheFixture()
+    {
+        var format = Fixture()["format"]!.AsObject();
+        var fns = new Dictionary<string, Func<double, string>>
+        {
+            ["rate"] = SysFormat.Rate,
+            ["compactRate"] = SysFormat.CompactRate,
+            ["memory"] = SysFormat.Memory,
+            ["disk"] = SysFormat.Disk,
+            ["percent"] = SysFormat.Percent,
+            ["minutes"] = v => SysFormat.Minutes((int)v),
+        };
+        Assert.Equal(fns.Keys.OrderBy(k => k), format.Select(p => p.Key).OrderBy(k => k));
+        var failures = new List<string>();
+        foreach (var (key, fn) in fns)
+            foreach (var pair in format[key]!.AsArray())
+            {
+                var got = fn(Num(pair![0])!.Value);
+                var want = pair[1]!.GetValue<string>();
+                if (got != want) failures.Add($"{key}({pair[0]}): got {got}, want {want}");
+            }
+        Assert.True(failures.Count == 0, string.Join("\n", failures));
+    }
+
+    /// <summary>The Mac's system monitor settings come through to Windows and back; unknown pills fall back to off.</summary>
+    [Fact]
+    public void SettingsRoundTripAndDefaults()
+    {
+        var d = AppData.FromJson("""{"settings":{"sysmon":true,"sysmonPill":"network","sysmonCpuAlert":false,"sysmonDiskAlert":false}}""")!;
+        Assert.True(d.Settings.Sysmon);
+        Assert.Equal("network", d.Settings.SysmonPill);
+        Assert.False(d.Settings.SysmonCpuAlert);
+        Assert.True(d.Settings.SysmonMemoryAlert);
+        var again = AppData.FromJson(d.ToJson())!;
+        Assert.True(again.Settings.Sysmon);
+        Assert.Equal("network", again.Settings.SysmonPill);
+        Assert.False(again.Settings.SysmonDiskAlert);
+        var fresh = AppData.FromJson("""{"settings":{"sysmonPill":"gpu"}}""")!;
+        Assert.False(fresh.Settings.Sysmon);
+        Assert.Equal("off", fresh.Settings.SysmonPill);
+        var written = JsonNode.Parse(fresh.ToJson())!["settings"]!;
+        Assert.False(written["sysmon"]!.GetValue<bool>());
+        Assert.Equal("off", written["sysmonPill"]!.GetValue<string>());
     }
 }
