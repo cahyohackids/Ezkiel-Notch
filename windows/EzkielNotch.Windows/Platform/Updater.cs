@@ -187,6 +187,7 @@ public sealed class TrayIcon : IDisposable
         {
             list.Add((Lang.L("Update to %@", string.Join('.', AppVersion.Parts(r.Version))), () =>
             {
+                Rooms.SettingsPane.Section = Rooms.SettingsSection.About;
                 w.OpenRoom(Room.Settings);
                 _ = u.Install();
             }, false));

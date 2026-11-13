@@ -250,6 +250,7 @@ public partial class IslandWindow : Window
             if (Updates.State == Updater.Phase.Available && Updates.Release is { } r && _announced != r.Version)
             {
                 _announced = r.Version;
+                SettingsPane.Section = SettingsSection.About;
                 ShowPeek(L("Ezkiel Notch %@ is out", string.Join('.', AppVersion.Parts(r.Version))), L("Open Settings to update"), 6, room: Room.Settings,
                          look: PeekLooks.Of(PeekKind.Update));
             }
@@ -1076,8 +1077,8 @@ public partial class IslandWindow : Window
             Room.Stash => new StashPane(Model),
             _ => throw new ArgumentOutOfRangeException(nameof(room)),
         };
-        if (pane is RoarPane roar) roar.OpenSettings += () => Select(Room.Settings);
-        if (pane is HuntPane hunt) hunt.OpenSettings += () => Select(Room.Settings);
+        if (pane is RoarPane roar) roar.OpenSettings += () => { SettingsPane.Section = SettingsSection.Roar; Select(Room.Settings); };
+        if (pane is HuntPane hunt) hunt.OpenSettings += () => { SettingsPane.Section = SettingsSection.Features; Select(Room.Settings); };
         if (pane is StashPane stash)
         {
             stash.ShareFiles += files =>

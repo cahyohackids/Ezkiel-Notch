@@ -158,6 +158,27 @@ internal static class SelfTest
             }),
             ("settings", () => w.Select(Room.Settings)),
             ("settings ok", () => RoomChecks(w, Room.Settings)),
+            // Each section on its own, to compare with the Mac's Settings (General · Whiskers · Roar · Features · About).
+            .. SettingsPane.Sections.Select(section => ($"settings {SettingsPane.SectionTitle(section).ToLowerInvariant()}", (Action)(() =>
+            {
+                var pane = (SettingsPane)w.CurrentPane!;
+                pane.ShowSection(section);
+                RoomChecks(w, Room.Settings);
+                Check(SettingsPane.Section == section, $"Settings shows {SettingsPane.SectionTitle(section)}");
+                var texts = Descendants<TextBlock>(pane).Select(t => t.Text).ToList();
+                foreach (var chip in SettingsPane.Sections)
+                    Check(texts.Contains(SettingsPane.SectionTitle(chip)), $"the {SettingsPane.SectionTitle(chip)} chip is on top");
+                string row = section switch
+                {
+                    SettingsSection.General => "Hide from screen sharing",
+                    SettingsSection.Whiskers => "Wi-Fi & headphones",
+                    SettingsSection.Roar => "Scout",
+                    SettingsSection.Features => "Chorus under the notch",
+                    _ => "Ezkiel Notch",
+                };
+                Check(texts.Contains(row), $"{SettingsPane.SectionTitle(section)} has \"{row}\", like the Mac");
+            }))),
+            ("settings back to general", () => ((SettingsPane)w.CurrentPane!).ShowSection(SettingsSection.General)),
             ("purr", () =>
             {
                 w.Media.Simulate(new Platform.NowPlaying("Spotify.exe", "Golden Hour", "JVKE", "this is what ____ feels like", 209, 63, DateTime.UtcNow, true), DemoArtwork());
@@ -233,7 +254,12 @@ internal static class SelfTest
             ("scratch id ok", () => RoomChecks(w, Room.Scratch)),
             ("oasis id", () => w.Select(Room.Oasis)),
             ("oasis id ok", () => RoomChecks(w, Room.Oasis)),
-            ("settings id", () => w.Select(Room.Settings)),
+            ("settings id", () =>
+            {
+                SettingsPane.Section = SettingsSection.General;
+                w.Select(Room.Settings);
+                w.CurrentPane!.Refresh();
+            }),
             ("settings id ok", () => RoomChecks(w, Room.Settings)),
             ("saved", () =>
             {
@@ -453,17 +479,31 @@ internal static class SelfTest
             }))),
             ("settings draft", () =>
             {
+                SettingsPane.Section = SettingsSection.Features;
                 w.Select(Room.Settings);
                 w.Expand();
+                w.CurrentPane!.Refresh();
             }),
             ("settings draft ok", () =>
             {
-                // A refresh (a search result, an update check) never eats what you typed.
+                // A refresh (a search result, an update check) never eats what you typed. The City field shows
+                // while no city is set (with one, it's °C · °F · Remove, like the Mac).
                 var pane = (SettingsPane)w.CurrentPane!;
-                pane.CityField!.Text = "Kuala Lum";
+                Check(pane.CityField is null, "with a city set, Weather offers °C · °F · Remove instead of the field");
+                var city = m.Settings.WeatherCity;
+                m.Settings.WeatherCity = "";
                 pane.Refresh();
-                Check(pane.CityField!.Text == "Kuala Lum", "the City field keeps what you typed through a refresh");
-                pane.CityField!.Text = "";
+                Check(pane.CityField is not null, "without a city, Weather has the City field");
+                if (pane.CityField is not null)
+                {
+                    pane.CityField.Text = "Kuala Lum";
+                    pane.Refresh();
+                    Check(pane.CityField!.Text == "Kuala Lum", "the City field keeps what you typed through a refresh");
+                    pane.CityField!.Text = "";
+                }
+                m.Settings.WeatherCity = city;
+                SettingsPane.Section = SettingsSection.General;
+                pane.Refresh();
                 w.Collapse();
             }),
             ("island open", () => w.Expand()),
