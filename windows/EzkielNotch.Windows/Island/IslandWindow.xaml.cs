@@ -126,7 +126,8 @@ public partial class IslandWindow : Window
         {
             if (!(screenshot ? Model.Settings.PounceScreenshots : Model.Settings.PounceDownloads)) return;
             if (Presentation == Presentation.Expanded) return;
-            ShowPeek(screenshot ? L("Screenshot") : L("Downloaded"), System.IO.Path.GetFileName(path), 6, room: Room.Stash, file: path);
+            ShowPeek(screenshot ? L("Screenshot") : L("Downloaded"), System.IO.Path.GetFileName(path), 6, room: Room.Stash, file: path,
+                     look: PeekLooks.Of(screenshot ? PeekKind.Screenshot : PeekKind.Download));
         };
         Roar.Updated += Model.UpdateBadges;
         Model.ForegroundApp = AppIdentity.Foreground;
@@ -195,16 +196,27 @@ public partial class IslandWindow : Window
         Mirror = new CameraMirror(Dispatcher);
         Mirror.Changed += RenderMirror;
         Media.Changed += UpdateLive;
+        Media.Changed += RefreshPeekArtwork;
         Prowl.Changed += UpdateLive;
         Power.Changed += UpdateLive;
         Power.Notice += (kind, pct) =>
         {
-            // Whiskers: the battery, beside the camera (the Mac's wording).
+            // Whiskers: the battery as a ring beside the words (the Mac's ChargeRing and wording). The notice comes
+            // before Power.Charging is updated, so "charging" is read from the level: on AC and not yet full.
+            double level = pct / 100.0;
             switch (kind)
             {
-                case "plugged": ShowPeek(Power.Charging ? L("Charging") : L("Connected to power"), $"{L("Charger connected")} · {pct}%", 2.4); break;
-                case "unplugged": ShowPeek(L("On battery"), $"{L("Charger unplugged")} · {pct}%", 2.4); break;
-                default: ShowPeek(L("Battery low"), $"{(kind == "now" ? L("Plug in now") : L("Plug in soon"))} · {pct}%", 5, urgent: true); break;
+                case "plugged":
+                    ShowPeek(new PeekInfo(pct < 100 ? L("Charging") : L("Connected to power"), L("Charger connected"))
+                    { Look = PeekLooks.Of(PeekKind.Plugged), Progress = level, Charging = pct < 100 });
+                    break;
+                case "unplugged":
+                    ShowPeek(new PeekInfo(L("On battery"), L("Charger unplugged")) { Look = PeekLooks.Of(PeekKind.OnBattery, pct), Progress = level });
+                    break;
+                default:
+                    ShowPeek(new PeekInfo(L("Battery low"), kind == "now" ? L("Plug in now") : L("Plug in soon"))
+                    { Look = PeekLooks.Of(PeekKind.BatteryLow, pct), Progress = level, Seconds = 5, Urgent = true });
+                    break;
             }
         };
         Rally.Changed += () =>
@@ -213,17 +225,17 @@ public partial class IslandWindow : Window
             if (_panes.ContainsKey(Room.Hunt)) OnModelChanged(Room.Hunt);
         };
         Whiskers = new WhiskersWatcher(Dispatcher);
-        Whiskers.CapsLock += on => ShowPeek(on ? L("Caps Lock on") : L("Caps Lock off"), "", 1.4);
-        Whiskers.Keyboard += name => ShowPeek(name, L("Keyboard"), 1.6);
+        Whiskers.CapsLock += on => ShowPeek(on ? L("Caps Lock on") : L("Caps Lock off"), "", 1.4, look: PeekLooks.Of(on ? PeekKind.CapsOn : PeekKind.CapsOff));
+        Whiskers.Keyboard += name => ShowPeek(name, L("Keyboard"), 1.6, look: PeekLooks.Of(PeekKind.Keyboard));
         Whiskers.Network += (online, wifi) =>
         {
-            if (online) ShowPeek(wifi ? L("Wi-Fi connected") : L("Back online"), L("You're online again"));
-            else ShowPeek(L("Connection lost"), L("Check your network"));
+            if (online) ShowPeek(wifi ? L("Wi-Fi connected") : L("Back online"), L("You're online again"), look: PeekLooks.Of(wifi ? PeekKind.WifiOn : PeekKind.Online));
+            else ShowPeek(L("Connection lost"), L("Check your network"), look: PeekLooks.Of(PeekKind.Offline));
         };
         Whiskers.Output += (name, headphones, previous) =>
         {
-            if (headphones) ShowPeek(name, L("Connected"));
-            else if (previous is not null) ShowPeek(L("%@ disconnected", previous), L("Now on %@", name));
+            if (headphones) ShowPeek(name, L("Connected"), look: PeekLooks.Of(PeekKind.HeadphonesOn));
+            else if (previous is not null) ShowPeek(L("%@ disconnected", previous), L("Now on %@", name), look: PeekLooks.Of(PeekKind.HeadphonesOff));
         };
         Updates.Changed += () =>
         {
@@ -232,7 +244,8 @@ public partial class IslandWindow : Window
             if (Updates.State == Updater.Phase.Available && Updates.Release is { } r && _announced != r.Version)
             {
                 _announced = r.Version;
-                ShowPeek(L("Ezkiel Notch %@ is out", string.Join('.', AppVersion.Parts(r.Version))), L("Open Settings to update"), 6, room: Room.Settings);
+                ShowPeek(L("Ezkiel Notch %@ is out", string.Join('.', AppVersion.Parts(r.Version))), L("Open Settings to update"), 6, room: Room.Settings,
+                         look: PeekLooks.Of(PeekKind.Update));
             }
         };
         Weather.Changed += () =>
@@ -243,9 +256,9 @@ public partial class IslandWindow : Window
         };
         Model.Peek += p =>
         {
-            if (Model.Settings.Sounds && p.Sound.Length > 0) Sounds.Play(p.Sound);
             if (Presentation == Presentation.Expanded) ShowToast(new ToastRequest($"{p.Title} · {p.Subtitle}"));
-            else ShowPeek(p.Title, p.Subtitle, urgent: p.Urgent, room: p.Room, app: p.App, link: p.Link);
+            // Plays its sound; shows the card only while the island is closed.
+            ShowPeek(PeekInfo.From(p));
         };
         Model.Toast += ShowToast;
         Model.Sound += name =>
@@ -260,7 +273,8 @@ public partial class IslandWindow : Window
         Media.TrackChanged += np =>
         {
             if (DateTime.UtcNow - launched < TimeSpan.FromSeconds(4) || Presentation == Presentation.Expanded) return;
-            ShowPeek(np.Title, np.Artist, room: Room.Purr);
+            // The album art on the left, an equalizer on the right, in the player's colour (the Mac's track peek).
+            ShowPeek(new PeekInfo(np.Title, np.Artist) { Room = Room.Purr, Look = PeekLooks.Track(np.AppId), Artwork = true });
         };
     }
 
@@ -481,6 +495,7 @@ public partial class IslandWindow : Window
         ShowRoom(Selected);
         Apply(ExpandedShape(Selected), animate: true, bouncy: true);
         Fade(PeekView, 0, 0.08);
+        ReleasePeek();
         Fade(ExpandedView, 1, 0.22, delay: 0.08);
         Root.Opacity = 1;
         Root.IsHitTestVisible = true;
@@ -500,6 +515,7 @@ public partial class IslandWindow : Window
         }
         Fade(ExpandedView, 0, 0.1);
         Fade(PeekView, 0, 0.1);
+        ReleasePeek();
         if (MirrorOpen) SetMirror(false);
         _closedShape = null;
         _liveShown = false;
@@ -534,15 +550,31 @@ public partial class IslandWindow : Window
 
     /// <summary>A short message under the top edge. While something is fullscreen only urgent ones show.
     /// Clicking it opens its room.</summary>
-    public void ShowPeek(string title, string subtitle, double seconds = 3.4, bool urgent = false, Room? room = null, string? app = null, string? file = null, string? link = null)
+    public void ShowPeek(string title, string subtitle, double seconds = 3.4, bool urgent = false, Room? room = null, string? app = null, string? file = null, string? link = null,
+                         PeekLook? look = null)
+        => ShowPeek(new PeekInfo(title, subtitle) { Seconds = seconds, Urgent = urgent, Room = room, App = app, File = file, Link = link, Look = look });
+
+    /// <summary>What the peek on screen is (null when none is).</summary>
+    public PeekInfo? CurrentPeek => Presentation == Presentation.Peek ? _peek : null;
+    private PeekInfo? _peek;
+    private BitmapSource? _peekArt;
+
+    /// <summary>The rich card: the tinted icon on the left, a value, ring or equalizer on the right (the Mac's Peek).
+    /// It plays its sound also while the island is open (a toast shows instead); over fullscreen apps only urgent
+    /// ones show or sound, like the Mac.</summary>
+    public void ShowPeek(PeekInfo p)
     {
-        if (FullscreenActive && Model.Settings.HideInFullscreen && !urgent) return;
+        if (FullscreenActive && Model.Settings.HideInFullscreen && !p.Urgent) return;
+        if (Model.Settings.Sounds && p.Chime.Length > 0) Sounds.Play(p.Chime);
         if (Presentation == Presentation.Expanded) return;
-        PeekTitle.Text = title;
-        PeekSubtitle.Text = subtitle;
-        // An app's own news shows that app's icon; everything else, Ezkiel.
-        PeekIcon.Source = app is not null && AppIcons.Icon(app) is { } icon ? icon
-            : file is not null && Files.Thumbnail(file, 64) is { } thumb ? thumb : Rooms.PurrPane.Lion;
+        string? file = p.File, link = p.Link;
+        _peek = p;
+        PeekTitle.Text = p.Title;
+        PeekSubtitle.Text = p.Subtitle;
+        PeekSubtitle.Visibility = p.Subtitle.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        PeekLeading.Child = PeekLeft(p);
+        PeekTrailing.Child = PeekRight(p);
+        PeekTrailing.Visibility = PeekTrailing.Child is null ? Visibility.Collapsed : Visibility.Visible;
         PeekActions.Children.Clear();
         if (file is not null)
         {
@@ -553,8 +585,8 @@ public partial class IslandWindow : Window
         }
         if (link is not null)
             PeekActions.Children.Add(Ui.Pill(L("Join"), () => { Files.Open(link); Collapse(); }, Accent.Rally, prominent: true, glyph: "\uE714"));
-        _peekRoom = room;
-        PeekView.Cursor = room is null ? null : Cursors.Hand;
+        _peekRoom = p.Room;
+        PeekView.Cursor = p.Room is null ? null : Cursors.Hand;
         Presentation = Presentation.Peek;
         _liveShown = false;
         Fade(LiveView, 0, 0.08);
@@ -563,7 +595,7 @@ public partial class IslandWindow : Window
         Apply(PeekShape, animate: true, bouncy: true);
         Fade(PeekView, 1, 0.2, delay: 0.1);
         _peekTimer?.Stop();
-        _peekTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(urgent ? Math.Max(seconds, 6) : seconds) };
+        _peekTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(p.Urgent ? Math.Max(p.Seconds, 6) : p.Seconds) };
         _peekTimer.Tick += (_, _) =>
         {
             // Hovering keeps it; leaving lets it go.
@@ -579,6 +611,52 @@ public partial class IslandWindow : Window
         if (Presentation != Presentation.Peek) return;
         if (_peekRoom is { } room) Select(room);
         Expand();
+    }
+
+    /// <summary>Left of the words (the Mac's order): the album art, an app's own icon, a file's thumbnail, Ezkiel,
+    /// then the look's glyph in its tint.</summary>
+    private FrameworkElement PeekLeft(PeekInfo p)
+    {
+        _peekArt = p.Artwork ? Media.Artwork : null;
+        if (p.Artwork && Media.Artwork is { } art) return PeekTints.ArtworkTile(art);
+        if (p.App is not null && AppIcons.Icon(p.App) is { } icon) return new Image { Source = icon, Width = 26, Height = 26 };
+        if (p.File is not null && Files.Thumbnail(p.File, 64) is { } thumb) return new Image { Source = thumb, Width = 26, Height = 26 };
+        if (p.Look is not { ShowsLion: false } look) return new Image { Source = Rooms.PurrPane.Lion, Width = 26, Height = 26 };
+        return PeekTints.GlyphTile(look.Glyph, p.Tint);
+    }
+
+    /// <summary>Right of the words, the first that applies: the battery ring, a big value, the equalizer for a new
+    /// song, or the glyph when Ezkiel is on the left.</summary>
+    private FrameworkElement? PeekRight(PeekInfo p)
+    {
+        if (p.Progress is { } level) return new ChargeRing(level, p.Tint, p.Charging, 32);
+        if (p.Value is { Length: > 0 } value) return Ui.Number(value, 15, PeekTints.Brush(p.Tint));
+        if (p.Artwork) return new EqualizerBars(true, (Media.ArtworkAccent?.Deep) ?? p.Tint, 12);
+        if (p.Look is { ShowsLion: true } look) return Ui.Glyph(look.Glyph, 13, PeekTints.Brush(p.Tint));
+        return null;
+    }
+
+    /// <summary>The album art usually arrives a moment after the new song: put it in the card that's showing.</summary>
+    private void RefreshPeekArtwork()
+    {
+        if (CurrentPeek is not { Artwork: true } p || ReferenceEquals(Media.Artwork, _peekArt)) return;
+        PeekLeading.Child = PeekLeft(p);
+        PeekTrailing.Child = PeekRight(p);
+    }
+
+    /// <summary>A closed card lets go of its content once it has faded, so a ring or equalizer never runs unseen.</summary>
+    private void ReleasePeek()
+    {
+        var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        t.Tick += (_, _) =>
+        {
+            t.Stop();
+            if (Presentation == Presentation.Peek) return;
+            PeekLeading.Child = null;
+            PeekTrailing.Child = null;
+            _peekArt = null;
+        };
+        t.Start();
     }
 
     private void Apply(Shape s, bool animate, bool bouncy = false)

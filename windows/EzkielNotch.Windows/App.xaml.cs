@@ -83,11 +83,12 @@ public partial class App : Application
             {
                 case DataStore.RestoredBackup r:
                     window.ShowPeek(r.BackupDate is { } at ? L("Restored your data from %@", at.ToString("g", Lang.Culture)) : L("Restored your data"),
-                                    L("The damaged file is kept in the data folder"), 8, urgent: true, room: Room.Settings);
+                                    L("The damaged file is kept in the data folder"), 8, urgent: true, room: Room.Settings,
+                                    look: PeekLooks.Of(PeekKind.Restored));
                     break;
                 case DataStore.StartedFresh:
                     window.ShowPeek(L("Couldn't read your data"), L("It's kept as data.broken-….json in the data folder"), 8,
-                                    urgent: true, room: Room.Settings);
+                                    urgent: true, room: Room.Settings, look: PeekLooks.Of(PeekKind.DataBroken));
                     break;
                 default:
                     window.ShowPeek("Ezkiel Notch", e.Args.Contains("--updated")

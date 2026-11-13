@@ -6,7 +6,8 @@ namespace EzkielNotch.Core;
 public enum Room { Den, Hunt, Roar, Scratch, Purr, Stash, Oasis, Settings }
 
 /// <summary>A short message under the top edge. Sound is a Mac sound name; Windows maps it.</summary>
-public sealed record PeekRequest(string Title, string Subtitle, Room Room, string Sound, bool Urgent, string? App = null, string? Value = null, string? Link = null);
+public sealed record PeekRequest(string Title, string Subtitle, Room Room, string Sound, bool Urgent, string? App = null, string? Value = null, string? Link = null,
+                                 PeekLook? Look = null);
 
 /// <summary>A capsule at the bottom of the open island, optionally with an action (Undo).</summary>
 public sealed record ToastRequest(string Text, string? ActionTitle = null, Action? Action = null);
@@ -156,11 +157,11 @@ public sealed class NotchModel
             Peek?.Invoke(new PeekRequest(L("Focus complete"),
                 streak > 1 ? L("%d-day streak · take %d min", streak, Settings.BreakMinutes)
                            : L("Take a %d-minute break", Settings.BreakMinutes),
-                Room.Den, "Glass", Urgent: true));
+                Room.Den, "Glass", Urgent: true, Look: PeekLooks.Of(PeekKind.FocusDone)));
         }
         else
         {
-            Peek?.Invoke(new PeekRequest(L("Break complete"), L("Ready to focus again"), Room.Den, "Glass", Urgent: true));
+            Peek?.Invoke(new PeekRequest(L("Break complete"), L("Ready to focus again"), Room.Den, "Glass", Urgent: true, Look: PeekLooks.Of(PeekKind.BreakDone)));
         }
         Touch(Room.Den);
     }
@@ -219,7 +220,7 @@ public sealed class NotchModel
             var t = Data.Tasks[i];
             if (t.Done || t.Reminded || t.Due is not { } due || due > now) continue;
             Data.Tasks[i] = t with { Reminded = true };
-            Peek?.Invoke(new PeekRequest(L("Task due"), t.Title, Room.Hunt, "Ping", Urgent: true));
+            Peek?.Invoke(new PeekRequest(L("Task due"), t.Title, Room.Hunt, "Ping", Urgent: true, Look: PeekLooks.Of(PeekKind.TaskDue)));
             Touch(Room.Hunt);
             break;
         }
@@ -240,7 +241,7 @@ public sealed class NotchModel
             var lead = m.Start - now;
             if (lead <= TimeSpan.Zero || lead > TimeSpan.FromMinutes(5) || !_notifiedMeetings.Add(m.Id)) continue;
             Peek?.Invoke(new PeekRequest(m.Title, L("Starts %@ · in %d min", Lang.Time(m.Start), (int)Math.Ceiling(lead.TotalMinutes)),
-                                         Room.Hunt, "Glass", Urgent: true, Link: m.Link));
+                                         Room.Hunt, "Glass", Urgent: true, Link: m.Link, Look: PeekLooks.Of(PeekKind.Meeting)));
             break;
         }
     }
@@ -408,7 +409,7 @@ public sealed class NotchModel
                                   Settings.ActiveHourStart, Settings.ActiveHourEnd, now)) return;
         _lastWaterReminder = now;
         Peek?.Invoke(new PeekRequest(L("Time for a sip"), L("%d of %d ml today", WaterToday, Settings.WaterGoal),
-                                     Room.Oasis, "Purr", Urgent: false));
+                                     Room.Oasis, "Purr", Urgent: false, Look: PeekLooks.Of(PeekKind.Water)));
     }
 
     // MARK: Settings
@@ -452,7 +453,8 @@ public sealed class NotchModel
             if (_lastRoarPeek.TryGetValue(b.Id, out var last) && now - last < TimeSpan.FromSeconds(20)) continue;
             _lastRoarPeek[b.Id] = now;
             Peek?.Invoke(new PeekRequest(b.Name, was == 0 ? L("%d unread", b.Count) : L("%d new · %d unread", b.Count - was, b.Count),
-                                         Room.Roar, "", Urgent: false, App: b.Id, Value: b.Label));
+                                         Room.Roar, "", Urgent: false, App: b.Id, Value: b.Label,
+                                         Look: PeekLooks.Of(IsAiApp(b.Id) ? PeekKind.RoarAi : PeekKind.Roar)));
         }
         Changed?.Invoke(Room.Roar);
     }
@@ -524,7 +526,7 @@ public sealed class NotchModel
         if (FocusQuiet && e.Kind != ScoutKind.NeedsYou) return;
         var detail = string.Join(" · ", new[] { e.Project, e.Body.Length == 0 ? null : L(e.Body) }.Where(x => x is not null));
         Peek?.Invoke(new PeekRequest(L(e.Title), detail, Room.Roar, e.Kind == ScoutKind.NeedsYou ? "Tink" : "",
-                                     Urgent: e.Kind == ScoutKind.NeedsYou, App: e.AppBundleId));
+                                     Urgent: e.Kind == ScoutKind.NeedsYou, App: e.AppBundleId, Look: PeekLooks.Scout(e)));
     }
 
     /// <summary>An agent that never reported back (a closed terminal, a crash) doesn't stay live:

@@ -753,3 +753,111 @@ public class GlassSettingTests
         Assert.False(AppData.FromJson("{}")!.Settings.IslandGlass);
     }
 }
+
+[Collection("Lang")]
+public class PeekLookTests
+{
+    /// <summary>The Mac's peeks keep their colour on Windows: a glyph and a tint for every kind.</summary>
+    [Fact]
+    public void EveryKindHasAGlyphAndTheMacsTint()
+    {
+        foreach (var kind in Enum.GetValues<PeekKind>())
+        {
+            var look = PeekLooks.Of(kind, 50);
+            Assert.True(look.Glyph.Length == 1 && look.Glyph[0] >= '', $"{kind} has a Segoe icon glyph");
+        }
+        Assert.Equal(PeekTint.Teal, PeekLooks.Of(PeekKind.CapsOn).Tint);
+        Assert.Equal(PeekTint.Neutral, PeekLooks.Of(PeekKind.CapsOff).Tint);
+        Assert.Equal(PeekTint.Whiskers, PeekLooks.Of(PeekKind.Keyboard).Tint);
+        Assert.Equal(PeekTint.Berry, PeekLooks.Of(PeekKind.Offline).Tint);
+        Assert.Equal("Funk", PeekLooks.Of(PeekKind.Offline).Sound);
+        Assert.Equal(PeekTint.Teal, PeekLooks.Of(PeekKind.HeadphonesOn).Tint);
+        Assert.Equal(PeekTint.Berry, PeekLooks.Of(PeekKind.BatteryLow, 9).Tint);
+        Assert.Equal(PeekTint.Gold, PeekLooks.Of(PeekKind.OnBattery, 60).Tint);
+        Assert.True(PeekLooks.Of(PeekKind.FocusDone).ShowsLion);
+        Assert.False(PeekLooks.Of(PeekKind.Meeting).ShowsLion);
+        // Every tint is its own colour, and the room tints are the rooms' deep accents.
+        var tints = Enum.GetValues<PeekTint>();
+        Assert.Equal(tints.Length, tints.Select(PeekLooks.Rgb).Distinct().Count());
+        Assert.Equal(0xFF9500u, PeekLooks.Rgb(PeekTint.Den));
+        Assert.Equal(0x6FD6B4u, PeekLooks.Rgb(PeekTint.Teal));
+    }
+
+    [Theory]
+    [InlineData(5, "")]
+    [InlineData(20, "")]
+    [InlineData(50, "")]
+    [InlineData(80, "")]
+    [InlineData(100, "")]
+    public void BatteryGlyphFollowsTheMacsSteps(int percent, string glyph) => Assert.Equal(glyph, PeekLooks.Battery(percent));
+
+    [Fact]
+    public void ScoutAndTrackLooks()
+    {
+        var needs = PeekLooks.Scout(ScoutEvent.New("claude", ScoutKind.NeedsYou, "Claude needs you"));
+        Assert.Equal(PeekTint.Den, needs.Tint);
+        Assert.Equal("Tink", needs.Sound);
+        var done = PeekLooks.Scout(ScoutEvent.New("codex", ScoutKind.Done, "Codex finished"));
+        Assert.Equal(PeekTint.Scout, done.Tint);
+        Assert.Equal("", done.Sound);
+        Assert.Equal(PeekTint.Spotify, PeekLooks.Track("Spotify.exe").Tint);
+        Assert.Equal(PeekTint.AppleMusic, PeekLooks.Track("AppleInc.AppleMusicWin_nzyj5cx40ttqa!App").Tint);
+        Assert.Equal(PeekTint.Purr, PeekLooks.Track("Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic").Tint);
+    }
+
+    [Fact]
+    public void ModelPeeksCarryTheirLook()
+    {
+        Lang.Choice = AppLanguage.En;
+        var peeks = new List<PeekRequest>();
+        var m = new NotchModel(new AppData());
+        m.Peek += peeks.Add;
+        var now = DateTime.UtcNow;
+        m.Now = () => now;
+        m.AddTask("call", now.AddMinutes(-1));
+        for (int i = 0; i < 5; i++) m.Tick();   // due tasks are checked every fifth second
+        m.UpdateBadges([new Badge("Claude", "Claude", 1, "1", now)]);
+        m.UpdateBadges([new Badge("Claude", "Claude", 1, "1", now), new Badge("WhatsApp", "WhatsApp", 3, "3", now)]);
+        var task = peeks.Single(p => p.Room == Room.Hunt);
+        Assert.Equal(PeekTint.Hunt, task.Look?.Tint);
+        Assert.True(task.Look?.ShowsLion);
+        Assert.Equal(PeekTint.Scout, peeks.Single(p => p.Title == "Claude").Look?.Tint);   // an AI app's badge is Scout's colour
+        var roar = peeks.Single(p => p.Title == "WhatsApp");
+        Assert.Equal(PeekTint.Roar, roar.Look?.Tint);
+        Assert.Equal("3", roar.Value);
+    }
+
+    [Fact]
+    public void RingGeometry()
+    {
+        Assert.Equal(2.4, RingMath.LineWidth(20), 6);
+        Assert.Equal(3.2, RingMath.LineWidth(32), 6);
+        Assert.Equal(14.4, RingMath.Radius(32, 3.2), 6);
+        var (s, e, large) = RingMath.Arc(0.25, 10, 10, 8);
+        Assert.Equal((10.0, 2.0), (Math.Round(s.X, 6), Math.Round(s.Y, 6)));   // 12 o'clock
+        Assert.Equal((18.0, 10.0), (Math.Round(e.X, 6), Math.Round(e.Y, 6)));  // 3 o'clock, clockwise
+        Assert.False(large);
+        (_, e, large) = RingMath.Arc(0.75, 10, 10, 8);
+        Assert.Equal((2.0, 10.0), (Math.Round(e.X, 6), Math.Round(e.Y, 6)));
+        Assert.True(large);
+        (_, e, _) = RingMath.Arc(2, 10, 10, 8);   // clamped to a full turn
+        Assert.Equal((10.0, 2.0), (Math.Round(e.X, 6), Math.Round(e.Y, 6)));
+        Assert.Equal("80", RingMath.Label(0.8));
+        Assert.Equal("100", RingMath.Label(1.4));
+        Assert.Equal("0", RingMath.Label(-1));
+    }
+
+    /// <summary>Each Mac sound name is its own Windows sound, so a task due never sounds like a lost connection.</summary>
+    [Fact]
+    public void EachMacSoundIsDistinct()
+    {
+        string[] used = ["Glass", "Ping", "Tink", "Pop", "Bottle", "Purr", "Funk"];
+        foreach (var name in used) Assert.NotEmpty(Chimes.Candidates(name));
+        var firsts = Chimes.Names.Select(n => Chimes.Candidates(n)[0]).ToList();
+        Assert.Equal(firsts.Count, firsts.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.All(Chimes.Names, n => Assert.All(Chimes.Candidates(n), f => Assert.EndsWith(".wav", f)));
+        Assert.Empty(Chimes.Candidates("NoSuchSound"));
+        Assert.Contains(Chimes.Fallback("NoSuchSound"), new[] { "Asterisk", "Beep", "Exclamation", "Hand", "Question" });
+        Assert.NotEqual(Chimes.Fallback("Funk"), Chimes.Fallback("Glass"));
+    }
+}
