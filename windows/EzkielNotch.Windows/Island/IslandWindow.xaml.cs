@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -107,6 +108,7 @@ public partial class IslandWindow : Window
         _registeredHotkey = choice;
         if (!HotKeyRegistered) ShowToast(new ToastRequest(L("%@ is taken by another app", HotkeyLabel(choice))));
         Tray?.Relabel(HotkeyLabel(choice));
+        RenderPin();
     }
 
     public TrayIcon? Tray { get; set; }
@@ -191,6 +193,7 @@ public partial class IslandWindow : Window
 
         Model.Changed += OnModelChanged;
         Model.Changed += _ => UpdateLive();
+        Model.Changed += _ => UpdateTabBadges();
         Model.Meetings = () => Rally.Upcoming;
         Mirror = new CameraMirror(Dispatcher);
         Mirror.Changed += RenderMirror;
@@ -198,6 +201,7 @@ public partial class IslandWindow : Window
         // track never shows the last one's line.
         Media.Changed += FollowLyrics;
         Media.Changed += UpdateLive;
+        Media.Changed += UpdateTabBadges;
         Lyrics.Changed += () => Dispatcher.BeginInvoke(UpdateLive);
         Grid.SetRow(LiveLyric, 1);
         LiveLyric.Visibility = Visibility.Collapsed;
@@ -384,6 +388,7 @@ public partial class IslandWindow : Window
         if (DateTime.Now.Second == 0) Clock.Text = Lang.Time(DateTime.Now);
         if (Presentation == Presentation.Expanded) CurrentPane?.SecondTick();
         UpdateLive();
+        UpdateTabBadges();
         if (_ticks % 60 == 0) Rally.Tick(DateTime.UtcNow);
         if (_ticks % 600 == 0) _ = Weather.Refresh();
         // Updates: 30 s after launch, then once a day.
@@ -438,9 +443,9 @@ public partial class IslandWindow : Window
         bool f = Model.Settings.Fahrenheit;
         string T(double c) => $"{Math.Round(WeatherClient.Display(c, f)):0}°";
         var (glyph, color) = WeatherGlyph(w.Code, w.IsDay);
-        WeatherChip.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe UI Symbol"), FontSize = 13, Foreground = new SolidColorBrush(color), VerticalAlignment = VerticalAlignment.Center });
-        var temp = Ui.Number(T(w.Temperature), 12.5);
-        temp.Margin = new Thickness(4, 0, 0, 0);
+        WeatherChip.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe UI Symbol"), FontSize = 12, Foreground = new SolidColorBrush(color), VerticalAlignment = VerticalAlignment.Center });
+        var temp = Ui.Number(T(w.Temperature), 12, WeatherInk, FontWeights.Medium);
+        temp.Margin = new Thickness(3, 0, 0, 0);
         WeatherChip.Children.Add(temp);
         var parts = new List<string> { city, L(WeatherClient.Word(w.Code)), $"{T(w.Low)}–{T(w.High)}" };
         if (w.RainChance is int rain) parts.Add(L("%d%% rain", rain));
@@ -449,6 +454,8 @@ public partial class IslandWindow : Window
         // The weather takes the clock's place (the taskbar keeps its own clock).
         Clock.Visibility = Visibility.Collapsed;
     }
+
+    private static readonly Brush WeatherInk = Ui.Frozen(new SolidColorBrush(Color.FromArgb(0xD9, 0xF5, 0xF1, 0xEA)));
 
     private static (string, Color) WeatherGlyph(int code, bool day) => code switch
     {
@@ -582,13 +589,19 @@ public partial class IslandWindow : Window
         else if (Presentation == Presentation.Expanded && !Hovering) _outsideSince = DateTime.UtcNow;
     }
 
+    /// <summary>The header's two round buttons, as on the Mac: Keep open (pin / pin.fill, gold while pinned) and
+    /// Collapse (chevron.up; its tip names the shortcut).</summary>
     private void RenderPin()
     {
-        // Segoe's Pin and Pinned (filled) glyphs; gold while pinned, like the Mac.
-        PinHost.Child = Ui.IconButton(Pinned ? "\uE840" : "\uE718",
+        // Segoe's Pin and PinFill glyphs.
+        PinHost.Child = Ui.IconButton(Pinned ? "\uE842" : "\uE718",
                                       Pinned ? L("Unpin · close when you move away") : L("Keep the notch open"),
-                                      () => SetPinned(!Pinned), 24, Pinned ? Accent.Den.LightBrush : Ui.Mist);
+                                      () => SetPinned(!Pinned), 24, Pinned ? Gold : Ui.Mist);
+        CollapseHost.Child = Ui.IconButton("\uE70E", L("Collapse (Esc) · %@ toggles", HotkeyLabel(Model.Settings.Hotkey)), Collapse, 24, Ui.Mist);
     }
+
+    /// <summary>Ezkielyna gold (the Mac's Theme.gold).</summary>
+    private static readonly Brush Gold = Ui.Frozen(new SolidColorBrush(Color.FromRgb(0xFF, 0xCF, 0x87)));
 
     /// <summary>The shortcut, the tray and the menu: opening this way means you're about to type, so the island
     /// takes the keyboard straight away (hovering open doesn't, until you click).</summary>
@@ -1032,33 +1045,73 @@ public partial class IslandWindow : Window
 
     // MARK: Rooms
 
+    private readonly List<(Border Pill, TabGlyph Glyph)> _tabs = [];
+    private int _hoveredTab = -1;
+
+    /// <summary>The Mac's tab strip: a glyph per room, the open one on a capsule in its accent (16% fill, 22% hairline),
+    /// a faint capsule on hover, and a dot when the room has something going on.</summary>
     private void BuildTabs()
     {
         Tabs.Children.Clear();
+        _tabs.Clear();
         foreach (var info in RoomInfo.All)
         {
             var room = info.Room;
-            var icon = new TextBlock
-            {
-                Text = info.Glyph,
-                FontFamily = (FontFamily)FindResource("Icons"),
-                FontSize = 14,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
+            int index = _tabs.Count;
+            var glyph = new TabGlyph(room);
             var pill = new Border
             {
+                Height = 28,
                 CornerRadius = new CornerRadius(14),
-                Child = icon,
+                Child = glyph,
                 Margin = new Thickness(1, 0, 1, 0),
+                VerticalAlignment = VerticalAlignment.Center,
                 Cursor = Cursors.Hand,
                 ToolTip = $"{info.Name} · {L(info.Subtitle)}",
                 Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0.5),
             };
+            AutomationProperties.SetName(pill, $"{info.Name}, {L(info.Subtitle)}");
+            pill.MouseEnter += (_, _) => { _hoveredTab = index; PaintTabs(); };
+            pill.MouseLeave += (_, _) => { if (_hoveredTab == index) _hoveredTab = -1; PaintTabs(); };
             pill.MouseLeftButtonUp += (_, _) => Select(room);
             Tabs.Children.Add(pill);
+            _tabs.Add((pill, glyph));
         }
+        UpdateTabBadges();
         Select(Selected);
+    }
+
+    private static readonly Brush TabHover = Ui.Frozen(new SolidColorBrush(Color.FromArgb(0x0D, 0xFF, 0xFF, 0xFF)));
+
+    private void PaintTabs()
+    {
+        for (int i = 0; i < _tabs.Count; i++)
+        {
+            var (pill, glyph) = _tabs[i];
+            var accent = RoomInfo.All[i].Accent;
+            bool on = i == (int)Selected, hover = i == _hoveredTab;
+            pill.Background = on ? accent.Tint(0x29) : hover ? TabHover : Brushes.Transparent;
+            pill.BorderBrush = on ? accent.Tint(0x38) : Brushes.Transparent;
+            glyph.SetState(on, hover);
+        }
+    }
+
+    /// <summary>The Mac's tab badges: Den while the timer runs, Purr while music plays, Roar with unread counts or
+    /// a live agent, Hunt with an overdue task or a meeting about to start.</summary>
+    private void UpdateTabBadges()
+    {
+        if (_tabs.Count != RoomInfo.All.Length) return;
+        var now = DateTime.UtcNow;
+        bool Show(Room room) => room switch
+        {
+            Room.Den => Model.Focus.IsRunning,
+            Room.Purr => Media.Current?.IsPlaying ?? false,
+            Room.Roar => Model.UnreadTotal > 0 || Model.LiveAgents.Count > 0,
+            Room.Hunt => Model.Data.Tasks.Any(t => !t.Done && t.Due is { } due && due <= now) || MeetingSoon is not null,
+            _ => false,
+        };
+        foreach (var info in RoomInfo.All) _tabs[(int)info.Room].Glyph.Badge = Show(info.Room);
     }
 
     private Pane PaneFor(Room room)
@@ -1132,16 +1185,7 @@ public partial class IslandWindow : Window
         Selected = room;
         var info = RoomInfo.Of(room);
         TabTitle.Text = info.Name;
-        TabSubtitle.Text = L(info.Subtitle);
-        for (int i = 0; i < Tabs.Children.Count; i++)
-        {
-            var pill = (Border)Tabs.Children[i];
-            var icon = (TextBlock)pill.Child;
-            var accent = RoomInfo.All[i].Accent.Deep;
-            bool on = i == (int)room;
-            pill.Background = on ? new SolidColorBrush(Color.FromArgb(0x29, accent.R, accent.G, accent.B)) : Brushes.Transparent;
-            icon.Foreground = on ? new SolidColorBrush(accent) : (Brush)FindResource("Mist");
-        }
+        PaintTabs();
         if (Presentation == Presentation.Expanded)
         {
             HideToast(immediately: true);
@@ -1179,8 +1223,6 @@ public partial class IslandWindow : Window
         if (Presentation == Presentation.Expanded && Selected == room) pane.Refresh();
         else _stale.Add(room.Value);
     }
-
-    private void OnCloseClick(object sender, RoutedEventArgs e) => Collapse();
 
     /// <summary>Opens the island on a room and takes the keyboard (the tray, the menus, a second launch).</summary>
     public void OpenRoom(Room room)

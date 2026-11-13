@@ -44,7 +44,7 @@ public sealed class RoarPane(NotchModel model) : Pane(model, Room.Roar)
 
     private FrameworkElement RoarList()
     {
-        if (!Model.Settings.Roar) return Ui.EmptyHint(L("Roar is off"), L("Turn it on in Settings › Roar."));
+        if (!Model.Settings.Roar) return Ui.EmptyHint(L("Roar is off"), L("Turn it on in Settings › Roar."), sleeping: true);
         var badges = Model.RoarBadges.ToList();
         if (badges.Count == 0)
             return Ui.EmptyHint(L("All quiet"), L("Unread counts from WhatsApp, Teams, Outlook and any app that notifies you show here. Only the number, never the message."));
@@ -79,7 +79,7 @@ public sealed class RoarPane(NotchModel model) : Pane(model, Room.Roar)
         Child = new TextBlock
         {
             Text = label,
-            FontFamily = Ui.Display,
+            FontFamily = Ui.Strong,
             FontSize = Ui.Secondary,
             FontWeight = FontWeights.Bold,
             Foreground = Ui.OnAccent,
@@ -111,7 +111,7 @@ public sealed class RoarPane(NotchModel model) : Pane(model, Room.Roar)
 
     private FrameworkElement ScoutList()
     {
-        if (!Model.Settings.Scout) return Ui.EmptyHint(L("Scout is off"), L("Turn it on in Settings › Roar."));
+        if (!Model.Settings.Scout) return Ui.EmptyHint(L("Scout is off"), L("Turn it on in Settings › Roar."), sleeping: true);
         var live = Model.LiveAgents;
         var history = Model.ScoutHistory;
         var ai = Model.AiBadges.ToList();
