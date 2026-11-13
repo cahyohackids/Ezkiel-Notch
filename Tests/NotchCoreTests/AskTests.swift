@@ -43,6 +43,33 @@ final class AskTests: XCTestCase {
         XCTAssertEqual(body["model"] as? String, Ask.defaultModel)
     }
 
+    func testLimitsMatchTheFixtureAndHold() throws {
+        let l = try XCTUnwrap(try fixture()["limits"] as? [String: Any])
+        XCTAssertEqual(l["maxAnswerTokens"] as? Int, Ask.maxAnswerTokens)
+        XCTAssertEqual(l["maxQuestionLength"] as? Int, Ask.maxQuestionLength)
+        XCTAssertEqual(l["maxContextLength"] as? Int, Ask.maxContextLength)
+        XCTAssertEqual(l["maxQuestionsPerWindow"] as? Int, Ask.maxQuestionsPerWindow)
+        XCTAssertEqual((l["windowSeconds"] as? NSNumber)?.doubleValue, Ask.windowSeconds)
+
+        let req = Ask.chatRequest(key: "k", model: "", question: String(repeating: "q", count: 5000),
+                                  history: [Ask.Turn(question: String(repeating: "a", count: 4000), answer: String(repeating: "b", count: 4000))],
+                                  indonesian: false)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(req.body)) as? [String: Any])
+        XCTAssertEqual(body["max_tokens"] as? Int, Ask.maxAnswerTokens)
+        let messages = try XCTUnwrap(body["messages"] as? [[String: String]])
+        XCTAssertEqual(messages[1]["content"]?.count, Ask.maxContextLength)
+        XCTAssertEqual(messages[2]["content"]?.count, Ask.maxContextLength)
+        XCTAssertEqual(messages.last?["content"]?.count, Ask.maxQuestionLength)
+        XCTAssertLessThan(try XCTUnwrap(req.body).count, 10_000)
+
+        let now = Date(timeIntervalSince1970: 1_794_571_200)
+        var sent = (0..<Ask.maxQuestionsPerWindow).map { now.addingTimeInterval(-Double($0)) }
+        XCTAssertFalse(Ask.allowSend(&sent, now: now))
+        XCTAssertTrue(Ask.allowSend(&sent, now: now.addingTimeInterval(Ask.windowSeconds)))
+        var none: [Date] = []
+        XCTAssertTrue(Ask.allowSend(&none, now: now))
+    }
+
     func testStreams() throws {
         for s in try XCTUnwrap(try fixture()["streams"] as? [[String: Any]]) {
             let name = s["name"] as? String ?? "?"

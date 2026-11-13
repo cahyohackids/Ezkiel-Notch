@@ -13,6 +13,27 @@ public enum Ask {
     public static let suggestedModels = ["deepseek-v4.1-flash", "deepseek-v4-pro-0813"]
     /// Earlier questions sent along, so "and in Bali?" makes sense.
     public static let contextTurns = 3
+    /// Guards against runaway use of the user's balance (the same numbers as Windows' Ask.cs): an answer stops at
+    /// maxAnswerTokens, a pasted question is cut at maxQuestionLength, each earlier turn sent as context at
+    /// maxContextLength, and at most maxQuestionsPerWindow questions go out in windowSeconds.
+    public static let maxAnswerTokens = 1200
+    public static let maxQuestionLength = 2000
+    public static let maxContextLength = 1500
+    public static let maxQuestionsPerWindow = 30
+    public static let windowSeconds: TimeInterval = 600
+
+    public static func cut(_ text: String, _ max: Int) -> String {
+        // Counted in UTF-16 units, like C#'s string.Length, so both apps cut at the same place.
+        let units = Array(text.utf16)
+        guard units.count > max else { return text }
+        return String(decoding: units[..<max], as: UTF16.self)
+    }
+
+    /// May another question go out now, given when the earlier ones did? (Drops the ones outside the window.)
+    public static func allowSend(_ sent: inout [Date], now: Date) -> Bool {
+        sent.removeAll { now.timeIntervalSince($0) >= windowSeconds || $0 > now }
+        return sent.count < maxQuestionsPerWindow
+    }
     /// Questions kept for this session (never saved).
     public static let historyLimit = 10
     /// Seconds without a byte before giving up.
@@ -49,10 +70,10 @@ public enum Ask {
     public static func messages(question: String, history: [Turn], indonesian: Bool) -> [[String: String]] {
         var list = [["role": "system", "content": systemPrompt(indonesian: indonesian)]]
         for turn in history.suffix(contextTurns) where !turn.answer.isEmpty {
-            list.append(["role": "user", "content": turn.question])
-            list.append(["role": "assistant", "content": turn.answer])
+            list.append(["role": "user", "content": cut(turn.question, maxContextLength)])
+            list.append(["role": "assistant", "content": cut(turn.answer, maxContextLength)])
         }
-        list.append(["role": "user", "content": question.trimmingCharacters(in: .whitespacesAndNewlines)])
+        list.append(["role": "user", "content": cut(question.trimmingCharacters(in: .whitespacesAndNewlines), maxQuestionLength)])
         return list
     }
 
@@ -61,6 +82,7 @@ public enum Ask {
         let body: [String: Any] = [
             "model": model.isEmpty ? defaultModel : model,
             "stream": true,
+            "max_tokens": maxAnswerTokens,
             "messages": messages(question: question, history: history, indonesian: indonesian),
         ]
         return Request(url: baseURL + "/chat/completions", method: "POST",

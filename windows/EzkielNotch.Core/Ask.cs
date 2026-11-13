@@ -21,6 +21,23 @@ public static class Ask
     public static readonly string[] SuggestedModels = ["deepseek-v4.1-flash", "deepseek-v4-pro-0813"];
     /// <summary>Earlier questions sent along, so "and in Bali?" makes sense.</summary>
     public const int ContextTurns = 3;
+    /// <summary>Guards against runaway use of the user's balance (the same numbers as the Mac's Ask.swift):
+    /// an answer stops at MaxAnswerTokens, a pasted question is cut at MaxQuestionLength, each earlier turn sent as
+    /// context at MaxContextLength, and at most MaxQuestionsPerWindow questions go out in WindowSeconds.</summary>
+    public const int MaxAnswerTokens = 1200;
+    public const int MaxQuestionLength = 2000;
+    public const int MaxContextLength = 1500;
+    public const int MaxQuestionsPerWindow = 30;
+    public const double WindowSeconds = 600;
+
+    public static string Cut(string text, int max) => text.Length <= max ? text : text[..max];
+
+    /// <summary>May another question go out now, given when the earlier ones did? (Drops the ones outside the window.)</summary>
+    public static bool AllowSend(List<DateTime> sent, DateTime nowUtc)
+    {
+        sent.RemoveAll(t => (nowUtc - t).TotalSeconds >= WindowSeconds || t > nowUtc);
+        return sent.Count < MaxQuestionsPerWindow;
+    }
     /// <summary>Questions kept for this session (never saved).</summary>
     public const int HistoryLimit = 10;
     /// <summary>Seconds without a byte before giving up.</summary>
@@ -44,10 +61,10 @@ public static class Ask
         foreach (var turn in history.Skip(Math.Max(0, history.Count - ContextTurns)))
         {
             if (turn.Answer.Length == 0) continue;
-            list.Add(new JsonObject { ["role"] = "user", ["content"] = turn.Question });
-            list.Add(new JsonObject { ["role"] = "assistant", ["content"] = turn.Answer });
+            list.Add(new JsonObject { ["role"] = "user", ["content"] = Cut(turn.Question, MaxContextLength) });
+            list.Add(new JsonObject { ["role"] = "assistant", ["content"] = Cut(turn.Answer, MaxContextLength) });
         }
-        list.Add(new JsonObject { ["role"] = "user", ["content"] = question.Trim() });
+        list.Add(new JsonObject { ["role"] = "user", ["content"] = Cut(question.Trim(), MaxQuestionLength) });
         return list;
     }
 
@@ -58,6 +75,7 @@ public static class Ask
         {
             ["model"] = string.IsNullOrEmpty(model) ? DefaultModel : model,
             ["stream"] = true,
+            ["max_tokens"] = MaxAnswerTokens,
             ["messages"] = Messages(question, history, indonesian),
         };
         return new Request(BaseUrl + "/chat/completions", "POST", new Dictionary<string, string>
@@ -464,11 +482,15 @@ public sealed class AskSession(AskClient client)
     private CancellationTokenSource? _cts;
 
     public AskClient Client => client;
+    /// <summary>When questions went out (for Ask.AllowSend); the clock can be swapped in tests.</summary>
+    private readonly List<DateTime> _sent = [];
+    public Func<DateTime> Now { get; set; } = () => DateTime.UtcNow;
 
     public async Task Send(string question, string? key, string model, bool indonesian)
     {
         var q = question.Trim();
         if (q.Length == 0) return;
+        if (Busy && q == Question) return;   // Return pressed again on the same question: keep the one running
         Stop();
         Question = q;
         Answer = "";
@@ -481,6 +503,14 @@ public sealed class AskSession(AskClient client)
             Changed?.Invoke();
             return;
         }
+        if (!Ask.AllowSend(_sent, Now()))
+        {
+            Phase = State.Failed;
+            Error = AskError.RateLimited;
+            Changed?.Invoke();
+            return;
+        }
+        _sent.Add(Now());
         Phase = State.Waiting;
         Changed?.Invoke();
         var cts = _cts = new CancellationTokenSource();

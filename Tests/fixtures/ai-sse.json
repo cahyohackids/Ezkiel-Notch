@@ -25,6 +25,7 @@
     "body": {
       "model": "deepseek-v4.1-flash",
       "stream": true,
+      "max_tokens": 1200,
       "messages": [
         { "role": "system", "content": "Kamu Ezkiel, asisten cepat di dalam app Ezkiel Notch. Jawab singkat dan langsung ke inti: beberapa kalimat atau daftar pendek, tanpa basa-basi. Teks biasa, markdown seminimal mungkin. Balas dalam Bahasa Indonesia, kecuali pengguna menulis dalam bahasa lain." },
         { "role": "user", "content": "2" },
@@ -37,6 +38,14 @@
       ]
     },
     "modelsUrl": "https://api.ezkielyna.store/v1/models"
+  },
+  "limits": {
+    "comment": "Guards against runaway use of the user's balance. Both apps must use exactly these numbers.",
+    "maxAnswerTokens": 1200,
+    "maxQuestionLength": 2000,
+    "maxContextLength": 1500,
+    "maxQuestionsPerWindow": 30,
+    "windowSeconds": 600
   },
   "streams": [
     {

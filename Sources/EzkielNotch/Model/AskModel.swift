@@ -187,9 +187,14 @@ final class AskModel: ObservableObject {
 
     // MARK: Asking
 
+    /// When questions went out (for Ask.allowSend); the clock can be swapped in tests.
+    private var sent: [Date] = []
+    var now: () -> Date = { Date() }
+
     func send(model: String, indonesian: Bool) {
         let q = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return }
+        if busy && q == question { return }   // Return pressed again on the same question: keep the one running
         stop()
         question = q
         answer = ""
@@ -201,6 +206,12 @@ final class AskModel: ObservableObject {
             phase = .failed
             return
         }
+        guard Ask.allowSend(&sent, now: now()) else {
+            error = .rateLimited
+            phase = .failed
+            return
+        }
+        sent.append(now())
         phase = .waiting
         run += 1
         let id = run

@@ -49,6 +49,33 @@ public class AskTests
     }
 
     [Fact]
+    public void LimitsMatchTheFixtureAndHold()
+    {
+        var l = Fixture()["limits"]!;
+        Assert.Equal(l["maxAnswerTokens"]!.GetValue<int>(), Ask.MaxAnswerTokens);
+        Assert.Equal(l["maxQuestionLength"]!.GetValue<int>(), Ask.MaxQuestionLength);
+        Assert.Equal(l["maxContextLength"]!.GetValue<int>(), Ask.MaxContextLength);
+        Assert.Equal(l["maxQuestionsPerWindow"]!.GetValue<int>(), Ask.MaxQuestionsPerWindow);
+        Assert.Equal(l["windowSeconds"]!.GetValue<double>(), Ask.WindowSeconds);
+
+        var long1 = new string('q', 5000);
+        var req = Ask.ChatRequest("k", "", long1, [new Ask.Turn(new string('a', 4000), new string('b', 4000))], false);
+        var body = JsonNode.Parse(req.Body!)!;
+        Assert.Equal(Ask.MaxAnswerTokens, body["max_tokens"]!.GetValue<int>());
+        var messages = body["messages"]!.AsArray();
+        Assert.Equal(Ask.MaxContextLength, messages[1]!["content"]!.GetValue<string>().Length);
+        Assert.Equal(Ask.MaxContextLength, messages[2]!["content"]!.GetValue<string>().Length);
+        Assert.Equal(Ask.MaxQuestionLength, messages[^1]!["content"]!.GetValue<string>().Length);
+        Assert.True(req.Body!.Length < 10_000, $"body {req.Body.Length} chars");
+
+        var now = new DateTime(2026, 11, 13, 12, 0, 0, DateTimeKind.Utc);
+        var sent = Enumerable.Range(0, Ask.MaxQuestionsPerWindow).Select(i => now.AddSeconds(-i)).ToList();
+        Assert.False(Ask.AllowSend(sent, now));
+        Assert.True(Ask.AllowSend(sent, now.AddSeconds(Ask.WindowSeconds)));   // the window moved on
+        Assert.True(Ask.AllowSend([], now));
+    }
+
+    [Fact]
     public void Streams()
     {
         var failures = new List<string>();
