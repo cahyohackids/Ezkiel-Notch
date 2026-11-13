@@ -449,6 +449,56 @@ enum SelfTest {
             model.updates.simulate(nil)
         }))
 
+        // 1.9: Sync. Two fake devices in a temp folder (never with the real data file: sync.json sits beside it).
+        let syncFolder = FileManager.default.temporaryDirectory.appendingPathComponent("ezkiel-sync-selftest-\(ProcessInfo.processInfo.processIdentifier)")
+        let isolated = model.dataFileURL.standardizedFileURL != DataStore.defaultURL().standardizedFileURL
+        var beforeSync: AppData?
+        steps.append(("sync two devices", {
+            guard isolated else { return print("  (sync skipped: run with --data <file>)") }
+            beforeSync = model.data
+            try? FileManager.default.removeItem(at: syncFolder)
+            let dir = SyncRunner.directory(syncFolder)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let now = SyncTime.string(SyncTime.ms(Date()))
+            func file(_ id: String, _ name: String, _ platform: String, tasks: [SyncJSON], notes: [SyncJSON], water: [SyncJSON]) -> SyncJSON {
+                .object(["format": .number(1), "deviceId": .string(id), "deviceName": .string(name), "platform": .string(platform),
+                         "appVersion": .string("1.9.0"), "written": .string(now), "tasks": .array(tasks), "notes": .array(notes),
+                         "water": .array(water), "focusLog": .array([]), "tombstones": .object([:])])
+            }
+            let pc = file("5E1F7E57-0000-4000-8000-0000000000A1", "Office PC", "windows",
+                          tasks: [.object(["id": .string("5E1F7E57-0000-4000-8000-000000000001"), "title": .string("Send the invoice (from the PC)"),
+                                           "done": .bool(false), "reminded": .bool(false), "created": .string(now), "modified": .string(now)])],
+                          notes: [], water: [.object(["id": .string("5E1F7E57-0000-4000-8000-000000000002"), "date": .string(now),
+                                                      "ml": .number(330), "modified": .string(now)])])
+            let mac = file("5E1F7E57-0000-4000-8000-0000000000B2", "Studio Mac", "mac", tasks: [],
+                           notes: [.object(["id": .string("5E1F7E57-0000-4000-8000-000000000003"), "title": .string("Synced note"),
+                                            "body": .string("Written on the other Mac"), "updated": .string(now), "modified": .string(now)])],
+                           water: [])
+            try? pc.encoded(pretty: true).write(to: dir.appendingPathComponent("5E1F7E57-0000-4000-8000-0000000000A1.json"))
+            try? mac.encoded(pretty: true).write(to: dir.appendingPathComponent("5E1F7E57-0000-4000-8000-0000000000B2.json"))
+            model.sync.simulate(folder: syncFolder.path, name: "Self-test Mac")
+        }))
+        steps.append(("sync merged", {
+            guard isolated else { return }
+            check(model.data.tasks.contains { $0.title == "Send the invoice (from the PC)" }, "sync brings in the PC's task")
+            check(model.data.notes.contains { $0.title == "Synced note" }, "sync brings in the other Mac's note")
+            check(model.data.water.filter { $0.id.uuidString == "5E1F7E57-0000-4000-8000-000000000002" }.count == 1, "a drink is counted once")
+            check(model.sync.config.devices.count == 2, "both other devices are listed (\(model.sync.config.devices.count))")
+            check(model.sync.config.lastError == nil, "no sync error (\(model.sync.config.lastError ?? ""))")
+            let own = SyncRunner.directory(syncFolder).appendingPathComponent("\(model.sync.config.deviceId).json")
+            check(FileManager.default.fileExists(atPath: own.path), "this Mac wrote its own file")
+            check(model.data.tasks.allSatisfy { $0.modified != nil }, "synced items carry a modified time")
+            model.settingsSection = .features
+            model.expand(.settings)
+        }))
+        steps.append(("sync stop", {
+            guard isolated else { return }
+            model.sync.stop()
+            check(!model.sync.config.enabled, "Stop syncing turns it off")
+            if let beforeSync { model.data = beforeSync }
+            try? FileManager.default.removeItem(at: syncFolder)
+        }))
+
         steps.append(("splash settles", {
             model.collapse()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {

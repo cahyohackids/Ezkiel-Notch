@@ -57,6 +57,12 @@ public partial class App : Application
         _model = new NotchModel(store.Load(), store);
         var window = new IslandWindow(_model) { SelfTesting = selfTest };
         window.Show();
+        // Sync with other devices through a cloud folder (sync.json beside the data file; off until a folder is picked).
+        Platform.SyncService.Current = new Platform.SyncService(_model, path, window.Dispatcher)
+        {
+            BeforeDialog = window.Collapse,
+            AfterDialog = () => window.OpenRoom(Room.Settings),
+        };
 
         if (selfTest)
         {
@@ -74,6 +80,7 @@ public partial class App : Application
                 if (Platform.AgentLinks.State(agent) == LinkState.Stale) Platform.AgentLinks.Set(agent, true);
         }
         if (pendingUrl is not null && ScoutParser.Url(pendingUrl) is { } linked) _model.ScoutReceived(linked);
+        Platform.SyncService.Current.Start();
         window.Dispatcher.BeginInvoke(() =>
         {
             switch (store.LastRecovery)

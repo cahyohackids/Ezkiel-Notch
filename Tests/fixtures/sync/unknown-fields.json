@@ -1,0 +1,189 @@
+{
+  "name": "unknown-fields",
+  "about": "A newer version (B-NEXT, still format 1) adds fields this one doesn't know. They survive: from the base when this app dropped them (T1 unchanged keeps its time; N1 edited here keeps color), and on new items (T2).",
+  "now": "2026-11-13T12:00:00Z",
+  "deviceId": "A-MAC",
+  "local": {
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "Ship",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      }
+    ],
+    "notes": [
+      {
+        "id": "N1",
+        "title": "N",
+        "body": "b2",
+        "updated": "2026-11-13T11:00:00Z",
+        "modified": "2026-11-13T09:00:00Z"
+      }
+    ],
+    "water": [],
+    "focusLog": []
+  },
+  "base": {
+    "format": 1,
+    "deviceId": "A-MAC",
+    "deviceName": "A-Mac",
+    "platform": "mac",
+    "appVersion": "1.9.0",
+    "written": "2026-11-13T10:00:00Z",
+    "tasks": [
+      {
+        "id": "T1",
+        "title": "Ship",
+        "done": false,
+        "reminded": false,
+        "created": "2026-11-01T00:00:00Z",
+        "modified": "2026-11-13T09:00:00Z",
+        "priority": 2,
+        "tags": [
+          "work"
+        ]
+      }
+    ],
+    "notes": [
+      {
+        "id": "N1",
+        "title": "N",
+        "body": "b",
+        "updated": "2026-11-13T09:00:00Z",
+        "modified": "2026-11-13T09:00:00Z",
+        "color": "red"
+      }
+    ],
+    "water": [],
+    "focusLog": [],
+    "tombstones": {
+      "tasks": [],
+      "notes": [],
+      "water": [],
+      "focusLog": []
+    }
+  },
+  "remotes": [
+    {
+      "format": 1,
+      "deviceId": "B-NEXT",
+      "deviceName": "B-Next",
+      "platform": "windows",
+      "appVersion": "1.9.0",
+      "written": "2026-11-13T11:00:00Z",
+      "tasks": [
+        {
+          "id": "T1",
+          "title": "Ship",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T09:00:00Z",
+          "priority": 2,
+          "tags": [
+            "work"
+          ]
+        },
+        {
+          "id": "T2",
+          "title": "New",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-13T10:00:00Z",
+          "modified": "2026-11-13T10:00:00Z",
+          "priority": 1,
+          "subtasks": [
+            {
+              "t": "a",
+              "done": false
+            }
+          ]
+        }
+      ],
+      "notes": [
+        {
+          "id": "N1",
+          "title": "N",
+          "body": "b",
+          "updated": "2026-11-13T09:00:00Z",
+          "modified": "2026-11-13T09:00:00Z",
+          "color": "red"
+        }
+      ],
+      "water": [],
+      "focusLog": [],
+      "tombstones": {
+        "tasks": [],
+        "notes": [],
+        "water": [],
+        "focusLog": []
+      },
+      "futureTopLevel": {
+        "x": 1
+      }
+    }
+  ],
+  "expect": {
+    "data": {
+      "tasks": [
+        {
+          "id": "T2",
+          "title": "New",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-13T10:00:00Z",
+          "modified": "2026-11-13T10:00:00Z",
+          "priority": 1,
+          "subtasks": [
+            {
+              "t": "a",
+              "done": false
+            }
+          ]
+        },
+        {
+          "id": "T1",
+          "title": "Ship",
+          "done": false,
+          "reminded": false,
+          "created": "2026-11-01T00:00:00Z",
+          "modified": "2026-11-13T09:00:00Z",
+          "priority": 2,
+          "tags": [
+            "work"
+          ]
+        }
+      ],
+      "notes": [
+        {
+          "id": "N1",
+          "title": "N",
+          "body": "b2",
+          "updated": "2026-11-13T11:00:00Z",
+          "modified": "2026-11-13T12:00:00Z",
+          "color": "red"
+        }
+      ],
+      "water": [],
+      "focusLog": []
+    },
+    "tombstones": {
+      "tasks": [],
+      "notes": [],
+      "water": [],
+      "focusLog": []
+    },
+    "changes": [
+      {
+        "kind": "tasks",
+        "id": "T2",
+        "change": "added",
+        "from": "B-NEXT"
+      }
+    ],
+    "skipped": []
+  }
+}

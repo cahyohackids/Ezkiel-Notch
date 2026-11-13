@@ -5,11 +5,14 @@ public struct FocusEntry: Codable, Identifiable, Equatable {
     public var id: UUID
     public var start: Date
     public var minutes: Int
+    /// Sync: when this version was made (set by the sync, missing in files from before 1.9).
+    public var modified: Date?
 
-    public init(id: UUID = UUID(), start: Date, minutes: Int) {
+    public init(id: UUID = UUID(), start: Date, minutes: Int, modified: Date? = nil) {
         self.id = id
         self.start = start
         self.minutes = minutes
+        self.modified = modified
     }
 }
 

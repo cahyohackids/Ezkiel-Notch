@@ -83,6 +83,7 @@ final class AppModel: ObservableObject {
         didSet {
             scheduleSave()
             if data.settings != oldValue.settings { applySettings(old: oldValue.settings) }
+            sync.localChanged()
         }
     }
     @Published private(set) var focus: FocusClock {
@@ -109,6 +110,8 @@ final class AppModel: ObservableObject {
     /// Mirror covers the page of the open notch.
     @Published var mirrorOn = false
     let scout = ScoutService()
+    /// Sync with other devices through a cloud folder (off until the user picks one).
+    let sync: SyncController
     /// Roar: when each app last peeked, so a busy chat doesn't peek on every message.
     var lastRoarPeek: [String: Date] = [:]
     /// Screens off or the session switched away: background work pauses.
@@ -150,6 +153,7 @@ final class AppModel: ObservableObject {
 
     init(store: DataStore = DataStore(url: DataStore.defaultURL())) {
         self.store = store
+        sync = SyncController(dataURL: store.url)
         var loaded = store.load()
         if loaded.notes.isEmpty && !loaded.onboarded {
             loaded.notes = [NoteItem(title: "Welcome to Ezkiel Notch",
@@ -180,6 +184,8 @@ final class AppModel: ObservableObject {
         rebuildStash()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.reportRecovery() }
+        sync.model = self
+        sync.start()
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.checkForUpdates() }
         updater.beforeQuit = { [weak self] in self?.saveNow() }
         if loaded.settings.scout, !ProcessInfo.processInfo.arguments.contains("--self-test") { repairAgentLinks() }
@@ -1404,6 +1410,22 @@ final class AppModel: ObservableObject {
     func saveNow() {
         saveWork?.cancel()
         store.save(data, synchronously: true)
+    }
+
+    // MARK: - Sync
+
+    /// Merged lists from other devices: shown, then on disk before the sync writes anything else.
+    func applySynced(_ merged: AppData) {
+        withAnimation(Theme.smooth) {
+            data = merged
+            if let id = selectedNoteID, !data.notes.contains(where: { $0.id == id }) { selectedNoteID = data.notes.first?.id }
+        }
+        saveNow()
+    }
+
+    func showSyncPeek(from device: String, changes: Int) {
+        showPeek(Peek(icon: "arrow.triangle.2.circlepath", title: L("Synced from %@", device),
+                      subtitle: changes == 1 ? L("1 change") : L("%d changes", changes), tint: Accent.oasis.deep, mood: .happy))
     }
 
     // MARK: - Self-test hooks
