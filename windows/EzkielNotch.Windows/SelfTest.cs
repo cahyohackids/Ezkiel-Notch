@@ -257,6 +257,44 @@ internal static class SelfTest
                 Check(w.IsLive && r.Width > 200 && r.Height >= 26, $"a running timer keeps the closed island live, like the Mac's wings ({r.Width:0}×{r.Height:0})");
                 Check(FullyInside(w, w.LiveRight, minSize: 4), "the countdown fits in the pill");
             }),
+            ("closed chorus", () =>
+            {
+                // Made-up synced lines around where the simulated song is now (no LRCLIB in the test).
+                m.Settings.ShowLyrics = true;
+                m.Settings.ClosedLyrics = true;
+                var np = w.Media.Current!;
+                double at = np.Position(DateTime.UtcNow);
+                w.Lyrics.Preview([new LyricLine(Math.Max(0, at - 5), "It was just two lovers"), new LyricLine(at + 60, "Golden hour")], np.Song);
+                m.SettingsChanged();
+            }),
+            ("closed chorus ok", () =>
+            {
+                var r = w.Island.BodyRect;
+                Check(w.ShowsClosedLyrics, "Chorus sings under the closed island while a song plays");
+                Check(Math.Abs(r.Width - ClosedChorus.Width) < 1 && r.Height >= 28 + ClosedChorus.Band - 1,
+                      $"the closed island grows a lyric band, like the Mac ({r.Width:0}×{r.Height:0})");
+                Check(w.LiveLyric.Text == "It was just two lovers", $"it shows the line being sung ({w.LiveLyric.Text})");
+                Check(FullyInside(w, w.LiveLyric), "the lyric line lies inside the island");
+                Check(FullyInside(w, w.LiveRight, minSize: 4), "the countdown still fits above it");
+            }),
+            ("closed chorus off", () =>
+            {
+                m.Settings.ClosedLyrics = false;
+                m.SettingsChanged();
+            }),
+            ("closed chorus off ok", () =>
+            {
+                var r = w.Island.BodyRect;
+                Check(!w.ShowsClosedLyrics && r.Height < 40 && w.LiveLyric.Visibility != Visibility.Visible,
+                      $"\"Chorus under the notch\" off: back to the one-row pill ({r.Width:0}×{r.Height:0})");
+                m.Settings.MusicSource = MusicSource.AppleMusic;
+                m.SettingsChanged();
+                Check(w.Media.Source == MusicSource.AppleMusic, "the Purr source reaches the media watcher");
+                m.Settings.MusicSource = MusicSource.Auto;
+                m.Settings.ShowLyrics = false;
+                m.Settings.ClosedLyrics = true;
+                m.SettingsChanged();
+            }),
             ("peek", () =>
             {
                 w.ShowPeek("Focus complete", "3-day streak · take 5 min", room: Room.Den);

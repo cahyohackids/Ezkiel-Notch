@@ -109,6 +109,8 @@ public sealed class LyricsClient
     {
         if (song is null)
         {
+            // Already idle: nothing to cancel, and no Changed for every media event while nothing plays.
+            if (_key is null && State.Kind == LyricsKind.Idle) return;
             _cts?.Cancel();
             _key = null;
             Set(LyricsState.Idle);

@@ -45,8 +45,9 @@ public sealed record NowPlaying(string AppId, string Title, string Artist, strin
     }
 }
 
-/// <summary>Watches Windows' system media sessions (the same source as the volume flyout's player).
-/// No permission is needed. Events arrive on WinRT threads and are passed to the UI thread.</summary>
+/// <summary>Watches Windows' system media sessions (the same source as the volume flyout's player) and follows the
+/// one the Purr source picks (<see cref="MusicSource.Pick"/>). No permission is needed, so the Mac's "musicAllowed"
+/// has no part here. Events arrive on WinRT threads and are passed to the UI thread.</summary>
 public sealed class MediaWatcher
 {
     public NowPlaying? Current { get; private set; }
@@ -81,10 +82,43 @@ public sealed class MediaWatcher
         }
     }
 
+    /// <summary>Which player Purr follows ("auto", "spotify", "appleMusic"; the Mac's Purr source).</summary>
+    public string Source { get; private set; } = MusicSource.Auto;
+
+    public void SetSource(string source)
+    {
+        source = MusicSource.Normalize(source);
+        if (source == Source) return;
+        Source = source;
+        Attach();
+    }
+
     private void Attach()
     {
         if (_simulated || _manager is null) return;
-        var s = _manager.GetCurrentSession();
+        IReadOnlyList<GlobalSystemMediaTransportControlsSession> all;
+        GlobalSystemMediaTransportControlsSession? current;
+        try
+        {
+            all = [.. _manager.GetSessions()];
+            current = _manager.GetCurrentSession();
+        }
+        catch (Exception)
+        {
+            all = [];
+            current = null;
+        }
+        // Windows makes a player current when it starts playing, so CurrentSessionChanged re-picks then.
+        var seen = new List<MusicSource.Session>(all.Count);
+        foreach (var x in all)
+        {
+            bool playing;
+            try { playing = x.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing; }
+            catch (Exception) { playing = false; }
+            var id = x.SourceAppUserModelId ?? "";
+            seen.Add(new MusicSource.Session(id, playing, current is not null && (ReferenceEquals(x, current) || id == current.SourceAppUserModelId)));
+        }
+        var s = MusicSource.Pick(Source, seen) is int i ? all[i] : null;
         if (!ReferenceEquals(s, _session))
         {
             if (_session is not null)

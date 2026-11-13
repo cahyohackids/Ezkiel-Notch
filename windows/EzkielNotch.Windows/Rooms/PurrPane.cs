@@ -37,7 +37,7 @@ public sealed class PurrPane : Pane
             // A new song or play/pause redraws; position ticks only move the bar.
             if (np?.TrackKey != _shownKey || np?.IsPlaying != _shownPlaying) Refresh();
             else _progress?.Update();
-            if (Model.Settings.ShowLyrics) _lyrics.Load(np?.Song);
+            // The window loads the lyrics for each new track (the closed island sings along too).
         };
         _lyrics.Changed += () => Dispatcher.BeginInvoke(() => _chorus?.SetState(_lyrics.State));
     }
@@ -209,7 +209,9 @@ public sealed class PurrPane : Pane
         g.Children.Add(At(new Image { Source = Lion, Width = 44, Height = 44 }, 0));
         var s = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         s.Children.Add(Ui.Label(L("Nothing playing"), Ui.Body, weight: FontWeights.SemiBold));
-        var hint = Ui.Label(L("Play something in Spotify, Media Player or a browser"), Ui.Secondary, Ui.Mist);
+        // With a Purr source chosen in Settings, other players don't count: say so.
+        var hint = Ui.Label(Model.Settings.MusicSource == MusicSource.Auto ? L("Play something in Spotify, Media Player or a browser")
+                            : L("Purr follows only %@ · Settings › Purr source", SourceName(Model.Settings.MusicSource)), Ui.Secondary, Ui.Mist);
         hint.Margin = new Thickness(0, 1, 0, 6);
         s.Children.Add(hint);
         s.Children.Add(Ui.Row(6,
@@ -219,6 +221,14 @@ public sealed class PurrPane : Pane
         g.Children.Add(At(s, 2));
         return g;
     }
+
+    /// <summary>The Purr source chips' names ("auto" is translated where it's shown).</summary>
+    internal static string SourceName(string source) => source switch
+    {
+        MusicSource.Spotify => "Spotify",
+        MusicSource.AppleMusic => "Apple Music",
+        _ => L("Auto"),
+    };
 
     internal static readonly System.Windows.Media.Imaging.BitmapImage Lion = new(new Uri("pack://application:,,,/Assets/lion.png"));
 }

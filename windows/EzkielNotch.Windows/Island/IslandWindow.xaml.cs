@@ -194,7 +194,14 @@ public partial class IslandWindow : Window
         Model.Meetings = () => Rally.Upcoming;
         Mirror = new CameraMirror(Dispatcher);
         Mirror.Changed += RenderMirror;
+        // Chorus follows the song even while Purr is closed: the closed island sings along too. First, so a new
+        // track never shows the last one's line.
+        Media.Changed += FollowLyrics;
         Media.Changed += UpdateLive;
+        Lyrics.Changed += () => Dispatcher.BeginInvoke(UpdateLive);
+        Grid.SetRow(LiveLyric, 1);
+        LiveLyric.Visibility = Visibility.Collapsed;
+        LiveView.Children.Add(LiveLyric);
         Prowl.Changed += UpdateLive;
         Power.Changed += UpdateLive;
         Power.Notice += (kind, pct) =>
@@ -376,6 +383,8 @@ public partial class IslandWindow : Window
     private void ConfigureSources()
     {
         RegisterHotKey();
+        Media.SetSource(Model.Settings.MusicSource);
+        FollowLyrics();
         if (SelfTesting) return;
         var s = Model.Settings;
         Whiskers.Configure(s.SystemOverlays, s.ConnectionPeeks);
@@ -384,6 +393,20 @@ public partial class IslandWindow : Window
         Prowl.SetEnabled(s.Prowl);
         Rally.Configure(s.Rally, s.RallyCalendarUrl);
         Weather.Configure(s.WeatherCity.Length > 0 ? s.WeatherLatitude : null, s.WeatherCity.Length > 0 ? s.WeatherLongitude : null);
+    }
+
+    // MARK: Chorus (lyrics)
+
+    private string? _lyricsFor;
+
+    /// <summary>Lyrics follow the song while Chorus is on (the Mac asks LRCLIB once per track, never when it's off).
+    /// Only a new track or Chorus switching asks again, so a failed fetch doesn't retry on every media event.</summary>
+    private void FollowLyrics()
+    {
+        var song = Model.Settings.ShowLyrics ? Media.Current?.Song : null;
+        if (song?.Key == _lyricsFor) return;
+        _lyricsFor = song?.Key;
+        Lyrics.Load(song);
     }
 
     // MARK: Weather (in the header, where the clock is)
@@ -497,6 +520,7 @@ public partial class IslandWindow : Window
         Presentation = Presentation.Expanded;
         _liveShown = false;
         Fade(LiveView, 0, 0.08);
+        UpdateClosedLyrics();
         ShowRoom(Selected);
         Apply(ExpandedShape(Selected), animate: true, bouncy: true);
         Fade(PeekView, 0, 0.08);
@@ -577,6 +601,7 @@ public partial class IslandWindow : Window
         Presentation = Presentation.Peek;
         _liveShown = false;
         Fade(LiveView, 0, 0.08);
+        UpdateClosedLyrics();
         Root.Opacity = 1;
         Root.IsHitTestVisible = true;
         Apply(PeekShape, animate: true, bouncy: true);

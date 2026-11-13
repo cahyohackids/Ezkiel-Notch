@@ -24,6 +24,9 @@ public partial class IslandWindow
     public PowerWatcher Power { get; } = new();
 
     private bool _liveShown;
+    private bool _singing;
+    /// <summary>Chorus under the closed island: the line being sung.</summary>
+    internal readonly ClosedLyricLine LiveLyric = new();
     private string _liveKey = "";
     private TextBlock? _liveTimer;
     private Shape? _closedShape;
@@ -101,16 +104,32 @@ public partial class IslandWindow
     /// "Minimal closed island" is off. Over a fullscreen app with "Calm in fullscreen" on, never.</summary>
     public bool ShowsWings => IsLive || (!Model.Settings.MinimalClosed && !(FullscreenActive && Model.Settings.HideInFullscreen));
 
+    /// <summary>Chorus sings under the closed island (the Mac's showsClosedLyrics): Chorus and "Chorus under the
+    /// notch" on, a song playing with synced lyrics, and the island showing (not stepped away for fullscreen).</summary>
+    public bool ShowsClosedLyrics => IsLive && ClosedChorus.Shows(Model.Settings, Media.Current?.IsPlaying == true, Lyrics.State);
+
     /// <summary>The closed shape: the island pill (wider with its wings), or in Notch style the live pill,
-    /// a small tab for Ezkiel's face, or just the thin lip when the face is off.</summary>
+    /// a small tab for Ezkiel's face, or just the thin lip when the face is off. While Chorus sings, a lyric band
+    /// below, at least 340 wide (the Mac's bodySize).</summary>
     private Shape ClosedShape()
     {
-        bool live = ShowsWings;
+        bool live = ShowsWings, sing = ShowsClosedLyrics;
         if (IsIsland)
         {
             double w = IslandCenter + (live ? 88 : 0), h = IslandHeight;
+            if (sing)
+            {
+                w = Math.Max(w, ClosedChorus.Width);
+                h += ClosedChorus.Band;
+            }
             if (Hovering) { w += 12; h += 2; }
-            return new(w, h, h / 2, 0);
+            // A pill while it's one row; with the lyric band, rounded corners the size of the pill's ends.
+            return new(w, h, Math.Min(h / 2, IslandHeight / 2 + 4), 0);
+        }
+        if (live && sing)
+        {
+            var bar = Hovering ? LiveHoverShape : LiveShape;
+            return bar with { Width = ClosedChorus.Width + (Hovering ? 12 : 0), Height = bar.Height + ClosedChorus.Band };
         }
         if (live) return Hovering ? LiveHoverShape : LiveShape;
         if (ShowsFace) return Hovering ? new(116, 24, 10, 7) : new(104, 22, 9, 6);
@@ -120,7 +139,11 @@ public partial class IslandWindow
     /// <summary>Called on every change that could start or end something live, and once a second.</summary>
     public void UpdateLive()
     {
-        if (Presentation != Presentation.Lip) return;
+        if (Presentation != Presentation.Lip)
+        {
+            UpdateClosedLyrics();   // open or peeking: the lyric band rests
+            return;
+        }
         var shape = ClosedShape();
         if (shape != _closedShape)
         {
@@ -135,6 +158,7 @@ public partial class IslandWindow
             Fade(LiveView, show ? 1 : 0, show ? 0.22 : 0.1, delay: show ? 0.12 : 0);
             LiveView.IsHitTestVisible = false;
         }
+        UpdateClosedLyrics();
         if (!show) return;
         var key = LiveKey();
         if (key != _liveKey)
@@ -144,6 +168,20 @@ public partial class IslandWindow
         }
         if (_liveTimer is not null) _liveTimer.Text = FocusClock.Format(Model.Focus.Remaining(DateTime.UtcNow));
         _eyes?.Set(EyesMood(), Hovering);
+    }
+
+    /// <summary>The lyric band under the closed island: shown, hidden, and kept on the current line.</summary>
+    private void UpdateClosedLyrics()
+    {
+        bool sing = Presentation == Presentation.Lip && ShowsClosedLyrics;
+        if (sing != _singing)
+        {
+            _singing = sing;
+            LiveLyricRow.Height = new GridLength(sing ? ClosedChorus.Band : 0);
+            LiveLyric.Visibility = sing ? Visibility.Visible : Visibility.Collapsed;
+            if (!sing) LiveLyric.Stop();
+        }
+        if (sing && Media.Current is { } np && Lyrics.State.Lines is { } lines) LiveLyric.Follow(np, lines);
     }
 
     /// <summary>Ezkiel's mood, as on the Mac: an agent working or waiting first, then happy, napping, focusing.</summary>
