@@ -191,6 +191,10 @@ public struct NotchSettings: Codable, Equatable {
     public var closedFace: ClosedFace = .eyes
     /// Which eyes: Ezkiel's lion eyes, sparkly anime eyes, a cat's, cute round ones or robot LEDs.
     public var eyeStyle: EyeStyle = .lion
+    /// Live activities: a download in progress in ~/Downloads shows in the closed notch (macOS asks for Downloads access once).
+    public var liveDownloads: Bool = false
+    /// Live activities: the sound a quick timer rings with (a Mac sound name; "none" for silence).
+    public var timerSound: String = "Glass"
     /// Bumped when defaults change in a way existing users should get too (see the decoder).
     public var defaultsRevision: Int = NotchSettings.currentRevision
     public static let currentRevision = 2
@@ -253,6 +257,8 @@ public struct NotchSettings: Codable, Equatable {
         closedFace = (try? c.decode(ClosedFace.self, forKey: .closedFace)) ?? (showMascot ? .eyes : .off)
         // An eye style from a newer version that this one doesn't know falls back to the lion's.
         eyeStyle = (try? c.decode(EyeStyle.self, forKey: .eyeStyle)) ?? d.eyeStyle
+        liveDownloads = (try? c.decode(Bool.self, forKey: .liveDownloads)) ?? d.liveDownloads
+        timerSound = (try? c.decode(String.self, forKey: .timerSound)) ?? d.timerSound
         let revision = (try? c.decode(Int.self, forKey: .defaultsRevision)) ?? 1
         if revision < 2 {
             // 1.3.1: calmer defaults. Only values still at the old default move; choices the user made stay.
@@ -284,6 +290,8 @@ public struct AppData: Codable, Equatable {
     /// Update check: when GitHub was last asked, and the newest version already announced with a peek.
     public var lastUpdateCheck: Date?
     public var announcedVersion: String?
+    /// Quick timers ("Masak 10m"), so they survive a restart.
+    public var timers: [QuickTimer] = []
 
     public init() {}
 
@@ -302,6 +310,7 @@ public struct AppData: Codable, Equatable {
         onboarded = (try? c.decode(Bool.self, forKey: .onboarded)) ?? false
         lastUpdateCheck = try? c.decode(Date.self, forKey: .lastUpdateCheck)
         announcedVersion = try? c.decode(String.self, forKey: .announcedVersion)
+        timers = c.lossy([QuickTimer].self, forKey: .timers)
     }
 }
 

@@ -1,5 +1,5 @@
 {
- "\"in 5m\" in the closed island": "\"5m lagi\" di notch yang tertutup",
+ "\"Meeting in 7 min\" in the closed island, from 10 min before": "\"Rapat 7 mnt lagi\" di notch yang tertutup, mulai 10 mnt sebelumnya",
  "%@ is coming to Windows": "%@ segera hadir di Windows",
  "%@ isn't set up on this PC": "%@ belum terpasang di PC ini",
  "%@ isn't valid JSON; left it as it is": "%@ bukan JSON yang valid; dibiarkan apa adanya",
@@ -27,6 +27,7 @@
  "Couldn't read your calendar": "Kalendermu tidak bisa dibaca",
  "Couldn't save your data · check disk space": "Data gagal disimpan · cek ruang disk",
  "Downloading…": "Mengunduh…",
+ "Downloads in the island": "Unduhan di notch",
  "Downloads, checks and restarts by itself · your data stays": "Mengunduh, mengecek, lalu membuka ulang sendiri · datamu tetap",
  "Everything stays on this PC. Chorus asks LRCLIB for lyrics only while it's on.": "Semua tetap di PC ini. Chorus meminta lirik ke LRCLIB hanya saat aktif.",
  "Finished downloads appear the same way": "Unduhan yang selesai muncul dengan cara yang sama",
@@ -43,6 +44,7 @@
  "Pause": "Jeda",
  "Play": "Putar",
  "Preview": "Pratinjau",
+ "Progress while a browser downloads to Downloads, then Open · Stash · Show": "Progres saat browser mengunduh ke Downloads, lalu Buka · Stash · Tampilkan",
  "Purr follows only %@ · Settings › Purr source": "Purr hanya mengikuti %@ · Pengaturan › Sumber Purr",
  "Rally needs your calendar's iCal address": "Rally butuh alamat iCal kalendermu",
  "Reading your calendar…": "Membaca kalendermu…",

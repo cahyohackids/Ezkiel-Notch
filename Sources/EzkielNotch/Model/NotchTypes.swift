@@ -108,6 +108,10 @@ struct Peek: Identifiable, Equatable {
     var artwork: Bool = false
     /// Pounce: the new screenshot or download (thumbnail, drag, Copy · Stash · Show).
     var file: URL? = nil
+    /// A download that just finished: Open · Add to Stash · Show in Finder (a screenshot gets Copy instead of Open).
+    var opensFile: Bool = false
+    /// A quick timer that just ended: "+5 min" and "Stop".
+    var timer: QuickTimer? = nil
     /// Rally: the meeting link behind the Join button.
     var link: URL? = nil
     /// Roar and Scout: the app that opens when the peek is clicked (WhatsApp, the agent's terminal).
@@ -119,7 +123,7 @@ struct Peek: Identifiable, Equatable {
 
     var isHUD: Bool { hudKey != nil }
     /// Cards with a thumbnail or buttons need a taller second row.
-    var isRich: Bool { file != nil || link != nil }
+    var isRich: Bool { file != nil || link != nil || timer != nil }
 }
 
 /// A message that floats at the bottom of the open notch, optionally with one action (Undo).
@@ -163,7 +167,8 @@ enum NotchMetrics {
     /// Each tab is only as tall as its content.
     static func paneHeight(_ tab: NotchTab, lyrics: Bool = false) -> CGFloat {
         switch tab {
-        case .den: return 160
+        // The focus timer, its stats, and the quick timers' row.
+        case .den: return 196
         case .hunt: return 188
         case .roar: return 176
         case .scratch: return 180

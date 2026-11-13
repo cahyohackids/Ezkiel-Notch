@@ -69,6 +69,8 @@ struct DenPane: View {
             }
 
             stats
+
+            TimersRow(model: model)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }

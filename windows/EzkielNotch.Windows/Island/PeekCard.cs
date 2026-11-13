@@ -37,6 +37,10 @@ public sealed record PeekInfo(string Title, string Subtitle = "")
     public bool Artwork { get; init; }
     /// <summary>A Mac sound name; by default the look's.</summary>
     public string? Sound { get; init; }
+    /// <summary>A finished download: Open · Stash · Show (a screenshot gets Copy instead of Open).</summary>
+    public bool OpensFile { get; init; }
+    /// <summary>Buttons on the right (a finished quick timer's "+5 min" and "Stop"); each closes the peek.</summary>
+    public IReadOnlyList<PeekButton>? Buttons { get; init; }
 
     public string Chime => Sound ?? Look?.Sound ?? "";
     public Color Tint => PeekTints.Of(Look?.Tint ?? PeekTint.Gold);
@@ -53,6 +57,9 @@ public sealed record PeekInfo(string Title, string Subtitle = "")
         Sound = p.Sound,
     };
 }
+
+/// <summary>A peek's button: its words, what it does, its accent, and whether it's the filled one.</summary>
+public sealed record PeekButton(string Title, Action Run, Accent Accent, bool Prominent = false);
 
 /// <summary>Peek tints as colours: the rooms' own accents (Accent.*.Deep), and the Mac's gold, teal and berry.</summary>
 public static class PeekTints

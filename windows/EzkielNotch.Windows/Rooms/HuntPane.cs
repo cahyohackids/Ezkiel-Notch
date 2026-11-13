@@ -187,6 +187,14 @@ public sealed class HuntPane(NotchModel model, RallyClient rally, Action openMir
         if (_input is null) return;
         var title = _input.Text.Trim();
         if (title.Length == 0) return;
+        // "timer 10m teh" starts a quick timer (Den shows it) instead of adding a task.
+        if (TimerPhrase.Command(title) is { } timer && Model.StartTimer(timer.Label, timer.Seconds) is not null)
+        {
+            _draft = "";
+            _input.Text = "";
+            Model.RaiseToast(L("Timer started · %@", QuickTimers.Short(timer.Seconds)));
+            return;
+        }
         var when = _picked is { } p ? p.ToUniversalTime() : Due.Date(_due, DateTime.UtcNow);
         if (Typed is { Title.Length: > 0 } typed)
         {

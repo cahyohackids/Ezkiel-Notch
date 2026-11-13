@@ -142,6 +142,10 @@ public sealed class NotchSettings
     public static readonly string[] EyeStyles = ["lion", "anime", "cat", "cute", "robot"];
     /// <summary>Ezkiel naps when nothing is going on.</summary>
     public bool MascotSleeps { get; set; } = true;
+    /// <summary>Live activities: a download in progress in Downloads shows in the closed island.</summary>
+    public bool LiveDownloads { get; set; }
+    /// <summary>Live activities: the sound a quick timer rings with (a Mac sound name, see TimerSounds; "none" for silence).</summary>
+    public string TimerSound { get; set; } = "Glass";
 
     /// <summary>The settings object as read, Mac-only keys included.</summary>
     internal JsonObject Raw { get; set; } = [];
@@ -200,6 +204,8 @@ public sealed class NotchSettings
         // A style from a newer version that this one doesn't know falls back to the lion's.
         s.EyeStyle = Json.String(o["eyeStyle"]) is { } eye && EyeStyles.Contains(eye) ? eye : "lion";
         s.MascotSleeps = Json.Bool(o["mascotSleeps"]) ?? s.MascotSleeps;
+        s.LiveDownloads = Json.Bool(o["liveDownloads"]) ?? s.LiveDownloads;
+        s.TimerSound = TimerSounds.Normalize(Json.String(o["timerSound"]));
         s.Hotkey = Json.String(o["hotkey"]) is "controlOptionN" or "controlOptionSpace" or "optionCommandI" ? Json.String(o["hotkey"])! : s.Hotkey;
         s.Language = Json.String(o["language"]) switch
         {
@@ -257,6 +263,8 @@ public sealed class NotchSettings
         o["closedFace"] = ClosedFace;
         o["eyeStyle"] = EyeStyle;
         o["mascotSleeps"] = MascotSleeps;
+        o["liveDownloads"] = LiveDownloads;
+        o["timerSound"] = TimerSound;
         o["language"] = Language switch { AppLanguage.En => "en", AppLanguage.Id => "id", _ => "auto" };
         // Without it the Mac would treat these as pre-1.3.1 settings and migrate them again.
         o["defaultsRevision"] ??= CurrentRevision;
@@ -278,13 +286,15 @@ public sealed class AppData
     /// <summary>The Den timer, so a running session survives a restart.</summary>
     public FocusSnapshot? FocusState { get; set; }
     public NotchSettings Settings { get; set; } = new();
+    /// <summary>Quick timers ("Masak 10m"), so they survive a restart.</summary>
+    public List<QuickTimer> Timers { get; set; } = [];
     /// <summary>The welcome note was offered once (the Mac's key, so a shared data.json doesn't offer it twice).</summary>
     public bool Onboarded { get; set; }
 
     /// <summary>Top-level keys this app doesn't use yet (the shelf, Scout's log, update state…), kept as read.</summary>
     private JsonObject _rest = [];
 
-    private static readonly string[] Known = ["tasks", "notes", "clips", "shelf", "water", "focusLog", "scoutLog", "focusState", "settings", "onboarded"];
+    private static readonly string[] Known = ["tasks", "notes", "clips", "shelf", "water", "focusLog", "scoutLog", "focusState", "settings", "onboarded", "timers"];
 
     /// <summary>Parses data.json. Returns null only when the file isn't a JSON object at all.
     /// Like the Mac: one damaged entry costs that entry, never the whole list.</summary>
@@ -307,6 +317,7 @@ public sealed class AppData
             FocusState = FocusSnapshot.Read(o["focusState"]),
             Settings = NotchSettings.Read(o["settings"]),
             Onboarded = Json.Bool(o["onboarded"]) ?? false,
+            Timers = Json.List(o["timers"], QuickTimer.Read),
         };
         foreach (var (key, value) in o)
             if (!Known.Contains(key)) d._rest[key] = value?.DeepClone();
@@ -352,6 +363,7 @@ public sealed class AppData
         if (FocusState is { } fs) o["focusState"] = fs.Write(); else o.Remove("focusState");
         o["settings"] = Settings.Write();
         o["onboarded"] = Onboarded;
+        o["timers"] = new JsonArray(Timers.Select(t => (JsonNode)t.Write()).ToArray());
         // The Mac writes sorted keys; matching it keeps diffs between the two small.
         return Json.Sorted(o)!.ToJsonString(Json.Pretty);
     }

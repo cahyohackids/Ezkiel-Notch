@@ -270,8 +270,9 @@ public sealed class SettingsPane(NotchModel model) : Pane(model, Room.Settings)
                                           Model.SettingsChanged();
                                           Refresh();
                                       }));
-            list.Children.Add(Toggle("", L("Meeting countdown"), L("\"in 5m\" in the closed island"), s.RallyCountdown, v => s.RallyCountdown = v, Accent.Rally));
+            list.Children.Add(Toggle("", L("Meeting countdown"), L("\"Meeting in 7 min\" in the closed island, from 10 min before"), s.RallyCountdown, v => s.RallyCountdown = v, Accent.Rally));
         }
+        LiveSettingsRows.AddLiveRows(list, s, (g, t, sub, on, set, a) => Toggle(g, t, sub, on, set, a), Option, Changed);
         // Auto follows any player in Windows' media controls.
         list.Children.Add(Option("", L("Purr source"), [.. MusicSource.All.Select(src =>
             Chip(PurrPane.SourceName(src), s.MusicSource == src, Accent.Purr, () => { s.MusicSource = src; Changed(); }))]));

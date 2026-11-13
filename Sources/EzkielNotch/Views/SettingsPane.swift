@@ -211,8 +211,19 @@ struct SettingsPane: View {
                   accent: Accent(light: Color(hex: 0x9BF0B4), deep: Color(hex: 0x30D158)), isOn: $model.settings.prowl)
         ToggleRow(title: "Rally", subtitle: rallySubtitle, icon: "calendar", accent: .rally, isOn: $model.settings.rally)
         if model.settings.rally {
-            ToggleRow(title: "Meeting countdown", subtitle: "\"in 5m\" in the closed notch", icon: "timer", accent: .rally,
+            ToggleRow(title: "Meeting countdown", subtitle: "\"Meeting in 7 min\" in the closed notch, from 10 min before", icon: "timer", accent: .rally,
                       isOn: $model.settings.rallyCountdown)
+        }
+        // Live activities: downloads in progress and quick timers in the closed notch.
+        ToggleRow(title: "Downloads in the notch", subtitle: "Progress while a browser downloads to ~/Downloads, then Open · Stash · Show. macOS asks for Downloads access once.",
+                  icon: "square.and.arrow.down", accent: .stash, isOn: $model.settings.liveDownloads)
+        OptionRow(title: "Timer sound", icon: "bell.badge") {
+            ForEach(TimerSounds.choices, id: \.self) { name in
+                Chip(title: name == "none" ? "None" : name, selected: TimerSounds.normalize(model.settings.timerSound) == name, accent: .den) {
+                    model.settings.timerSound = name
+                    if name != "none" { NSSound(named: name)?.play() }
+                }
+            }
         }
         OptionRow(title: "Purr source", icon: "waveform") {
             ForEach(MusicSource.allCases) { source in

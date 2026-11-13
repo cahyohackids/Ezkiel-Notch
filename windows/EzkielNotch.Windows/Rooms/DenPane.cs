@@ -11,14 +11,29 @@ public sealed class DenPane(NotchModel model) : Pane(model, Room.Den)
 {
     private ProgressRing? _ring;
     private TextBlock? _time, _subtitle;
+    /// <summary>Quick timers: the field (kept across rebuilds) and each running timer's countdown.</summary>
+    private TextBox? _timerInput;
+    private string _timerDraft = "";
+    private readonly List<(QuickTimer Timer, TextBlock Text)> _timerTexts = [];
+
+    /// <summary>The focus timer, its stats, and the quick timers' row (the Mac's 196).</summary>
+    public const double FullHeight = 196;
+    public override double DesiredHeight => FullHeight;
+    /// <summary>The quick-timer field, so the self-test can type into it.</summary>
+    public TextBox? TimerInput => _timerInput;
 
     public override void Refresh()
     {
+        bool hadFocus = _timerInput?.IsKeyboardFocused == true;
+        if (_timerInput is not null) _timerDraft = _timerInput.Text;
+        Height = FullHeight;
         Children.Clear();
         RowDefinitions.Clear();
         RowDefinitions.Add(new RowDefinition { Height = Px(106) });
         RowDefinitions.Add(new RowDefinition { Height = Px(10) });
         RowDefinitions.Add(new RowDefinition { Height = Px(40) });
+        RowDefinitions.Add(new RowDefinition { Height = Px(10) });
+        RowDefinitions.Add(new RowDefinition { Height = Px(30) });
 
         var focus = Model.Focus;
         bool rest = focus.Mode == FocusMode.Rest;
@@ -67,7 +82,83 @@ public sealed class DenPane(NotchModel model) : Pane(model, Room.Den)
         Children.Add(At(top, 0, 0));
 
         Children.Add(At(Stats(), 0, 2));
+        Children.Add(At(TimersRow(), 0, 4));
+        if (hadFocus) Dispatcher.BeginInvoke(() => _timerInput?.Focus());
         SecondTick();
+    }
+
+    /// <summary>Quick timers: type "10m teh" or "1h30m" (or tap a preset) to start one; the running ones count down
+    /// beside it, each with its own ×. The closed island counts down the soonest.</summary>
+    private Grid TimersRow()
+    {
+        _timerTexts.Clear();
+        var timers = Model.Timers;
+        var g = Columns(Auto, Px(6), Px(timers.Count == 0 ? 190 : 150), Px(6), Star);
+        var icon = Ui.Glyph("\uE916", 12, Accent.Den.LightBrush);
+        icon.ToolTip = L("Quick timers");
+        g.Children.Add(At(icon, 0));
+        var (box, input) = Ui.Field(L("Timer: 10m teh, 1h30m…"), field =>
+        {
+            var text = field.Text.Trim();
+            if (text.Length == 0) return;
+            if (Model.StartTimer(text) is null) Model.RaiseToast(L("Type a length, like 10m or 1h30m"));
+            else
+            {
+                _timerDraft = "";
+                field.Text = "";
+            }
+        }, 28);
+        _timerInput = input;
+        input.Text = _timerDraft;
+        input.CaretIndex = _timerDraft.Length;
+        g.Children.Add(At(box, 2));
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        if (timers.Count == 0)
+        {
+            foreach (var minutes in new[] { 5, 10, 30 })
+            {
+                var chip = Ui.Chip($"{minutes}m", false, Accent.Den, () => Model.StartTimer("", minutes * 60));
+                chip.Margin = new Thickness(0, 0, 5, 0);
+                row.Children.Add(chip);
+            }
+            g.Children.Add(At(row, 4));
+            return g;
+        }
+        foreach (var t in timers) row.Children.Add(TimerChip(t));
+        var scroll = new ScrollViewer
+        {
+            Content = row,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Focusable = false,
+        };
+        g.Children.Add(At(scroll, 4));
+        return g;
+    }
+
+    /// <summary>One running timer: its name and what's left, and × to stop it.</summary>
+    private Border TimerChip(QuickTimer t)
+    {
+        var name = Ui.Label(NotchModel.TimerName(t), Ui.Caption + 1, Ui.Ink, FontWeights.Medium);
+        name.MaxWidth = 70;
+        var left = Ui.Number("", Ui.Caption + 1, Accent.Den.LightBrush);
+        left.Margin = new Thickness(4, 0, 2, 0);
+        _timerTexts.Add((t, left));
+        var stop = Ui.IconButton("\uE711", L("Stop timer"), () => Model.CancelTimer(t.Id), 16, Ui.Mist);
+        var content = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        content.Children.Add(name);
+        content.Children.Add(left);
+        content.Children.Add(stop);
+        return new Border
+        {
+            Child = content,
+            Height = 24,
+            CornerRadius = new CornerRadius(12),
+            Padding = new Thickness(9, 0, 4, 0),
+            Margin = new Thickness(0, 0, 5, 0),
+            Background = Ui.SurfaceRaised,
+        };
     }
 
     private Border Stats()
@@ -109,5 +200,6 @@ public sealed class DenPane(NotchModel model) : Pane(model, Room.Den)
         _time.Text = FocusClock.Format(remaining);
         _time.FontSize = remaining.TotalSeconds >= 3600 ? 17 : 20;
         _subtitle.Text = f.IsRunning ? L("Ends at %@", Lang.Time(now + remaining)) : L("Click the island, then Space to start");
+        foreach (var (timer, text) in _timerTexts) text.Text = FocusClock.Format(timer.Remaining(now));
     }
 }

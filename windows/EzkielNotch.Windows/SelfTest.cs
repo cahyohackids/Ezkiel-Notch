@@ -40,6 +40,7 @@ internal static class SelfTest
         m.Settings.Language = AppLanguage.En;
         m.SettingsChanged(everything: true);
 
+        var fakeDownloads = Path.Combine(Path.GetTempPath(), "ezkiel-live-" + Guid.NewGuid().ToString("N")[..6]);
         List<(string Name, Action Act)> steps =
         [
             ("placed", () =>
@@ -523,6 +524,105 @@ internal static class SelfTest
                 m.Settings.IslandSize = "medium";
                 m.SettingsChanged();
                 w.Collapse();
+            }),
+            // Live activities: a download in progress (fake partial files in a temp folder), quick timers, the meeting countdown.
+            ("live download", () =>
+            {
+                w.Collapse();
+                Directory.CreateDirectory(fakeDownloads);
+                File.WriteAllBytes(Path.Combine(fakeDownloads, "Ezkiel-stickers.zip.crdownload"), new byte[2_500_000]);
+                File.WriteAllBytes(Path.Combine(fakeDownloads, "Lion-pack.exe.part"), new byte[600_000]);
+                File.WriteAllBytes(Path.Combine(fakeDownloads, "Lion-pack.exe"), []);   // Firefox's empty placeholder
+                m.Settings.PounceDownloads = false;
+                m.Settings.LiveDownloads = true;
+                m.SettingsChanged();
+                w.Downloads.Configure(true, fakeDownloads);
+                Check(w.Downloads.Active.Count == 2, $"both partial downloads are followed ({w.Downloads.Active.Count})");
+                Check(w.ClosedLive == LiveKind.Download && w.IsLive, "a download in progress is live in the closed island");
+            }),
+            ("live download pill", () =>
+            {
+                using (var f = new FileStream(Path.Combine(fakeDownloads, "Ezkiel-stickers.zip.crdownload"), FileMode.Append)) f.Write(new byte[1_500_000]);
+                w.Downloads.Scan();
+                var lead = w.LeadDownload;
+                Check(lead is { Count: 2 } l && l.Download.FinalName == "Ezkiel-stickers.zip" && l.Download.Bytes == 4_000_000,
+                      "the largest download leads, with the count and its size so far");
+                Check(lead?.Download.BytesPerSecond > 0, "and its speed");
+                Check(w.LiveRight.Children.OfType<StackPanel>().Any(), "no total from Chrome: the size and speed show instead of a percent");
+            }),
+            ("live download fits", () => Check(FullyInside(w, w.LiveRight, minSize: 6) && FullyInside(w, w.LiveLeft, minSize: 6), "the download pill fits inside the island")),
+            ("live download done", () =>
+            {
+                File.Delete(Path.Combine(fakeDownloads, "Lion-pack.exe.part"));
+                File.WriteAllBytes(Path.Combine(fakeDownloads, "Lion-pack.exe"), new byte[1_000_000]);
+                w.Downloads.Scan();
+                Check(w.CurrentPeek is { OpensFile: true } p && p.Subtitle == "Lion-pack.exe" && w.PeekActions.Children.Count == 3,
+                      "a finished download peeks with Open · Stash · Show");
+            }),
+            ("live download peek fits", () =>
+            {
+                Check(FullyInside(w, w.PeekActions), "the download buttons fit inside the peek");
+                w.Collapse();
+                w.Downloads.Configure(false);
+                m.Settings.LiveDownloads = false;
+                m.SettingsChanged();
+                try { Directory.Delete(fakeDownloads, recursive: true); } catch (Exception) { }
+                Check(w.LeadDownload is null, "off: nothing follows Downloads");
+            }),
+            ("timer pill", () =>
+            {
+                Check(m.StartTimer("timer 25m teh") is not null, "typed words start a timer");
+                m.StartTimer("Masak", 10 * 60);
+                Check(m.Data.Timers.Count == 2 && m.SoonestTimer?.Label == "Masak", "two timers run; the soonest leads");
+                Check(w.ClosedLive == LiveKind.Timer && w.IsLive, "the soonest timer counts down in the closed island");
+                Check(w.LiveRight.Children.OfType<TextBlock>().Any(t => t.Text is ['0', '9', ':', ..] or ['1', '0', ':', ..]), "as mm:ss");
+            }),
+            ("timer pill fits", () => Check(FullyInside(w, w.LiveRight, minSize: 6) && FullyInside(w, w.LiveLeft, minSize: 6), "the timer pill fits inside the island")),
+            ("timer done peek", () =>
+            {
+                m.Data.Timers.Add(new QuickTimer(Guid.NewGuid(), "Workout", 30 * 60, DateTime.UtcNow.AddSeconds(-1)));
+                m.Tick();
+                Check(w.CurrentPeek is { Buttons.Count: 2 } && w.PeekActions.Children.Count == 2, "a finished timer peeks with +5 min · Stop");
+                Check(!m.Data.Timers.Any(t => t.Label == "Workout"), "and leaves the running list");
+            }),
+            ("timer done fits", () =>
+            {
+                Check(FullyInside(w, w.PeekActions), "the timer buttons fit inside the peek");
+                w.CurrentPeek?.Buttons?[0].Run();
+                var again = m.Data.Timers.FirstOrDefault(t => t.Label == "Workout");
+                Check(again is not null && Math.Abs(again.Remaining(DateTime.UtcNow).TotalSeconds - 300) < 3, "+5 min starts it again for five minutes");
+                w.Collapse();
+            }),
+            ("den timers", () =>
+            {
+                w.Expand();
+                w.Select(Room.Den);
+            }),
+            ("den timers ok", () =>
+            {
+                RoomChecks(w, Room.Den);
+                Check(w.CurrentPane is DenPane { TimerInput: not null }, "Den has the quick-timer field");
+                m.Data.Timers.Clear();
+                m.SaveSoon();
+                w.Collapse();
+            }),
+            ("meeting pill", () =>
+            {
+                w.Rally.Simulate([new Meeting("3", "Standup", DateTime.UtcNow.AddMinutes(7).AddSeconds(-5), DateTime.UtcNow.AddMinutes(22), null)]);
+                Check(w.ClosedLive == LiveKind.Meeting && w.IsLive, "a meeting in 7 min counts down in the closed island");
+                Check(w.LiveRight.Children.OfType<TextBlock>().Any(t => t.Text == "7 min"), "it says 7 min");
+            }),
+            ("meeting pill off", () =>
+            {
+                m.Settings.RallyCountdown = false;
+                m.SettingsChanged();
+                Check(w.MeetingSoon is null, "Meeting countdown off hides it");
+                m.Settings.RallyCountdown = true;
+                m.SettingsChanged();
+                w.Rally.Simulate([
+                    new Meeting("1", "Design review", DateTime.UtcNow.AddMinutes(20), DateTime.UtcNow.AddMinutes(50), "https://meet.google.com/abc-defg-hij"),
+                    new Meeting("2", "1:1 with Rina", DateTime.UtcNow.AddHours(2), DateTime.UtcNow.AddHours(2.5), null),
+                ]);
             }),
             ("screen share", () =>
             {
