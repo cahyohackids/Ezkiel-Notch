@@ -1292,7 +1292,7 @@ public partial class IslandWindow : Window
             // "The pointer left" counts from when the menu went away.
             if (!Hovering) _outsideSince = DateTime.UtcNow;
         }));
-        EventManager.RegisterClassHandler(typeof(ToolTip), ToolTip.OpenedEvent, new RoutedEventHandler((sender, _) => HidePopupFromCapture(sender as Visual)));
+        EventManager.RegisterClassHandler(typeof(System.Windows.Controls.ToolTip), System.Windows.Controls.ToolTip.OpenedEvent, new RoutedEventHandler((sender, _) => HidePopupFromCapture(sender as Visual)));
     }
 
     private void HidePopupFromCapture(Visual? popup)
