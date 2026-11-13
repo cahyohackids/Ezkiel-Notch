@@ -118,6 +118,14 @@ public sealed class NotchSettings
     /// <summary>The global shortcut, in the Mac's names: controlOptionN = Ctrl+Alt+N, controlOptionSpace = Ctrl+Alt+Space,
     /// optionCommandI = Ctrl+Alt+I on Windows.</summary>
     public string Hotkey { get; set; } = "controlOptionN";
+
+    /// <summary>The Mac's shortcut choices, with Ctrl+Alt for ⌃⌥ (⌥⌘I becomes Ctrl+Alt+I).</summary>
+    public static string HotkeyLabel(string choice) => choice switch
+    {
+        "controlOptionSpace" => "Ctrl+Alt+Space",
+        "optionCommandI" => "Ctrl+Alt+I",
+        _ => "Ctrl+Alt+N",
+    };
     /// <summary>"notch" (hangs from the top edge) or "island" (a floating pill, like the Dynamic Island).</summary>
     public string Style { get; set; } = "notch";
     /// <summary>"small", "medium" or "large".</summary>
@@ -270,11 +278,13 @@ public sealed class AppData
     /// <summary>The Den timer, so a running session survives a restart.</summary>
     public FocusSnapshot? FocusState { get; set; }
     public NotchSettings Settings { get; set; } = new();
+    /// <summary>The welcome note was offered once (the Mac's key, so a shared data.json doesn't offer it twice).</summary>
+    public bool Onboarded { get; set; }
 
     /// <summary>Top-level keys this app doesn't use yet (the shelf, Scout's log, update state…), kept as read.</summary>
     private JsonObject _rest = [];
 
-    private static readonly string[] Known = ["tasks", "notes", "clips", "shelf", "water", "focusLog", "scoutLog", "focusState", "settings"];
+    private static readonly string[] Known = ["tasks", "notes", "clips", "shelf", "water", "focusLog", "scoutLog", "focusState", "settings", "onboarded"];
 
     /// <summary>Parses data.json. Returns null only when the file isn't a JSON object at all.
     /// Like the Mac: one damaged entry costs that entry, never the whole list.</summary>
@@ -296,6 +306,7 @@ public sealed class AppData
             ScoutLog = Json.List(o["scoutLog"], ScoutEvent.Read),
             FocusState = FocusSnapshot.Read(o["focusState"]),
             Settings = NotchSettings.Read(o["settings"]),
+            Onboarded = Json.Bool(o["onboarded"]) ?? false,
         };
         foreach (var (key, value) in o)
             if (!Known.Contains(key)) d._rest[key] = value?.DeepClone();
@@ -340,6 +351,7 @@ public sealed class AppData
         o["scoutLog"] = new JsonArray(ScoutLog.Select(e => (JsonNode)e.Write()).ToArray());
         if (FocusState is { } fs) o["focusState"] = fs.Write(); else o.Remove("focusState");
         o["settings"] = Settings.Write();
+        o["onboarded"] = Onboarded;
         // The Mac writes sorted keys; matching it keeps diffs between the two small.
         return Json.Sorted(o)!.ToJsonString(Json.Pretty);
     }

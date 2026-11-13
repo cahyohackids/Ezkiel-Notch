@@ -1057,3 +1057,93 @@ public class PeekLookTests
         Assert.NotEqual(Chimes.Fallback("Funk"), Chimes.Fallback("Glass"));
     }
 }
+
+[Collection("Lang")]
+public class ParityUxTests
+{
+    [Fact]
+    public void AFirstLaunchLeavesOneWelcomeNote()
+    {
+        Lang.Choice = AppLanguage.En;
+        var d = new AppData();
+        var m = new NotchModel(d);
+        var note = Assert.Single(d.Notes);
+        Assert.Equal("Welcome to Ezkiel Notch", note.Title);
+        Assert.Contains("Ctrl+Alt+N", note.Body);
+        Assert.Equal(note.Id, m.SelectedNoteId);
+        Assert.True(d.Onboarded);
+        Assert.True((bool)JsonNode.Parse(d.ToJson())!["onboarded"]!);   // the Mac's key
+
+        // Deleted later: it doesn't come back.
+        d.Notes.Clear();
+        var again = AppData.FromJson(d.ToJson())!;
+        new NotchModel(again);
+        Assert.Empty(again.Notes);
+    }
+
+    [Fact]
+    public void TheWelcomeNoteFollowsTheLanguageAndSkipsExistingUsers()
+    {
+        var id = AppData.FromJson("""{"settings":{"language":"id","hotkey":"controlOptionSpace"}}""")!;
+        new NotchModel(id);
+        Assert.Equal("Selamat datang di Ezkiel Notch", id.Notes.Single().Title);
+        Assert.Contains("Ctrl+Alt+Space", id.Notes.Single().Body);
+        Lang.Choice = AppLanguage.En;
+
+        // An update from a version without the flag: someone with tasks gets no surprise note.
+        var used = new AppData();
+        used.Tasks.Add(TaskItem.New("x"));
+        new NotchModel(used);
+        Assert.Empty(used.Notes);
+        Assert.True(used.Onboarded);
+
+        // The Mac already welcomed them.
+        var mac = AppData.FromJson("""{"onboarded":true}""")!;
+        new NotchModel(mac);
+        Assert.Empty(mac.Notes);
+    }
+
+    [Fact]
+    public void QuietDuringFocusHoldsRoarAndFinishedAgents()
+    {
+        Lang.Choice = AppLanguage.En;
+        var peeks = new List<PeekRequest>();
+        var m = new NotchModel(new AppData());
+        m.Peek += peeks.Add;
+        m.FocusStartPause();
+        Assert.True(m.FocusQuiet);
+        var t = DateTime.UtcNow;
+        m.UpdateBadges([new Badge("WhatsApp", "WhatsApp", 2, "2", t)]);
+        m.ScoutReceived(ScoutEvent.New("claude", ScoutKind.Done, "Claude finished", session: "a"));
+        Assert.Empty(peeks);
+        // Something that needs you still gets through.
+        m.ScoutReceived(ScoutEvent.New("claude", ScoutKind.NeedsYou, "Claude needs you", session: "b"));
+        Assert.Single(peeks);
+
+        // Off: everything peeks again.
+        m.Settings.QuietDuringFocus = false;
+        Assert.False(m.FocusQuiet);
+        m.UpdateBadges([new Badge("Teams", "Teams", 1, "1", t)]);
+        m.ScoutReceived(ScoutEvent.New("claude", ScoutKind.Done, "Claude finished", session: "c"));
+        Assert.Equal(3, peeks.Count);
+    }
+
+    [Fact]
+    public void ASecondLaunchAsksToOpenWithoutLookingLikeAnEvent()
+    {
+        Assert.True(ScoutWire.IsOpenCommand(ScoutWire.OpenCommand));
+        Assert.True(ScoutWire.IsOpenCommand(""" { "command" : "open" } """));
+        Assert.Null(ScoutWire.Decode(ScoutWire.OpenCommand));
+        Assert.False(ScoutWire.IsOpenCommand(ScoutWire.Encode(ScoutEvent.New("script", ScoutKind.Info, "open"))));
+        Assert.False(ScoutWire.IsOpenCommand("not json"));
+    }
+
+    [Fact]
+    public void HotkeyLabelsMatchTheMacChoices()
+    {
+        Assert.Equal("Ctrl+Alt+N", NotchSettings.HotkeyLabel("controlOptionN"));
+        Assert.Equal("Ctrl+Alt+Space", NotchSettings.HotkeyLabel("controlOptionSpace"));
+        Assert.Equal("Ctrl+Alt+I", NotchSettings.HotkeyLabel("optionCommandI"));
+        Assert.Equal("Ctrl+Alt+N", NotchSettings.HotkeyLabel("something else"));
+    }
+}

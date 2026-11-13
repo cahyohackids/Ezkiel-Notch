@@ -26,7 +26,8 @@ public partial class App : Application
             return;
         }
 
-        // One island per user session (the self-test runs beside a normal copy).
+        // One island per user session (the self-test runs beside a normal copy). Opening the app again opens
+        // the island that's already running (the Mac's reopen), and this copy quits.
         if (!selfTest)
         {
             _single = new Mutex(true, @"Local\EzkielNotch.Island", out bool first);
@@ -38,6 +39,7 @@ public partial class App : Application
             }
             if (!first)
             {
+                Platform.ScoutPipe.SendOpen();
                 Shutdown();
                 return;
             }
@@ -61,13 +63,8 @@ public partial class App : Application
             SelfTest.Run(window, e.Args);
             return;
         }
-        Platform.ScoutPipe.Listen(window.Dispatcher, _model.ScoutReceived);
-        window.Tray = new Platform.TrayIcon(window.Toggle, () =>
-        {
-            window.Select(Room.Settings);
-            if (window.Presentation != Presentation.Expanded) window.Expand();
-            window.TakeKeyboard();
-        }, Shutdown);
+        Platform.ScoutPipe.Listen(window.Dispatcher, _model.ScoutReceived, () => window.OpenRoom(window.Selected));
+        window.Tray = new Platform.TrayIcon(window, Shutdown);
         window.Tray.Relabel(IslandWindow.HotkeyLabel(_model.Settings.Hotkey));
         if (d < 0)
         {

@@ -369,6 +369,53 @@ internal static class SelfTest
                 w.Toggle();
                 Check(w.Presentation == Presentation.Lip, "and closes");
             }),
+            ("pin", () =>
+            {
+                w.SetPinned(true);
+                Check(w.Presentation == Presentation.Expanded && w.Pinned, "Keep open opens the island, pinned");
+                w.PointerMoved(false);
+            }),
+            ("pin holds", () =>
+            {
+                w.PointerMoved(false);
+                Check(w.Presentation == Presentation.Expanded, "pinned, it stays open after the pointer moved away");
+                var menu = w.BuildMenu().Items.OfType<MenuItem>().ToList();
+                Check(menu.Any(i => i.Header as string == "Keep Open" && i.IsChecked), "the right-click menu shows Keep Open checked");
+                Check(menu.Any(i => i.Header as string == "Open on Hover" && i.IsChecked == m.Settings.ExpandOnHover), "and Open on Hover as set");
+                Check(menu.Count(i => i.Header as string is "Notch" or "Island" && i.IsChecked) == 1, "and one of Notch or Island checked");
+                var tray = Platform.TrayIcon.Entries(w, "Ctrl+Alt+N", () => { }).Where(e => e is not null).Select(e => e!.Value).ToList();
+                Check(tray.Any(e => e.Text == "Keep Open" && e.Checked), "the tray menu shows Keep Open checked");
+                Check(tray.Count(e => e.Text.Contains(" · ")) == RoomInfo.All.Length - 1, "the tray menu has an entry per room");
+                Check(tray.Any(e => e.Text == "Ezkiel Notch website") && tray.Any(e => e.Text == "Mirror"), "and the website and Mirror");
+                Check(!tray.Any(e => e.Text.StartsWith("Update to")), "and no update entry without an update");
+                w.SetPinned(false);
+            }),
+            ("unpin closes", () =>
+            {
+                w.PointerMoved(false);
+                Check(w.Presentation == Presentation.Lip && !w.Pinned, "unpinned, it closes once the pointer is away");
+                w.SetPinned(true);
+            }),
+            ("pin esc", () =>
+            {
+                Keyboard.ClearFocus();
+                Press(w, Key.Escape);
+                Check(w.Presentation == Presentation.Lip && !w.Pinned, "Esc still closes a pinned island, and unpins it");
+            }),
+            ("arrows", () =>
+            {
+                var before = w.Selected;
+                w.Expand();
+                w.Select(Room.Den);
+                Keyboard.ClearFocus();
+                Press(w, Key.Right);
+                Check(w.Selected == Room.Hunt, "→ goes to the next room");
+                Press(w, Key.Left);
+                Press(w, Key.Left);
+                Check(w.Selected == Room.Settings, "← goes back, and wraps around to Settings");
+                w.Select(before);
+                w.Collapse();
+            }),
             ("island", () =>
             {
                 // Nothing live, so the closed island is its resting size.
@@ -489,6 +536,13 @@ internal static class SelfTest
             });
         }
         After(1.0, () => Step(0));
+    }
+
+    /// <summary>A key press, as the island's key handler sees it (modifiers come from the real keyboard: none).</summary>
+    private static void Press(IslandWindow w, Key key)
+    {
+        if (PresentationSource.FromVisual(w) is not { } source) return;
+        w.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
     }
 
     /// <summary>A warm gradient square standing in for album art.</summary>

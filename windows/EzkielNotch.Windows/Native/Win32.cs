@@ -160,6 +160,11 @@ internal static partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool SetForegroundWindow(nint hWnd);
 
+    /// <summary>A second launch (which has the foreground) lets the running copy take it. -1 = ASFW_ANY.</summary>
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool AllowSetForegroundWindow(int processId);
+
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool IsWindow(nint hWnd);

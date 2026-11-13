@@ -81,6 +81,8 @@
                                 </ControlTemplate>
                             </Button.Template>
                         </Button>
+                        <!-- Keep open (the Mac's pin), filled in code. -->
+                        <Border x:Name="PinHost" DockPanel.Dock="Right" Margin="0,0,4,0" VerticalAlignment="Center"/>
                         <StackPanel x:Name="WeatherChip" Orientation="Horizontal" DockPanel.Dock="Right" Margin="0,0,10,0"
                                     VerticalAlignment="Center" Visibility="Collapsed" Background="Transparent"/>
                         <TextBlock x:Name="Clock" Text="00:00" DockPanel.Dock="Right" Margin="0,0,10,0" FontFamily="{StaticResource Text}"

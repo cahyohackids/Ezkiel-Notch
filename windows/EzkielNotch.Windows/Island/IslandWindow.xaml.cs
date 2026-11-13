@@ -59,6 +59,9 @@ public partial class IslandWindow : Window
     public CameraMirror Mirror { get; }
     public Presentation Presentation { get; private set; } = Presentation.Lip;
     public bool Hovering { get; private set; }
+    /// <summary>Keep open (the Mac's pin): moving away, clicking elsewhere or switching apps doesn't close it.
+    /// Esc, the close button, the shortcut and unpinning still do.</summary>
+    public bool Pinned { get; private set; }
     public bool FullscreenActive { get; private set; }
     public bool HotKeyRegistered { get; private set; }
     /// <summary>Self-test: ignore the real pointer so a resting cursor can't change the outcome.</summary>
@@ -92,12 +95,7 @@ public partial class IslandWindow : Window
     private string? _registeredHotkey;
 
     /// <summary>The Mac's shortcut choices, with Ctrl+Alt for ⌃⌥ (⌥⌘I becomes Ctrl+Alt+I).</summary>
-    public static string HotkeyLabel(string choice) => choice switch
-    {
-        "controlOptionSpace" => "Ctrl+Alt+Space",
-        "optionCommandI" => "Ctrl+Alt+I",
-        _ => "Ctrl+Alt+N",
-    };
+    public static string HotkeyLabel(string choice) => NotchSettings.HotkeyLabel(choice);
 
     private void RegisterHotKey()
     {
@@ -134,6 +132,7 @@ public partial class IslandWindow : Window
         Model.LookingAtRoar = () => Presentation == Presentation.Expanded && Selected == Room.Roar;
         InitializeComponent();
         BuildTabs();
+        RenderPin();
         ApplyStyle(animate: false);
         _pointer.Tick += (_, _) => PointerTick();
         _second.Tick += (_, _) => SecondTick();
@@ -550,6 +549,8 @@ public partial class IslandWindow : Window
         bool wasOpen = Presentation == Presentation.Expanded;
         Presentation = Presentation.Lip;
         _openedByKeyboard = false;
+        // Closing on purpose (Esc, the close button, the shortcut) also unpins: the next open is a normal one.
+        if (Pinned) SetPinned(false);
         if (wasOpen)
         {
             CurrentPane?.Shown(false);
@@ -565,6 +566,28 @@ public partial class IslandWindow : Window
         _liveKey = "";
         UpdateLive();
         UpdateHiddenState();
+    }
+
+    /// <summary>Pin or unpin. Pinning opens the island if it's closed; unpinning with the pointer away lets it
+    /// close after the usual short wait.</summary>
+    public void SetPinned(bool on)
+    {
+        if (Pinned == on) return;
+        Pinned = on;
+        RenderPin();
+        if (on)
+        {
+            if (Presentation != Presentation.Expanded) Expand();
+        }
+        else if (Presentation == Presentation.Expanded && !Hovering) _outsideSince = DateTime.UtcNow;
+    }
+
+    private void RenderPin()
+    {
+        // Segoe's Pin and Pinned (filled) glyphs; gold while pinned, like the Mac.
+        PinHost.Child = Ui.IconButton(Pinned ? "\uE840" : "\uE718",
+                                      Pinned ? L("Unpin · close when you move away") : L("Keep the notch open"),
+                                      () => SetPinned(!Pinned), 24, Pinned ? Accent.Den.LightBrush : Ui.Mist);
     }
 
     /// <summary>The shortcut, the tray and the menu: opening this way means you're about to type, so the island
@@ -880,6 +903,25 @@ public partial class IslandWindow : Window
             Select((Room)(e.Key - Key.D1));
             e.Handled = true;
         }
+        // ← → walk through the rooms while no field has the caret.
+        else if (Keyboard.Modifiers == ModifierKeys.None && e.Key is Key.Left or Key.Right && Keyboard.FocusedElement is not TextBox)
+        {
+            SelectNeighbor(e.Key == Key.Left ? -1 : 1);
+            e.Handled = true;
+        }
+        // Ctrl+, opens Settings (the Mac's ⌘,).
+        else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.OemComma)
+        {
+            Select(Room.Settings);
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>The room before or after this one, wrapping around.</summary>
+    public void SelectNeighbor(int delta)
+    {
+        int count = RoomInfo.All.Length;
+        Select(RoomInfo.All[((int)Selected + delta % count + count) % count].Room);
     }
 
     // MARK: Pointer
@@ -917,7 +959,7 @@ public partial class IslandWindow : Window
         // A click anywhere else closes the open island (clicks there go to other apps, so we look).
         // Not while a file is being dragged out of Stash or over the island.
         if (StashPane.DraggingOut || _dragInside) return;
-        if (Presentation == Presentation.Expanded && !inside && pressed) Collapse();
+        if (Presentation == Presentation.Expanded && !inside && pressed && !Pinned && !_menuOpen) Collapse();
     }
 
     /// <summary>Hover state machine (also driven by the self-test).</summary>
@@ -953,7 +995,7 @@ public partial class IslandWindow : Window
             // idle field still lets go 20 s after the pointer left. A click elsewhere always closes it.
             var grace = Typing ? TimeSpan.FromSeconds(20) : TimeSpan.FromMilliseconds(500);
             if (Typing && now - _lastKey < TimeSpan.FromSeconds(60)) return;
-            if (_openedByKeyboard) return;
+            if (_openedByKeyboard || Pinned || _menuOpen) return;
             if (StashPane.DraggingOut || _dragInside) return;
             if (Presentation == Presentation.Expanded && now - _outsideSince > grace) Collapse();
         }
@@ -1115,6 +1157,7 @@ public partial class IslandWindow : Window
             // Language switch: every room and the tabs say it again.
             foreach (var r in _panes.Keys) _stale.Add(r);
             BuildTabs();
+            RenderPin();
             Clock.Text = Lang.Time(DateTime.Now);
             UpdateWeatherChip();
             Tray?.Relabel(HotkeyLabel(Model.Settings.Hotkey));
@@ -1139,30 +1182,65 @@ public partial class IslandWindow : Window
 
     private void OnCloseClick(object sender, RoutedEventArgs e) => Collapse();
 
-    private void ShowMenu()
+    /// <summary>Opens the island on a room and takes the keyboard (the tray, the menus, a second launch).</summary>
+    public void OpenRoom(Room room)
+    {
+        Select(room);
+        if (Presentation != Presentation.Expanded) Expand();
+        TakeKeyboard();
+    }
+
+    /// <summary>While the right-click menu is up, the island stays as it is (the Mac's "menu" blocker).</summary>
+    private bool _menuOpen;
+
+    /// <summary>The right-click menu, like the Mac's: open/close, Keep open, Open on hover, Notch or Island.</summary>
+    public ContextMenu BuildMenu()
     {
         var menu = new ContextMenu();
-        var open = new MenuItem { Header = Presentation == Presentation.Expanded ? L("Close") : L("Open") + $"  ({HotkeyLabel(Model.Settings.Hotkey)})" };
-        open.Click += (_, _) => Toggle();
-        var settings = new MenuItem { Header = L("Settings…") };
-        settings.Click += (_, _) =>
+        void Add(string header, Action click, bool? check = null)
         {
-            Select(Room.Settings);
-            if (Presentation != Presentation.Expanded) Expand();
-            TakeKeyboard();
-        };
-        var quit = new MenuItem { Header = L("Quit Ezkiel Notch") };
-        quit.Click += (_, _) => Application.Current.Shutdown();
-        menu.Items.Add(open);
-        menu.Items.Add(settings);
+            var item = new MenuItem { Header = header, IsChecked = check == true };
+            item.Click += (_, _) => click();
+            menu.Items.Add(item);
+        }
+        Add(Presentation == Presentation.Expanded ? L("Close") : L("Open") + $"  ({HotkeyLabel(Model.Settings.Hotkey)})", Toggle);
+        Add(L("Keep Open"), () => SetPinned(!Pinned), Pinned);
         menu.Items.Add(new Separator());
-        menu.Items.Add(quit);
-        // The menu is a window of its own: it stays out of screen sharing with the island.
-        if (Model.Settings.HideFromScreenShare)
-            menu.Opened += (_, _) =>
+        Add(L("Open on Hover"), () =>
+        {
+            Model.Settings.ExpandOnHover = !Model.Settings.ExpandOnHover;
+            Model.SettingsChanged();
+        }, Model.Settings.ExpandOnHover);
+        menu.Items.Add(new Separator());
+        foreach (var (style, name) in new[] { ("notch", "Notch"), ("island", "Island") })
+            Add(L(name), () =>
             {
-                if (PresentationSource.FromVisual(menu) is HwndSource popup) ExcludeFromCapture(popup.Handle, true);
-            };
+                if (Model.Settings.Style == style) return;
+                Model.Settings.Style = style;
+                Model.SettingsChanged();
+            }, Model.Settings.Style == style);
+        menu.Items.Add(new Separator());
+        Add(L("Settings…"), () => OpenRoom(Room.Settings));
+        Add(L("Quit Ezkiel Notch"), () => Application.Current.Shutdown());
+        return menu;
+    }
+
+    private void ShowMenu()
+    {
+        var menu = BuildMenu();
+        menu.Opened += (_, _) =>
+        {
+            _menuOpen = true;
+            // The menu is a window of its own: it stays out of screen sharing with the island.
+            if (Model.Settings.HideFromScreenShare && PresentationSource.FromVisual(menu) is HwndSource popup)
+                ExcludeFromCapture(popup.Handle, true);
+        };
+        menu.Closed += (_, _) =>
+        {
+            _menuOpen = false;
+            // "The pointer left" counts from when the menu went away.
+            if (!Hovering) _outsideSince = DateTime.UtcNow;
+        };
         menu.IsOpen = true;
     }
 

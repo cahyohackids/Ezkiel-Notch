@@ -148,6 +148,17 @@ public static class ScoutWire
         try { return JsonNode.Parse(text) is JsonObject o ? ScoutEvent.Read(o)?.Clamped() : null; }
         catch (Exception) { return null; }
     }
+
+    /// <summary>Not a Scout event: a second launch of the app asking the running copy to open the island
+    /// (the Mac's reopen). Decode reads it as nothing, so an older running copy ignores it.</summary>
+    public const string OpenCommand = """{"command":"open"}""";
+
+    public static bool IsOpenCommand(string text)
+    {
+        if (text.Length > 256) return false;
+        try { return JsonNode.Parse(text) is JsonObject o && Json.String(o["command"]) == "open"; }
+        catch (Exception) { return false; }
+    }
 }
 
 /// <summary>Badge text → unread count: "8" → 8, "99+" → 99, "•" or "New" → 1, "" or "0" → null.</summary>

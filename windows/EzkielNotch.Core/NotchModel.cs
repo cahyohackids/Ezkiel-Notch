@@ -53,9 +53,26 @@ public sealed class NotchModel
         Data.Water = WaterLog.Pruned(Data.Water, now);
         Data.FocusLog = FocusStats.Pruned(Data.FocusLog, now);
         Focus = Data.FocusState is { } s ? FocusClock.From(s) : new FocusClock(Settings.FocusMinutes);
-        SelectedNoteId = Data.Notes.FirstOrDefault()?.Id;
         Lang.Choice = Settings.Language;
+        Onboard();
+        SelectedNoteId = Data.Notes.FirstOrDefault()?.Id;
     }
+
+    /// <summary>The first launch leaves a welcome note in Scratch, like the Mac. Only once (data.json's "onboarded"),
+    /// and not for someone who already uses the app (an update from a version without the flag).</summary>
+    private void Onboard()
+    {
+        if (Data.Onboarded) return;
+        bool fresh = Data.Notes.Count == 0 && Data.Tasks.Count == 0 && Data.Clips.Count == 0 && Data.Water.Count == 0 && Data.FocusLog.Count == 0;
+        if (fresh) Data.Notes.Add(WelcomeNote(NotchSettings.HotkeyLabel(Settings.Hotkey), Now()));
+        Data.Onboarded = true;
+        _dirty = true;
+    }
+
+    public static NoteItem WelcomeNote(string hotkey, DateTime now) =>
+        new(Guid.NewGuid(), L("Welcome to Ezkiel Notch"),
+            L("Your notes stay on this PC.\n\nHover the top of the screen to open the island. Den keeps your focus, Hunt your tasks, Stash your files. %@ opens it from anywhere.", hotkey),
+            now);
 
     // MARK: Saving
 
